@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공통 폐쇄 원칙 (CCP) — Chapter 19 · Clean Architecture</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a { color: var(--text3); text-decoration: none; transition: color 0.2s; }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+    }
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+    .compare-table { width: 100%; border-collapse: collapse; }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover { border-color: var(--accent); color: var(--accent2); background: rgba(124,106,247,0.1); }
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-good { background: rgba(52,211,153,0.15); color: var(--green); border: 1px solid rgba(52,211,153,0.3); }
+    .badge-bad { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="../../../index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="../../index.html">Clean Architecture</a>
+      <span class="sep">›</span>
+      <a href="index.html">Chapter 19</a>
+      <span class="sep">›</span>
+      <span class="current">공통 폐쇄 원칙 (CCP)</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>공통 폐쇄 원칙 (CCP)<br>Common Closure Principle</h1>
+      <p class="meta">Clean Architecture · Chapter 19 · 2026-03-12</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        같은 이유로, 같은 시점에 변경되는 클래스들은 같은 컴포넌트에 묶어라.<br>
+        다른 이유로 변경되는 클래스들은 다른 컴포넌트로 분리하라.
+      </div>
+      <p>
+        CCP는 <strong>컴포넌트 응집도</strong>에 관한 원칙이다. "변경의 이유와 시점이 같은 것들을 함께 두라"는 말은,
+        어떤 기능 변경이 생겼을 때 <em>최소한의 컴포넌트만 수정</em>되도록 설계하라는 뜻이다.
+      </p>
+      <p>
+        클래스 수준의 <strong>단일 책임 원칙(SRP)</strong>을 컴포넌트 수준으로 확장한 것이라고 볼 수 있다.
+        SRP가 "하나의 클래스는 하나의 변경 이유만 가져야 한다"면,
+        CCP는 "하나의 컴포넌트는 하나의 변경 이유만 가져야 한다"는 것이다.
+      </p>
+      <p>
+        실용적으로는: 어떤 변경이 발생했을 때 여러 컴포넌트를 동시에 수정해야 한다면,
+        그 클래스들이 잘못된 컴포넌트에 흩어져 있다는 신호다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <p><strong>컴포넌트(Component)</strong>란 배포 단위다. JAR, DLL, npm 패키지처럼 독립적으로 배포 가능한 가장 작은 단위를 말한다.</p>
+      <ul>
+        <li><strong>SRP (단일 책임 원칙)</strong> — CCP의 클래스 수준 버전. 클래스는 하나의 변경 이유만 가져야 한다.</li>
+        <li><strong>컴포넌트 응집도 3원칙</strong> — CCP는 그 중 하나. 나머지는 REP(재사용/릴리즈 등가 원칙), CRP(공통 재사용 원칙).</li>
+        <li><strong>변경의 이유</strong> — 여기서 "이유"는 기능적 요구사항의 출처(액터, 이해관계자)를 의미한다. SRP의 액터 개념과 같다.</li>
+      </ul>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+      <p><strong>왜 중요한가?</strong> — 배포 비용 때문이다. 하나의 작은 변경이 여러 컴포넌트에 걸쳐 있으면, 변경된 모든 컴포넌트를 재검증하고 재배포해야 한다. CCP를 잘 지키면 변경의 영향 범위가 단일 컴포넌트로 제한된다.</p>
+      <p><strong>CCP vs CRP 긴장관계</strong></p>
+      <p>
+        CCP는 "관련된 것들을 함께 묶어라(응집)"를 지향하고,
+        CRP(공통 재사용 원칙)는 "불필요한 것들을 함께 묶지 마라(결합 최소화)"를 지향한다.
+        이 둘은 서로 반대 방향으로 당기는 힘이다. 아키텍처란 이 긴장 관계의 균형을 맞추는 작업이다.
+      </p>
+      <table class="compare-table" style="margin-top:1rem">
+        <thead>
+          <tr>
+            <th>원칙</th>
+            <th>지향점</th>
+            <th>위반 시 문제</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>CCP</strong></td>
+            <td>변경이 한 컴포넌트에만 영향</td>
+            <td>작은 변경에도 여러 컴포넌트 재배포</td>
+          </tr>
+          <tr>
+            <td><strong>CRP</strong></td>
+            <td>불필요한 의존성 제거</td>
+            <td>쓰지 않는 클래스 변경에도 내 컴포넌트 재배포</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:1rem"><strong>실전 예시:</strong> HTTP 요청 파싱 로직과 비즈니스 룰이 같은 컴포넌트에 있다면 CCP 위반이다. HTTP 스펙이 바뀔 때와 비즈니스 룰이 바뀔 때는 변경 이유가 다르기 때문이다.</p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" style="font-family: 'Pretendard', sans-serif;">
+          <!-- 배경 타이틀 -->
+          <text x="360" y="28" text-anchor="middle" fill="#64748b" font-size="13">CCP 적용 전 vs 후</text>
+
+          <!-- ===== 왼쪽: CCP 위반 ===== -->
+          <text x="175" y="60" text-anchor="middle" fill="#f87171" font-size="14" font-weight="600">CCP 위반</text>
+          <text x="175" y="78" text-anchor="middle" fill="#64748b" font-size="11">변경 이유가 다른 클래스가 같은 컴포넌트에</text>
+
+          <!-- Component A (mixed) -->
+          <rect x="40" y="95" width="270" height="160" rx="12" fill="#1a1d27" stroke="#f87171" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="175" y="116" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">Component A</text>
+
+          <!-- Classes inside -->
+          <rect x="60" y="125" width="100" height="40" rx="8" fill="#22263a" stroke="#2e3250" stroke-width="1"/>
+          <text x="110" y="140" text-anchor="middle" fill="#e2e8f0" font-size="10">HttpParser</text>
+          <text x="110" y="155" text-anchor="middle" fill="#64748b" font-size="9">변경이유: HTTP 스펙</text>
+
+          <rect x="180" y="125" width="110" height="40" rx="8" fill="#22263a" stroke="#2e3250" stroke-width="1"/>
+          <text x="235" y="140" text-anchor="middle" fill="#e2e8f0" font-size="10">OrderService</text>
+          <text x="235" y="155" text-anchor="middle" fill="#64748b" font-size="9">변경이유: 비즈니스룰</text>
+
+          <rect x="60" y="180" width="100" height="40" rx="8" fill="#22263a" stroke="#2e3250" stroke-width="1"/>
+          <text x="110" y="195" text-anchor="middle" fill="#e2e8f0" font-size="10">AuthFilter</text>
+          <text x="110" y="210" text-anchor="middle" fill="#64748b" font-size="9">변경이유: 보안정책</text>
+
+          <rect x="180" y="180" width="110" height="40" rx="8" fill="#22263a" stroke="#2e3250" stroke-width="1"/>
+          <text x="235" y="195" text-anchor="middle" fill="#e2e8f0" font-size="10">PricingRule</text>
+          <text x="235" y="210" text-anchor="middle" fill="#64748b" font-size="9">변경이유: 비즈니스룰</text>
+
+          <!-- 변경 화살표 (문제: 여러 번 배포) -->
+          <text x="175" y="275" text-anchor="middle" fill="#f87171" font-size="11">⚠ HTTP 스펙 변경 → 컴포넌트 전체 재배포</text>
+          <text x="175" y="292" text-anchor="middle" fill="#f87171" font-size="11">⚠ 비즈니스룰 변경 → 컴포넌트 전체 재배포</text>
+
+          <!-- ===== 구분선 ===== -->
+          <line x1="360" y1="55" x2="360" y2="340" stroke="#2e3250" stroke-width="1.5" stroke-dasharray="4,4"/>
+
+          <!-- ===== 오른쪽: CCP 준수 ===== -->
+          <text x="545" y="60" text-anchor="middle" fill="#34d399" font-size="14" font-weight="600">CCP 준수</text>
+          <text x="545" y="78" text-anchor="middle" fill="#64748b" font-size="11">같은 이유로 변경되는 클래스를 같은 컴포넌트에</text>
+
+          <!-- Component: HTTP -->
+          <rect x="385" y="95" width="130" height="80" rx="12" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+          <text x="450" y="116" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">HTTP 컴포넌트</text>
+          <rect x="400" y="125" width="100" height="35" rx="8" fill="#22263a" stroke="#2e3250" stroke-width="1"/>
+          <text x="450" y="140" text-anchor="middle" fill="#e2e8f0" font-size="10">HttpParser</text>
+          <text x="450" y="155" text-anchor="middle" fill="#64748b" font-size="9">AuthFilter</text>
+
+          <!-- Component: Business -->
+          <rect x="535" y="95" width="145" height="80" rx="12" fill="#1a1d27" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="607" y="116" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">비즈니스 컴포넌트</text>
+          <rect x="550" y="125" width="115" height="35" rx="8" fill="#22263a" stroke="#2e3250" stroke-width="1"/>
+          <text x="607" y="140" text-anchor="middle" fill="#e2e8f0" font-size="10">OrderService</text>
+          <text x="607" y="155" text-anchor="middle" fill="#64748b" font-size="9">PricingRule</text>
+
+          <!-- 변경 화살표 (좋음: 각자 독립) -->
+          <text x="545" y="210" text-anchor="middle" fill="#34d399" font-size="11">✓ HTTP 스펙 변경 → HTTP 컴포넌트만 재배포</text>
+          <text x="545" y="228" text-anchor="middle" fill="#34d399" font-size="11">✓ 비즈니스룰 변경 → 비즈니스 컴포넌트만 재배포</text>
+
+          <!-- 원칙 요약 박스 -->
+          <rect x="40" y="315" width="640" height="50" rx="10" fill="rgba(124,106,247,0.08)" stroke="rgba(124,106,247,0.3)" stroke-width="1"/>
+          <text x="360" y="337" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">CCP 원칙</text>
+          <text x="360" y="354" text-anchor="middle" fill="#94a3b8" font-size="11">"같은 이유, 같은 시점에 변경되는 클래스는 같은 컴포넌트에. 다른 이유면 다른 컴포넌트로."</text>
+        </svg>
+      </div>
+      <p>CCP를 위반하면 하나의 작은 변경이 여러 컴포넌트에 걸쳐 재배포를 유발한다. 준수하면 변경의 영향 범위가 단일 컴포넌트로 제한된다.</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">SRP (단일 책임 원칙)</span>
+        <span class="related-tag">CRP (공통 재사용 원칙)</span>
+        <span class="related-tag">REP (재사용/릴리즈 등가 원칙)</span>
+        <span class="related-tag">컴포넌트 응집도</span>
+        <span class="related-tag">컴포넌트 결합도</span>
+        <span class="related-tag">변경의 이유 (Actor)</span>
+        <span class="related-tag">배포 단위</span>
+        <span class="related-tag">ADP (의존성 비순환 원칙)</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="index.html" class="nav-link">← Chapter 19 목록</a>
+      <a href="../../../index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>

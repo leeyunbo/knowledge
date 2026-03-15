@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>📚 지식 요람</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a;
+      --border: #2e3250; --accent: #7c6af7; --accent2: #a78bfa;
+      --accent3: #38bdf8; --text: #e2e8f0; --text2: #94a3b8;
+      --text3: #64748b; --green: #34d399;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, sans-serif;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.75; }
+    .container { max-width: 900px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+
+    /* 헤더 */
+    .site-header { text-align: center; margin-bottom: 3rem; }
+    .site-header h1 {
+      font-size: 2.5rem; font-weight: 800; margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .site-header p { color: var(--text3); font-size: 0.95rem; }
+
+    /* 검색창 */
+    .search-wrap { margin-bottom: 2.5rem; }
+    .search-input {
+      width: 100%; padding: 0.9rem 1.25rem 0.9rem 3rem;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text); font-size: 0.95rem;
+      outline: none; transition: border-color 0.2s;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: 1rem center;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--text3); }
+
+    /* 책 그룹 */
+    .book-group { margin-bottom: 2rem; }
+    .book-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 0; cursor: pointer;
+      border-bottom: 1px solid var(--border); margin-bottom: 0.75rem;
+    }
+    .book-header-left { display: flex; align-items: center; gap: 0.75rem; }
+    .book-title { font-size: 1.1rem; font-weight: 600; color: var(--text); }
+    .book-count { font-size: 0.75rem; color: var(--text3); }
+    .book-toggle { color: var(--text3); transition: transform 0.2s; font-size: 0.9rem; }
+    .book-group.collapsed .book-toggle { transform: rotate(-90deg); }
+    .book-group.collapsed .memo-list { display: none; }
+
+    /* 메모 아이템 */
+    .memo-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .memo-item {
+      display: flex; align-items: center; gap: 1rem;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.9rem 1.25rem;
+      text-decoration: none; color: var(--text);
+      transition: all 0.2s;
+    }
+    .memo-item:hover { border-color: var(--accent); transform: translateX(4px); }
+    .memo-item.hidden { display: none; }
+    .memo-item .icon { font-size: 1rem; flex-shrink: 0; }
+    .memo-item .content { flex: 1; }
+    .memo-item .title { font-weight: 500; font-size: 0.95rem; }
+    .memo-item .meta { font-size: 0.75rem; color: var(--text3); margin-top: 0.1rem; }
+    .memo-item .arrow { color: var(--text3); font-size: 0.9rem; }
+    .memo-item:hover .arrow { color: var(--accent2); }
+
+    /* 검색 결과 없음 */
+    .no-results { text-align: center; color: var(--text3); padding: 3rem 0; display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="site-header">
+      <h1>📚 지식 요람</h1>
+      <p>책을 읽으며 정리한 개념들</p>
+    </header>
+
+    <div class="search-wrap">
+      <input type="text" class="search-input" placeholder="개념 검색..." id="searchInput" autocomplete="off">
+    </div>
+
+    <div id="bookGroups">
+      <!-- Clean Architecture -->
+      <div class="book-group" data-book="clean-architecture">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>📘</span>
+            <span class="book-title">Clean Architecture</span>
+            <span class="book-count">1개 메모</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="memo-list">
+          <a href="clean-architecture/chapter-19/공통-폐쇄-원칙-CCP.html" class="memo-item" data-title="공통 폐쇄 원칙 CCP Common Closure Principle">
+            <span class="icon">💡</span>
+            <div class="content">
+              <div class="title">공통 폐쇄 원칙 (CCP) — Common Closure Principle</div>
+              <div class="meta">Chapter 19 · 2026-03-12</div>
+            </div>
+            <span class="arrow">›</span>
+          </a>
+        </div>
+      </div>
+      <!-- Java 동시성 -->
+      <div class="book-group" data-book="java-동시성">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>☕</span>
+            <span class="book-title">Java 동시성</span>
+            <span class="book-count">1개 메모</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="memo-list">
+          <a href="Java-동시성/CompletableFuture/병렬처럼-보이지만-직렬로-동작하는-이유-OS-스케줄링.html" class="memo-item" data-title="CompletableFuture 병렬처럼 보이지만 직렬로 동작하는 이유 OS 스케줄링 스레드 ForkJoinPool">
+            <span class="icon">💡</span>
+            <div class="content">
+              <div class="title">CompletableFuture가 병렬처럼 보이지만 직렬로 동작하는 이유: OS 스케줄링</div>
+              <div class="meta">CompletableFuture · 2026-03-15</div>
+            </div>
+            <span class="arrow">›</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="no-results" id="noResults">검색 결과가 없어요 🥲</div>
+  </div>
+
+  <script>
+    function toggleGroup(header) {
+      header.parentElement.classList.toggle('collapsed');
+    }
+
+    const searchInput = document.getElementById('searchInput');
+    const noResults = document.getElementById('noResults');
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim().toLowerCase();
+      let anyVisible = false;
+
+      document.querySelectorAll('.memo-item').forEach(item => {
+        const title = item.dataset.title.toLowerCase();
+        const match = !q || title.includes(q);
+        item.classList.toggle('hidden', !match);
+        if (match) anyVisible = true;
+      });
+
+      // 검색 중엔 모든 그룹 펼치기
+      if (q) {
+        document.querySelectorAll('.book-group').forEach(g => g.classList.remove('collapsed'));
+      }
+
+      noResults.style.display = anyVisible || !q ? 'none' : 'block';
+    });
+  </script>
+</body>
+</html>
