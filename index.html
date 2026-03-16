@@ -51,6 +51,26 @@
     .book-toggle { color: var(--text3); transition: transform 0.2s; font-size: 0.9rem; }
     .book-group.collapsed .book-toggle { transform: rotate(-90deg); }
     .book-group.collapsed .memo-list { display: none; }
+    .book-group.collapsed .chapter-list { display: none; }
+
+    /* 목차 그룹 */
+    .chapter-list { padding-left: 1.5rem; }
+    .chapter-group { margin-bottom: 1rem; }
+    .chapter-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.6rem 1rem; cursor: pointer;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; margin-bottom: 0.5rem;
+      transition: all 0.2s;
+    }
+    .chapter-header:hover { border-color: var(--accent); }
+    .chapter-header-left { display: flex; align-items: center; gap: 0.6rem; }
+    .chapter-title { font-size: 0.95rem; font-weight: 500; color: var(--text); }
+    .chapter-count { font-size: 0.7rem; color: var(--text3); }
+    .chapter-toggle { color: var(--text3); transition: transform 0.2s; font-size: 0.8rem; }
+    .chapter-group.collapsed .chapter-toggle { transform: rotate(-90deg); }
+    .chapter-group.collapsed .memo-list { display: none; }
+    .chapter-group .memo-list { padding-left: 0.5rem; }
 
     /* 메모 아이템 */
     .memo-list { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -128,6 +148,95 @@
           </a>
         </div>
       </div>
+      <!-- RealMySQL8.0 -->
+      <div class="book-group" data-book="realmysql8.0">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🐬</span>
+            <span class="book-title">RealMySQL8.0</span>
+            <span class="book-count">1개 목차</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">인덱스 최적화</span>
+                <span class="chapter-count">8개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="RealMySQL8.0/인덱스-최적화/Duplicate-weed-전략이-뭐야.html" class="memo-item" data-title="Duplicate-weed 전략 세미조인 서브쿼리 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Duplicate-weed 전략이 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/인덱스-컨디션-푸시다운-ICP-전략이-뭐야.html" class="memo-item" data-title="인덱스 컨디션 푸시다운 ICP Index Condition Pushdown 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">인덱스 컨디션 푸시다운(ICP) 전략이 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/루스-인덱스-스캔이-뭐고-어떻게-동작하는지.html" class="memo-item" data-title="루스 인덱스 스캔 Loose Index Scan GROUP BY MIN MAX 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">루스 인덱스 스캔이 뭐고, 어떻게 동작하는지</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/인덱스-스킵-스캔이랑-루스-인덱스-스캔이랑-다른게-뭐야.html" class="memo-item" data-title="인덱스 스킵 스캔 Skip Scan 루스 인덱스 스캔 차이점 비교">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">인덱스 스킵 스캔이랑, 루스 인덱스 스캔이랑 다른게 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/Using-join-buffer에-대한-상세한-설명.html" class="memo-item" data-title="Using join buffer 블록 네스티드 루프 조인 Block Nested Loop BNL">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Using join buffer에 대한 상세한 설명</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/카테시안-조인-블록-네스티드-루프-조인-해시-조인이-뭐야.html" class="memo-item" data-title="카테시안 조인 Cartesian Join 블록 네스티드 루프 해시 조인 Hash Join">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">카테시안 조인, 블록 네스티드 루프 조인, 해시 조인이 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/Using-sort_union-vs-Using-union.html" class="memo-item" data-title="Using sort_union Using union Index Merge OR 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Using sort_union vs Using union</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/스토리지-엔진에서-걸러지지-않고-MySQL-엔진에서-걸러지는건-무슨-경우야.html" class="memo-item" data-title="스토리지 엔진 MySQL 엔진 필터링 Using where InnoDB">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">스토리지 엔진에서 걸러지지 않고, MySQL 엔진에서 걸러지는건 무슨 경우야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="no-results" id="noResults">검색 결과가 없어요 🥲</div>
@@ -135,6 +244,10 @@
 
   <script>
     function toggleGroup(header) {
+      header.parentElement.classList.toggle('collapsed');
+    }
+
+    function toggleChapter(header) {
       header.parentElement.classList.toggle('collapsed');
     }
 
@@ -152,9 +265,10 @@
         if (match) anyVisible = true;
       });
 
-      // 검색 중엔 모든 그룹 펼치기
+      // 검색 중엔 모든 그룹과 목차 펼치기
       if (q) {
         document.querySelectorAll('.book-group').forEach(g => g.classList.remove('collapsed'));
+        document.querySelectorAll('.chapter-group').forEach(c => c.classList.remove('collapsed'));
       }
 
       noResults.style.display = anyVisible || !q ? 'none' : 'block';

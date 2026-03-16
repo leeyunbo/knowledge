@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>인덱스 컨디션 푸시다운(ICP) 전략이 뭐야? — 인덱스-최적화 · RealMySQL8.0</title>
+  <style>
+    /* 전체 리셋 & 변수 */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a {
+      color: var(--text3); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+    }
+
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    .compare-table { width: 100%; border-collapse: collapse; }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/index.html">RealMySQL8.0</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html">인덱스-최적화</a>
+      <span class="sep">›</span>
+      <span class="current">ICP 전략</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>인덱스 컨디션 푸시다운(ICP) 전략이 뭐야?</h1>
+      <p class="meta">RealMySQL8.0 · 인덱스-최적화 · 2026-03-16</p>
+    </header>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Index Condition Pushdown(ICP)은 WHERE 조건을 스토리지 엔진 레벨에서 먼저 평가하여 불필요한 테이블 액세스를 줄이는 MySQL 5.6+ 최적화 기법입니다.
+      </div>
+      <p><strong>인덱스 컨디션 푸시다운(Index Condition Pushdown, ICP)</strong>은 MySQL 5.6부터 도입된 쿼리 최적화 기법으로, WHERE 절의 조건 중 인덱스에 포함된 컬럼에 대한 조건을 <strong>스토리지 엔진 레벨</strong>에서 평가합니다.</p>
+      <p>기존에는 MySQL 서버가 모든 레코드를 가져온 후 WHERE 조건을 평가했지만, ICP를 사용하면 스토리지 엔진이 인덱스를 읽는 단계에서 조건을 먼저 체크하여 불필요한 레코드 읽기를 줄입니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <p><strong>MySQL 아키텍처: 서버 레이어 vs 스토리지 엔진 레이어</strong></p>
+      <ul>
+        <li><strong>MySQL 서버 레이어</strong>: 쿼리 파싱, 최적화, WHERE 조건 평가 담당</li>
+        <li><strong>스토리지 엔진 레이어</strong>: 실제 데이터 저장 및 인덱스 관리 (InnoDB, MyISAM 등)</li>
+      </ul>
+      <p>전통적으로는 스토리지 엔진이 인덱스로 레코드를 찾아 MySQL 서버에 전달하면, 서버가 WHERE 조건을 평가했습니다. ICP는 이 평가 단계를 스토리지 엔진으로 "푸시다운(밀어넣기)" 합니다.</p>
+
+      <p><strong>복합 인덱스와 인덱스 레인지 스캔</strong></p>
+      <p>복합 인덱스 <code>INDEX(a, b, c)</code>에서 <code>WHERE a=1 AND b LIKE '%test'</code> 쿼리는:</p>
+      <ul>
+        <li><code>a=1</code>: 인덱스 레인지 스캔 가능 (선두 컬럼)</li>
+        <li><code>b LIKE '%test'</code>: 레인지 스캔 불가 (와일드카드가 앞에 있음)</li>
+      </ul>
+      <p>ICP 없이는 <code>a=1</code>인 모든 레코드를 테이블에서 읽어야 하지만, ICP를 사용하면 인덱스에서 <code>b</code> 조건도 먼저 체크합니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>ICP 없이 (기존 방식)</strong></p>
+      <ol>
+        <li>스토리지 엔진: 인덱스에서 <code>a=1</code>인 PK 찾기</li>
+        <li>스토리지 엔진: 모든 PK에 대해 테이블 레코드 읽기 (랜덤 I/O)</li>
+        <li>MySQL 서버: 읽어온 레코드에서 <code>b LIKE '%test'</code> 평가</li>
+        <li>최종 결과 반환</li>
+      </ol>
+
+      <p><strong>ICP 적용 시</strong></p>
+      <ol>
+        <li>MySQL 서버: WHERE 조건을 스토리지 엔진에 전달</li>
+        <li>스토리지 엔진: 인덱스에서 <code>a=1</code>인 레코드 찾기</li>
+        <li>스토리지 엔진: <strong>인덱스에서</strong> <code>b LIKE '%test'</code> 조건 평가</li>
+        <li>스토리지 엔진: 조건을 만족하는 레코드만 테이블에서 읽기</li>
+        <li>최종 결과 반환</li>
+      </ol>
+
+      <p><strong>성능 개선 효과</strong></p>
+      <ul>
+        <li>테이블 랜덤 I/O 감소 (가장 큰 이득)</li>
+        <li>MySQL 서버 ↔ 스토리지 엔진 간 데이터 전송량 감소</li>
+        <li>CPU 사용량 감소 (서버 레벨 필터링 줄어듦)</li>
+      </ul>
+
+      <p><strong>실행 계획 확인</strong></p>
+      <pre><code>EXPLAIN SELECT * FROM employees
+WHERE first_name = 'John' AND last_name LIKE '%son';
+
+-- Extra 컬럼: Using index condition</code></pre>
+
+      <p><strong>ICP가 적용되는 조건</strong></p>
+      <ul>
+        <li>복합 인덱스에서 일부 컬럼만 레인지 스캔 가능할 때</li>
+        <li>InnoDB, MyISAM 스토리지 엔진 지원</li>
+        <li><code>range</code>, <code>ref</code>, <code>eq_ref</code> 접근 타입</li>
+        <li>인덱스에 포함된 컬럼의 조건만 푸시다운 가능</li>
+      </ul>
+
+      <p><strong>ICP가 적용되지 않는 경우</strong></p>
+      <ul>
+        <li>커버링 인덱스 (이미 최적, 테이블 액세스 없음)</li>
+        <li>서브쿼리 조건</li>
+        <li>저장 프로시저/함수 참조</li>
+      </ul>
+
+      <p><strong>옵티마이저 스위치</strong></p>
+      <pre><code>-- ICP 상태 확인
+SHOW VARIABLES LIKE 'optimizer_switch';
+
+-- ICP 비활성화 (테스트용)
+SET optimizer_switch='index_condition_pushdown=off';
+
+-- ICP 활성화 (기본값)
+SET optimizer_switch='index_condition_pushdown=on';</code></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
+            </marker>
+          </defs>
+
+          <!-- ICP 없이 (왼쪽) -->
+          <text x="120" y="20" text-anchor="middle" fill="#f87171" font-size="13" font-weight="600">ICP 없이 (기존)</text>
+          
+          <rect x="40" y="40" width="160" height="50" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="120" y="60" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">스토리지 엔진</text>
+          <text x="120" y="78" text-anchor="middle" fill="#94a3b8" font-size="10">인덱스에서 PK 추출</text>
+
+          <line x1="120" y1="90" x2="120" y2="120" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="140" y="108" fill="#f87171" font-size="9">모든 레코드</text>
+
+          <rect x="40" y="120" width="160" height="50" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="120" y="140" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">테이블 읽기</text>
+          <text x="120" y="158" text-anchor="middle" fill="#f87171" font-size="10">랜덤 I/O 많음</text>
+
+          <line x1="120" y1="170" x2="120" y2="200" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)"/>
+
+          <rect x="40" y="200" width="160" height="50" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="120" y="220" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">MySQL 서버</text>
+          <text x="120" y="238" text-anchor="middle" fill="#94a3b8" font-size="10">WHERE 조건 평가</text>
+
+          <!-- ICP 적용 (오른쪽) -->
+          <text x="520" y="20" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">ICP 적용</text>
+
+          <rect x="440" y="40" width="160" height="70" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="520" y="58" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">스토리지 엔진</text>
+          <text x="520" y="75" text-anchor="middle" fill="#94a3b8" font-size="9">1. 인덱스에서 조건 평가</text>
+          <text x="520" y="90" text-anchor="middle" fill="#94a3b8" font-size="9">2. 필터링된 PK만 추출</text>
+          <text x="520" y="105" text-anchor="middle" fill="#34d399" font-size="9" font-weight="600">✓ 푸시다운!</text>
+
+          <line x1="520" y1="110" x2="520" y2="140" stroke="#34d399" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="540" y="128" fill="#34d399" font-size="9">필터된 레코드</text>
+
+          <rect x="440" y="140" width="160" height="50" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="520" y="160" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">테이블 읽기</text>
+          <text x="520" y="178" text-anchor="middle" fill="#34d399" font-size="10">랜덤 I/O 감소!</text>
+
+          <line x1="520" y1="190" x2="520" y2="220" stroke="#34d399" stroke-width="2" marker-end="url(#arrow)"/>
+
+          <rect x="440" y="220" width="160" height="40" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="520" y="245" text-anchor="middle" fill="#94a3b8" font-size="11">MySQL 서버</text>
+
+          <!-- 비교 화살표 -->
+          <line x1="220" y1="160" x2="420" y2="160" stroke="#fbbf24" stroke-width="2" stroke-dasharray="5,5" marker-end="url(#arrow)"/>
+          <text x="320" y="150" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">성능 개선</text>
+
+          <!-- 예시 데이터 -->
+          <rect x="40" y="270" width="660" height="40" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="350" y="287" text-anchor="middle" fill="#64748b" font-size="10">예: first_name='John'인 레코드 10,000개 중 last_name LIKE '%son' 조건은 100개만 만족</text>
+          <text x="350" y="303" text-anchor="middle" fill="#64748b" font-size="10">ICP 없이: 10,000번 테이블 읽기 | ICP 적용: 100번만 테이블 읽기 (100배 차이!)</text>
+        </svg>
+      </div>
+      <p style="margin-top: 1rem;">ICP는 조건 평가를 스토리지 엔진으로 밀어넣어 불필요한 테이블 액세스를 획기적으로 줄입니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">복합 인덱스</span>
+        <span class="related-tag">인덱스 레인지 스캔</span>
+        <span class="related-tag">커버링 인덱스</span>
+        <span class="related-tag">MySQL 아키텍처</span>
+        <span class="related-tag">스토리지 엔진</span>
+        <span class="related-tag">랜덤 I/O</span>
+        <span class="related-tag">optimizer_switch</span>
+        <span class="related-tag">EXPLAIN</span>
+        <span class="related-tag">InnoDB</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html" class="nav-link">← 인덱스-최적화 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>

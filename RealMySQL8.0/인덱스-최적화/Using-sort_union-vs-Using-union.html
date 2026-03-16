@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Using sort_union vs Using union — 인덱스 최적화 · RealMySQL8.0</title>
+  <style>
+    /* 전체 리셋 & 변수 */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    /* 레이아웃 */
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    /* 브레드크럼 */
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a {
+      color: var(--text3); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    /* 헤더 */
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    /* 섹션 카드 */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    /* 카드 내용 */
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    /* 강조 박스 */
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+    }
+
+    /* 리스트 */
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    /* 코드 */
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    /* SVG 다이어그램 영역 */
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    /* 비교 테이블 */
+    .compare-table { width: 100%; border-collapse: collapse; }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* 연관 개념 태그 */
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    /* 하단 네비게이션 */
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    /* 반응형 */
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/index.html">RealMySQL8.0</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html">인덱스 최적화</a>
+      <span class="sep">›</span>
+      <span class="current">sort_union vs union</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Using sort_union vs Using union</h1>
+      <p class="meta">RealMySQL8.0 · 인덱스 최적화 · 2026-03-16</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <code>Using union</code>은 OR 조건에서 여러 인덱스 결과를 <strong>그냥 합치고</strong>, <code>Using sort_union</code>은 합친 후 <strong>정렬해서 중복 제거</strong>까지 수행하는 최적화 전략입니다.
+      </div>
+      <p>
+        WHERE 절에 OR 조건이 있을 때, MySQL은 각 조건에 대해 별도의 인덱스를 사용해 결과를 가져온 후 이를 합칩니다. 이때 두 가지 전략이 있습니다:
+      </p>
+      <ul>
+        <li><strong>Using union</strong>: 각 인덱스 스캔 결과를 단순히 합치기만 합니다. PK가 포함되어 중복이 자동으로 제거되는 경우 사용됩니다.</li>
+        <li><strong>Using sort_union</strong>: 결과를 PK로 정렬한 후 중복을 명시적으로 제거합니다. PK가 결과에 포함되지 않거나 중복 가능성이 있을 때 사용됩니다.</li>
+      </ul>
+      <p>
+        두 전략 모두 <strong>index_merge</strong> 최적화의 일부이며, OR 조건에서 여러 인덱스를 동시에 활용해 성능을 높이는 방법입니다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <p><strong>1. Index Merge 최적화</strong></p>
+      <p>
+        MySQL은 WHERE 절에 여러 조건이 OR로 연결되어 있고, 각 조건이 서로 다른 인덱스를 사용할 수 있을 때 <strong>Index Merge</strong> 최적화를 적용합니다. 각 인덱스를 개별적으로 스캔한 후, 결과를 합치는(UNION) 방식으로 동작합니다.
+      </p>
+      
+      <p><strong>2. OR 조건과 인덱스</strong></p>
+      <p>
+        일반적으로 OR 조건은 인덱스를 타기 어렵습니다. 예를 들어 <code>WHERE col1 = 10 OR col2 = 20</code> 같은 쿼리는 하나의 인덱스만으로는 최적화하기 어렵습니다. Index Merge는 이런 경우 col1 인덱스와 col2 인덱스를 각각 사용해 결과를 합치는 방식으로 성능을 개선합니다.
+      </p>
+      
+      <p><strong>3. Primary Key와 중복 제거</strong></p>
+      <p>
+        테이블에서 같은 행이 여러 OR 조건에 동시에 만족할 수 있습니다. 예를 들어 <code>WHERE age = 30 OR city = 'Seoul'</code>에서 age도 30이고 city도 'Seoul'인 행은 두 인덱스 스캔 결과 모두에 포함됩니다. 이런 중복을 제거하기 위해 PK 기준 정렬 및 중복 제거가 필요할 수 있습니다.
+      </p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+      
+      <p><strong>언제 Using union을 사용하나?</strong></p>
+      <p>
+        각 인덱스 스캔 결과가 <strong>PK를 포함</strong>하고 있고, MySQL이 PK를 기준으로 자동으로 중복을 제거할 수 있을 때 사용됩니다. 예를 들어:
+      </p>
+      <pre><code>SELECT * FROM users 
+WHERE user_id IN (1,2,3) OR email = 'test@example.com';</code></pre>
+      <p>
+        이 쿼리는 user_id 인덱스와 email 인덱스를 각각 사용해 결과를 가져온 후, PK(user_id)가 자연스럽게 중복을 걸러주므로 <code>Using union</code>이 표시됩니다.
+      </p>
+
+      <p><strong>언제 Using sort_union을 사용하나?</strong></p>
+      <p>
+        인덱스 스캔 결과가 PK 순서대로 정렬되어 있지 않거나, 중복 제거를 위해 명시적인 정렬이 필요한 경우 사용됩니다. 특히 <strong>범위 조건(range)</strong>이 OR로 연결될 때 자주 발생합니다:
+      </p>
+      <pre><code>SELECT * FROM orders 
+WHERE (order_date BETWEEN '2026-01-01' AND '2026-01-31')
+   OR (order_date BETWEEN '2026-03-01' AND '2026-03-31');</code></pre>
+      <p>
+        각 범위 스캔 결과는 order_date 순으로 정렬되어 있지만 PK 순서는 아닙니다. 두 결과를 합칠 때 중복된 order_id가 있을 수 있으므로, PK로 정렬 후 중복 제거를 수행하며 <code>Using sort_union</code>이 표시됩니다.
+      </p>
+
+      <p><strong>성능 차이</strong></p>
+      <ul>
+        <li><strong>Using union</strong>: 정렬 비용이 없어 더 빠름. 결과셋이 크더라도 추가 정렬 없이 바로 합칩니다.</li>
+        <li><strong>Using sort_union</strong>: PK 정렬과 중복 제거 비용이 추가됨. 결과셋이 크면 정렬 비용이 상당할 수 있습니다.</li>
+      </ul>
+
+      <p><strong>실무 팁</strong></p>
+      <p>
+        가능하면 OR 조건보다는 IN 절이나 UNION ALL을 사용하는 것이 더 예측 가능한 성능을 제공합니다. Index Merge는 편리하지만, 복잡한 OR 조건에서는 실행 계획이 불안정할 수 있습니다.
+      </p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg width="700" height="420" xmlns="http://www.w3.org/2000/svg">
+          <!-- Using union 플로우 -->
+          <text x="50" y="30" fill="#a78bfa" font-size="14" font-weight="bold">Using union (정렬 없음)</text>
+          
+          <rect x="20" y="50" width="140" height="50" fill="#22263a" stroke="#7c6af7" stroke-width="2" rx="8"/>
+          <text x="90" y="80" fill="#e2e8f0" font-size="13" text-anchor="middle">인덱스 1 스캔</text>
+          
+          <rect x="180" y="50" width="140" height="50" fill="#22263a" stroke="#7c6af7" stroke-width="2" rx="8"/>
+          <text x="250" y="80" fill="#e2e8f0" font-size="13" text-anchor="middle">인덱스 2 스캔</text>
+          
+          <path d="M 90 100 L 90 130" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrowhead)"/>
+          <path d="M 250 100 L 250 130" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrowhead)"/>
+          
+          <rect x="50" y="130" width="240" height="50" fill="#1a1d27" stroke="#34d399" stroke-width="2" rx="8"/>
+          <text x="170" y="160" fill="#34d399" font-size="13" text-anchor="middle" font-weight="bold">UNION (단순 합치기)</text>
+          
+          <path d="M 170 180 L 170 210" stroke="#34d399" stroke-width="2" marker-end="url(#arrowhead)"/>
+          
+          <rect x="80" y="210" width="180" height="40" fill="#22263a" stroke="#38bdf8" stroke-width="2" rx="8"/>
+          <text x="170" y="235" fill="#38bdf8" font-size="13" text-anchor="middle">최종 결과 (중복 자동 제거)</text>
+
+          <!-- Using sort_union 플로우 -->
+          <text x="400" y="30" fill="#a78bfa" font-size="14" font-weight="bold">Using sort_union (정렬 있음)</text>
+          
+          <rect x="370" y="50" width="140" height="50" fill="#22263a" stroke="#7c6af7" stroke-width="2" rx="8"/>
+          <text x="440" y="80" fill="#e2e8f0" font-size="13" text-anchor="middle">인덱스 1 스캔</text>
+          
+          <rect x="530" y="50" width="140" height="50" fill="#22263a" stroke="#7c6af7" stroke-width="2" rx="8"/>
+          <text x="600" y="80" fill="#e2e8f0" font-size="13" text-anchor="middle">인덱스 2 스캔</text>
+          
+          <path d="M 440 100 L 440 130" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrowhead)"/>
+          <path d="M 600 100 L 600 130" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrowhead)"/>
+          
+          <rect x="400" y="130" width="240" height="50" fill="#1a1d27" stroke="#fbbf24" stroke-width="2" rx="8"/>
+          <text x="520" y="160" fill="#fbbf24" font-size="13" text-anchor="middle" font-weight="bold">UNION + PK 정렬</text>
+          
+          <path d="M 520 180 L 520 210" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrowhead)"/>
+          
+          <rect x="410" y="210" width="220" height="40" fill="#22263a" stroke="#f87171" stroke-width="2" rx="8"/>
+          <text x="520" y="235" fill="#f87171" font-size="13" text-anchor="middle">중복 제거 (Unique)</text>
+          
+          <path d="M 520 250 L 520 280" stroke="#f87171" stroke-width="2" marker-end="url(#arrowhead)"/>
+          
+          <rect x="430" y="280" width="180" height="40" fill="#22263a" stroke="#38bdf8" stroke-width="2" rx="8"/>
+          <text x="520" y="305" fill="#38bdf8" font-size="13" text-anchor="middle">최종 결과</text>
+
+          <!-- Arrow marker -->
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#a78bfa"/>
+            </marker>
+          </defs>
+
+          <!-- 하단 설명 -->
+          <text x="350" y="360" fill="#64748b" font-size="12" text-anchor="middle">← 빠름 (정렬 없음)</text>
+          <text x="350" y="380" fill="#64748b" font-size="12" text-anchor="middle">PK 자동 중복 제거</text>
+          
+          <text x="350" y="400" fill="#64748b" font-size="12" text-anchor="middle">→ 느림 (정렬 비용)</text>
+          <text x="350" y="415" fill="#64748b" font-size="12" text-anchor="middle">명시적 중복 제거 필요</text>
+        </svg>
+      </div>
+      <p style="margin-top: 1rem; color: var(--text3); font-size: 0.9rem;">
+        왼쪽의 <code>Using union</code>은 각 인덱스 결과를 바로 합치고, 오른쪽의 <code>Using sort_union</code>은 PK로 정렬 후 중복을 제거하는 추가 단계를 거칩니다.
+      </p>
+    </div>
+
+    <!-- 비교 테이블 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        상세 비교
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>Using union</th>
+            <th>Using sort_union</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>정렬 여부</strong></td>
+            <td>정렬 없음</td>
+            <td>PK로 정렬 수행</td>
+          </tr>
+          <tr>
+            <td><strong>중복 제거</strong></td>
+            <td>자동 (PK 기반)</td>
+            <td>명시적 제거 (Unique)</td>
+          </tr>
+          <tr>
+            <td><strong>성능</strong></td>
+            <td>빠름</td>
+            <td>정렬 비용 추가</td>
+          </tr>
+          <tr>
+            <td><strong>사용 시기</strong></td>
+            <td>PK 포함 결과, 단순 OR</td>
+            <td>범위 조건 OR, 복잡한 조건</td>
+          </tr>
+          <tr>
+            <td><strong>EXPLAIN 예시</strong></td>
+            <td><code>Using union(idx1,idx2)</code></td>
+            <td><code>Using sort_union(idx1,idx2)</code></td>
+          </tr>
+          <tr>
+            <td><strong>결과 순서</strong></td>
+            <td>보장 안됨</td>
+            <td>PK 순서로 정렬됨</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Index Merge</span>
+        <span class="related-tag">Using intersect</span>
+        <span class="related-tag">OR 최적화</span>
+        <span class="related-tag">UNION vs UNION ALL</span>
+        <span class="related-tag">Primary Key 중복 제거</span>
+        <span class="related-tag">Range Scan</span>
+        <span class="related-tag">Composite Index</span>
+        <span class="related-tag">EXPLAIN Extra</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html" class="nav-link">← 인덱스 최적화 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
