@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSI 7계층 - 실무 예시로 완벽 이해 — 네트워크 기초 · DevOps 인프라</title>
+  <style>
+    /* 전체 리셋 & 변수 */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    /* 레이아웃 */
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    /* 브레드크럼 */
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a {
+      color: var(--text3); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    /* 헤더 */
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    /* 섹션 카드 */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    /* 카드 내용 */
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    /* 강조 박스 */
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+    }
+
+    /* 리스트 */
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    /* 코드 */
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    /* 계층 박스 */
+    .layer-box {
+      background: var(--bg3);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+    .layer-box.layer-7 { border-color: #f87171; }
+    .layer-box.layer-6 { border-color: #fb923c; }
+    .layer-box.layer-5 { border-color: #fbbf24; }
+    .layer-box.layer-4 { border-color: #34d399; }
+    .layer-box.layer-3 { border-color: #38bdf8; }
+    .layer-box.layer-2 { border-color: #a78bfa; }
+    .layer-box.layer-1 { border-color: #e879f9; }
+
+    .layer-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .layer-number {
+      font-size: 1.1rem;
+      font-weight: 700;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      background: var(--bg2);
+    }
+    .layer-7 .layer-number { color: #f87171; }
+    .layer-6 .layer-number { color: #fb923c; }
+    .layer-5 .layer-number { color: #fbbf24; }
+    .layer-4 .layer-number { color: #34d399; }
+    .layer-3 .layer-number { color: #38bdf8; }
+    .layer-2 .layer-number { color: #a78bfa; }
+    .layer-1 .layer-number { color: #e879f9; }
+
+    .layer-name {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .layer-desc {
+      color: var(--text2);
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+    }
+    .layer-examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .layer-tag {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: var(--text3);
+    }
+    .layer-real {
+      background: rgba(124,106,247,0.08);
+      border-left: 2px solid var(--accent);
+      padding: 0.75rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin-top: 0.5rem;
+    }
+    .layer-real strong {
+      color: var(--accent2);
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.85rem;
+    }
+    .layer-real p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text2);
+    }
+
+    /* SVG 다이어그램 영역 */
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    /* 비교 테이블 */
+    .compare-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* 연관 개념 태그 */
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    /* 하단 네비게이션 */
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    /* 반응형 */
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/index.html">DevOps 인프라</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/네트워크-기초/index.html">네트워크 기초</a>
+      <span class="sep">›</span>
+      <span class="current">OSI 7계층 실무 예시</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>OSI 7계층 - 실무 예시로 완벽 이해하기</h1>
+      <p class="meta">DevOps 인프라 · 네트워크 기초 · 2026-03-17</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        OSI 7계층은 네트워크 통신을 <strong>7개의 논리적 단계</strong>로 나눈 모델입니다. 각 계층은 독립적인 역할을 수행하며, 상위 계층은 하위 계층의 서비스를 사용합니다.
+      </div>
+      <p>
+        <strong>OSI (Open Systems Interconnection)</strong> 7계층 모델은 네트워크 통신 과정을 체계적으로 이해하기 위한 참조 모델입니다.
+      </p>
+      <p>
+        실무에서는 "L4 로드밸런서", "L7 스위치", "L3 라우팅"처럼 계층 번호로 장비나 기능을 지칭합니다. 각 계층을 이해하면 네트워크 장애 진단과 보안 설정이 훨씬 쉬워집니다.
+      </p>
+      <p>
+        아래에서 <strong>카카오 API 서버에 HTTP 요청을 보내는 과정</strong>을 7계층 순서대로 따라가며 실무 예시와 함께 설명하겠습니다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <p><strong>1. 캡슐화 (Encapsulation)</strong></p>
+      <p>
+        데이터를 보낼 때 각 계층은 자신의 헤더를 추가합니다. 이를 <strong>캡슐화</strong>라고 합니다.
+      </p>
+      <pre><code>Application → HTTP 데이터
+Transport   → HTTP 데이터 + TCP 헤더
+Network     → HTTP 데이터 + TCP 헤더 + IP 헤더
+Data Link   → HTTP 데이터 + TCP 헤더 + IP 헤더 + Ethernet 헤더</code></pre>
+
+      <p><strong>2. 역캡슐화 (Decapsulation)</strong></p>
+      <p>
+        데이터를 받을 때는 반대로 각 계층이 자신의 헤더를 벗겨냅니다.
+      </p>
+
+      <p><strong>3. PDU (Protocol Data Unit)</strong></p>
+      <p>
+        각 계층에서 처리하는 데이터 단위를 PDU라고 부릅니다:
+      </p>
+      <ul>
+        <li><strong>L7~L5</strong>: Data (데이터)</li>
+        <li><strong>L4</strong>: Segment (세그먼트) - TCP/UDP</li>
+        <li><strong>L3</strong>: Packet (패킷) - IP</li>
+        <li><strong>L2</strong>: Frame (프레임) - Ethernet</li>
+        <li><strong>L1</strong>: Bit (비트) - 전기 신호</li>
+      </ul>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        7계층 상세 설명 (실무 예시 포함)
+      </div>
+
+      <!-- Layer 7: Application -->
+      <div class="layer-box layer-7">
+        <div class="layer-header">
+          <span class="layer-number">L7</span>
+          <span class="layer-name">Application Layer (응용 계층)</span>
+        </div>
+        <p class="layer-desc">
+          사용자와 직접 상호작용하는 계층. 실제 서비스 로직이 동작하는 영역입니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">HTTP/HTTPS</span>
+          <span class="layer-tag">DNS</span>
+          <span class="layer-tag">SMTP</span>
+          <span class="layer-tag">FTP</span>
+          <span class="layer-tag">WebSocket</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>브라우저에서 <code>https://bzm-center-api.kakao.com/api/users</code>로 GET 요청</p>
+          <p>→ HTTP 프로토콜로 요청 메시지 생성</p>
+          <p>→ 헤더에 <code>Authorization: Bearer token</code> 추가</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p>WAF (Web Application Firewall), API Gateway, CDN, Nginx (리버스 프록시)</p>
+        </div>
+      </div>
+
+      <!-- Layer 6: Presentation -->
+      <div class="layer-box layer-6">
+        <div class="layer-header">
+          <span class="layer-number">L6</span>
+          <span class="layer-name">Presentation Layer (표현 계층)</span>
+        </div>
+        <p class="layer-desc">
+          데이터 형식 변환, 암호화/복호화, 압축/해제를 담당합니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">TLS/SSL</span>
+          <span class="layer-tag">JPEG/PNG</span>
+          <span class="layer-tag">JSON/XML</span>
+          <span class="layer-tag">gzip</span>
+          <span class="layer-tag">UTF-8</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>HTTPS 통신에서 TLS 핸드셰이크로 암호화 키 교환</p>
+          <p>→ AES-256으로 HTTP 데이터 암호화</p>
+          <p>→ gzip으로 압축하여 대역폭 절약</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p>SSL/TLS Offloading 장비, 인증서 관리 (Let's Encrypt, AWS ACM)</p>
+        </div>
+      </div>
+
+      <!-- Layer 5: Session -->
+      <div class="layer-box layer-5">
+        <div class="layer-header">
+          <span class="layer-number">L5</span>
+          <span class="layer-name">Session Layer (세션 계층)</span>
+        </div>
+        <p class="layer-desc">
+          통신 세션의 시작, 유지, 종료를 관리합니다. 연결 상태를 추적합니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">NetBIOS</span>
+          <span class="layer-tag">RPC</span>
+          <span class="layer-tag">PPTP</span>
+          <span class="layer-tag">Session Cookie</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>사용자 로그인 후 세션 ID 발급 (Redis에 저장)</p>
+          <p>→ 이후 요청마다 세션 ID로 인증 상태 확인</p>
+          <p>→ 30분간 활동 없으면 세션 만료</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p>Redis (세션 스토어), JWT 토큰 기반 인증</p>
+        </div>
+      </div>
+
+      <!-- Layer 4: Transport -->
+      <div class="layer-box layer-4">
+        <div class="layer-header">
+          <span class="layer-number">L4</span>
+          <span class="layer-name">Transport Layer (전송 계층)</span>
+        </div>
+        <p class="layer-desc">
+          종단 간(end-to-end) 신뢰성 있는 데이터 전송을 보장합니다. 포트 번호로 애플리케이션을 구분합니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">TCP</span>
+          <span class="layer-tag">UDP</span>
+          <span class="layer-tag">Port (80, 443, 3306...)</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>TCP 3-way handshake로 연결 수립 (SYN → SYN-ACK → ACK)</p>
+          <p>→ 출발지 포트: 54321 (클라이언트 임의 할당)</p>
+          <p>→ 목적지 포트: 443 (HTTPS 표준 포트)</p>
+          <p>→ 데이터를 Segment로 나누어 전송, 순서 보장 및 재전송 처리</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p><strong>L4 로드밸런서</strong> (AWS NLB, HAProxy) - 포트 기반 부하 분산</p>
+          <p>방화벽 룰 (포트 열기/닫기)</p>
+        </div>
+      </div>
+
+      <!-- Layer 3: Network -->
+      <div class="layer-box layer-3">
+        <div class="layer-header">
+          <span class="layer-number">L3</span>
+          <span class="layer-name">Network Layer (네트워크 계층)</span>
+        </div>
+        <p class="layer-desc">
+          논리적 주소(IP)를 기반으로 최적 경로를 찾아 패킷을 라우팅합니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">IP (IPv4/IPv6)</span>
+          <span class="layer-tag">ICMP</span>
+          <span class="layer-tag">Routing</span>
+          <span class="layer-tag">NAT</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>출발지 IP: <code>192.168.1.100</code> (내 PC)</p>
+          <p>목적지 IP: <code>123.45.67.89</code> (카카오 API 서버)</p>
+          <p>→ 라우터가 라우팅 테이블을 보고 다음 홉(hop) 결정</p>
+          <p>→ TTL(Time To Live) 값으로 무한 루프 방지</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p><strong>라우터</strong>, VPC (Virtual Private Cloud), NAT Gateway, IPS (L3 분석)</p>
+        </div>
+      </div>
+
+      <!-- Layer 2: Data Link -->
+      <div class="layer-box layer-2">
+        <div class="layer-header">
+          <span class="layer-number">L2</span>
+          <span class="layer-name">Data Link Layer (데이터 링크 계층)</span>
+        </div>
+        <p class="layer-desc">
+          물리적 주소(MAC)를 사용하여 같은 네트워크 내에서 프레임을 전달합니다. 오류 검출도 수행합니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">Ethernet</span>
+          <span class="layer-tag">MAC Address</span>
+          <span class="layer-tag">ARP</span>
+          <span class="layer-tag">VLAN</span>
+          <span class="layer-tag">Switch</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>ARP (Address Resolution Protocol)로 IP → MAC 주소 변환</p>
+          <p>→ 출발지 MAC: <code>AA:BB:CC:DD:EE:FF</code></p>
+          <p>→ 목적지 MAC: <code>11:22:33:44:55:66</code> (게이트웨이 MAC)</p>
+          <p>→ Ethernet 프레임에 담아서 전송</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p><strong>스위치 (Switch)</strong>, 브릿지 (Bridge), NIC (Network Interface Card)</p>
+        </div>
+      </div>
+
+      <!-- Layer 1: Physical -->
+      <div class="layer-box layer-1">
+        <div class="layer-header">
+          <span class="layer-number">L1</span>
+          <span class="layer-name">Physical Layer (물리 계층)</span>
+        </div>
+        <p class="layer-desc">
+          비트를 전기 신호, 빛, 전파로 변환하여 물리적 매체를 통해 전송합니다.
+        </p>
+        <div class="layer-examples">
+          <span class="layer-tag">Ethernet Cable (UTP)</span>
+          <span class="layer-tag">광케이블</span>
+          <span class="layer-tag">Wi-Fi</span>
+          <span class="layer-tag">USB</span>
+          <span class="layer-tag">Bluetooth</span>
+        </div>
+        <div class="layer-real">
+          <strong>📌 실무 예시</strong>
+          <p>랜선(CAT6)을 통해 전기 신호로 비트 전송</p>
+          <p>→ 1Gbps 속도로 데이터 전송</p>
+          <p>→ 허브, 리피터로 신호 증폭</p>
+        </div>
+        <div class="layer-real" style="margin-top: 0.5rem;">
+          <strong>🔧 관련 장비/도구</strong>
+          <p><strong>허브 (Hub)</strong>, 리피터 (Repeater), 케이블, 광트랜시버</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화: HTTP 요청의 여정
+      </div>
+      <div class="diagram-wrap">
+        <svg width="750" height="600" viewBox="0 0 750 600" xmlns="http://www.w3.org/2000/svg">
+          <!-- 배경 -->
+          <rect width="750" height="600" fill="#1a1d27"/>
+
+          <!-- 제목 -->
+          <text x="375" y="30" fill="#a78bfa" font-size="16" font-weight="bold" text-anchor="middle">
+            브라우저 → 카카오 API 서버 (HTTP 요청 과정)
+          </text>
+
+          <!-- 송신측 (왼쪽) -->
+          <text x="150" y="70" fill="#94a3b8" font-size="13" font-weight="bold" text-anchor="middle">송신측 (클라이언트)</text>
+
+          <!-- L7 -->
+          <rect x="50" y="90" width="200" height="60" rx="6" fill="#22263a" stroke="#f87171" stroke-width="2"/>
+          <text x="70" y="110" fill="#f87171" font-size="11" font-weight="bold">L7 Application</text>
+          <text x="70" y="128" fill="#94a3b8" font-size="9">GET /api/users</text>
+          <text x="70" y="142" fill="#94a3b8" font-size="9">Authorization: Bearer ...</text>
+
+          <!-- L6 -->
+          <rect x="50" y="160" width="200" height="50" rx="6" fill="#22263a" stroke="#fb923c" stroke-width="2"/>
+          <text x="70" y="178" fill="#fb923c" font-size="11" font-weight="bold">L6 Presentation</text>
+          <text x="70" y="194" fill="#94a3b8" font-size="9">TLS 암호화 + gzip 압축</text>
+
+          <!-- L5 -->
+          <rect x="50" y="220" width="200" height="50" rx="6" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="70" y="238" fill="#fbbf24" font-size="11" font-weight="bold">L5 Session</text>
+          <text x="70" y="254" fill="#94a3b8" font-size="9">세션 ID 확인</text>
+
+          <!-- L4 -->
+          <rect x="50" y="280" width="200" height="50" rx="6" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="70" y="298" fill="#34d399" font-size="11" font-weight="bold">L4 Transport</text>
+          <text x="70" y="314" fill="#94a3b8" font-size="9">TCP SYN, Port 54321→443</text>
+
+          <!-- L3 -->
+          <rect x="50" y="340" width="200" height="50" rx="6" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="70" y="358" fill="#38bdf8" font-size="11" font-weight="bold">L3 Network</text>
+          <text x="70" y="374" fill="#94a3b8" font-size="9">IP: 192.168.1.100 → 123.45.67.89</text>
+
+          <!-- L2 -->
+          <rect x="50" y="400" width="200" height="50" rx="6" fill="#22263a" stroke="#a78bfa" stroke-width="2"/>
+          <text x="70" y="418" fill="#a78bfa" font-size="11" font-weight="bold">L2 Data Link</text>
+          <text x="70" y="434" fill="#94a3b8" font-size="9">MAC: AA:BB... → 11:22...</text>
+
+          <!-- L1 -->
+          <rect x="50" y="460" width="200" height="50" rx="6" fill="#22263a" stroke="#e879f9" stroke-width="2"/>
+          <text x="70" y="478" fill="#e879f9" font-size="11" font-weight="bold">L1 Physical</text>
+          <text x="70" y="494" fill="#94a3b8" font-size="9">전기 신호 (랜선)</text>
+
+          <!-- 중간 네트워크 (중앙) -->
+          <ellipse cx="375" cy="300" rx="80" ry="60" fill="none" stroke="#7c6af7" stroke-width="2" stroke-dasharray="5,5"/>
+          <text x="375" y="290" fill="#a78bfa" font-size="12" text-anchor="middle" font-weight="bold">Internet</text>
+          <text x="375" y="305" fill="#64748b" font-size="9" text-anchor="middle">L3 라우터</text>
+          <text x="375" y="318" fill="#64748b" font-size="9" text-anchor="middle">L4 방화벽</text>
+
+          <!-- 수신측 (오른쪽) -->
+          <text x="600" y="70" fill="#94a3b8" font-size="13" font-weight="bold" text-anchor="middle">수신측 (서버)</text>
+
+          <!-- L1 -->
+          <rect x="500" y="460" width="200" height="50" rx="6" fill="#22263a" stroke="#e879f9" stroke-width="2"/>
+          <text x="520" y="478" fill="#e879f9" font-size="11" font-weight="bold">L1 Physical</text>
+          <text x="520" y="494" fill="#94a3b8" font-size="9">전기 신호 수신</text>
+
+          <!-- L2 -->
+          <rect x="500" y="400" width="200" height="50" rx="6" fill="#22263a" stroke="#a78bfa" stroke-width="2"/>
+          <text x="520" y="418" fill="#a78bfa" font-size="11" font-weight="bold">L2 Data Link</text>
+          <text x="520" y="434" fill="#94a3b8" font-size="9">Ethernet 프레임 해석</text>
+
+          <!-- L3 -->
+          <rect x="500" y="340" width="200" height="50" rx="6" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="520" y="358" fill="#38bdf8" font-size="11" font-weight="bold">L3 Network</text>
+          <text x="520" y="374" fill="#94a3b8" font-size="9">IP 헤더 확인</text>
+
+          <!-- L4 -->
+          <rect x="500" y="280" width="200" height="50" rx="6" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="520" y="298" fill="#34d399" font-size="11" font-weight="bold">L4 Transport</text>
+          <text x="520" y="314" fill="#94a3b8" font-size="9">Port 443으로 라우팅</text>
+
+          <!-- L5 -->
+          <rect x="500" y="220" width="200" height="50" rx="6" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="520" y="238" fill="#fbbf24" font-size="11" font-weight="bold">L5 Session</text>
+          <text x="520" y="254" fill="#94a3b8" font-size="9">세션 복원</text>
+
+          <!-- L6 -->
+          <rect x="500" y="160" width="200" height="50" rx="6" fill="#22263a" stroke="#fb923c" stroke-width="2"/>
+          <text x="520" y="178" fill="#fb923c" font-size="11" font-weight="bold">L6 Presentation</text>
+          <text x="520" y="194" fill="#94a3b8" font-size="9">TLS 복호화 + 압축 해제</text>
+
+          <!-- L7 -->
+          <rect x="500" y="90" width="200" height="60" rx="6" fill="#22263a" stroke="#f87171" stroke-width="2"/>
+          <text x="520" y="110" fill="#f87171" font-size="11" font-weight="bold">L7 Application</text>
+          <text x="520" y="128" fill="#94a3b8" font-size="9">API 요청 처리</text>
+          <text x="520" y="142" fill="#94a3b8" font-size="9">응답: { users: [...] }</text>
+
+          <!-- 흐름 화살표 -->
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#7c6af7"/>
+            </marker>
+          </defs>
+
+          <!-- 송신 화살표 -->
+          <line x1="150" y1="520" x2="150" y2="540" stroke="#7c6af7" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="165" y="535" fill="#7c6af7" font-size="10">캡슐화</text>
+
+          <line x1="250" y1="485" x2="310" y2="350" stroke="#7c6af7" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="440" y1="350" x2="500" y2="485" stroke="#7c6af7" stroke-width="2" marker-end="url(#arrow)"/>
+
+          <!-- 수신 화살표 -->
+          <line x1="600" y1="520" x2="600" y2="540" stroke="#34d399" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="560" y="535" fill="#34d399" font-size="10">역캡슐화</text>
+
+          <!-- 하단 설명 -->
+          <text x="375" y="575" fill="#64748b" font-size="11" text-anchor="middle">
+            ⬇ 송신: 각 계층이 헤더 추가 (캡슐화) | ⬆ 수신: 각 계층이 헤더 제거 (역캡슐화)
+          </text>
+        </svg>
+      </div>
+      <p>
+        <strong>다이어그램 해석:</strong>
+      </p>
+      <ul>
+        <li>송신 측은 <strong>L7 → L1</strong> 순서로 내려가며 각 계층의 헤더를 추가 (캡슐화)</li>
+        <li>수신 측은 <strong>L1 → L7</strong> 순서로 올라가며 각 계층의 헤더를 제거 (역캡슐화)</li>
+        <li>실제 네트워크에서는 중간에 라우터(L3), 스위치(L2), 방화벽/IPS(L3~L7) 등이 개입</li>
+      </ul>
+    </div>
+
+    <!-- 실무 팁 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        실무에서 자주 쓰는 표현
+      </div>
+
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>표현</th>
+            <th>의미</th>
+            <th>예시</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>L4 로드밸런서</strong></td>
+            <td>Transport 계층(포트)에서 부하 분산</td>
+            <td>AWS NLB, HAProxy (포트 80/443 분산)</td>
+          </tr>
+          <tr>
+            <td><strong>L7 로드밸런서</strong></td>
+            <td>Application 계층(URL 경로, 헤더)에서 부하 분산</td>
+            <td>AWS ALB, Nginx (경로 기반 라우팅)</td>
+          </tr>
+          <tr>
+            <td><strong>L3 스위치</strong></td>
+            <td>IP 라우팅 기능이 있는 스위치</td>
+            <td>VLAN 간 라우팅</td>
+          </tr>
+          <tr>
+            <td><strong>L2 네트워크</strong></td>
+            <td>같은 브로드캐스트 도메인 (MAC 주소로 통신)</td>
+            <td>같은 사무실 네트워크</td>
+          </tr>
+          <tr>
+            <td><strong>L7 방화벽 (WAF)</strong></td>
+            <td>HTTP 요청 내용을 분석하여 차단</td>
+            <td>SQL Injection, XSS 차단</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>장애 진단 시 계층별 접근법</strong></p>
+      <ul>
+        <li><strong>L1 문제</strong>: 랜선 뽑혔나? LED 안 들어오나? → 물리적 연결 확인</li>
+        <li><strong>L2 문제</strong>: ARP 테이블 확인, MAC 주소 충돌</li>
+        <li><strong>L3 문제</strong>: <code>ping</code> 안 되나? 라우팅 테이블 확인</li>
+        <li><strong>L4 문제</strong>: 포트 열려있나? <code>telnet host 443</code> 확인</li>
+        <li><strong>L7 문제</strong>: HTTP 응답 코드 500? 애플리케이션 로그 확인</li>
+      </ul>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">TCP/IP 4계층 모델</span>
+        <span class="related-tag">3-Way Handshake</span>
+        <span class="related-tag">ARP (Address Resolution Protocol)</span>
+        <span class="related-tag">DNS (Domain Name System)</span>
+        <span class="related-tag">NAT (Network Address Translation)</span>
+        <span class="related-tag">VLAN (Virtual LAN)</span>
+        <span class="related-tag">CDN (Content Delivery Network)</span>
+        <span class="related-tag">Load Balancer (L4/L7)</span>
+        <span class="related-tag">Proxy vs Reverse Proxy</span>
+        <span class="related-tag">MTU (Maximum Transmission Unit)</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/DevOps-인프라/네트워크-기초/index.html" class="nav-link">← 네트워크 기초 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
