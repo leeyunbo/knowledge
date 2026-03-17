@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Outbox 패턴 완벽 이해 — 메시지 신뢰성 · 시스템 설계</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a;
+      --border: #2e3250; --accent: #7c6af7; --accent2: #a78bfa;
+      --accent3: #38bdf8; --text: #e2e8f0; --text2: #94a3b8;
+      --text3: #64748b; --green: #34d399; --yellow: #fbbf24; --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 16px; line-height: 1.75; min-height: 100vh; }
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+    .breadcrumb { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem; flex-wrap: wrap; }
+    .breadcrumb a { color: var(--text3); text-decoration: none; transition: color 0.2s; }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+    .page-header { margin-bottom: 3rem; }
+    .tag { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3); color: var(--accent2); border-radius: 20px; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500; margin-bottom: 1rem; }
+    h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); font-weight: 700; line-height: 1.3; background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 0.75rem; }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+    .card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; margin-bottom: 1.5rem; }
+    .card-header { display: flex; align-items: center; gap: 0.6rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); margin-bottom: 1.25rem; }
+    .card-header .icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    .icon-answer  { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep    { background: rgba(52,211,153,0.2); }
+    .icon-visual  { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+    .highlight-box { background: rgba(124,106,247,0.08); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; font-size: 1.05rem; }
+    .warn-box { background: rgba(248,113,113,0.07); border-left: 3px solid var(--red); border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; color: var(--text2); }
+    .good-box { background: rgba(52,211,153,0.07); border-left: 3px solid var(--green); border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1rem 0; color: var(--text2); }
+    h2 { font-size: 1.05rem; font-weight: 600; color: var(--text); margin: 1.5rem 0 0.75rem; }
+    h2:first-child { margin-top: 0; }
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+    code { font-family: var(--mono); background: var(--bg3); border: 1px solid var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; color: var(--accent3); }
+    pre { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; overflow-x: auto; margin: 1rem 0; }
+    pre code { background: none; border: none; padding: 0; font-size: 0.88rem; color: var(--text); line-height: 1.7; }
+    .cm { color: #4a5578; }
+    .kw { color: #c792ea; }
+    .ty { color: var(--accent3); }
+    .st { color: var(--green); }
+    .fn { color: var(--yellow); }
+    .an { color: #f8b4b4; }
+    .diagram-wrap { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; text-align: center; margin: 1rem 0; overflow-x: auto; }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+    .compare-table { width: 100%; border-collapse: collapse; }
+    .compare-table th, .compare-table td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+    .compare-table th { color: var(--text3); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.8rem; transition: all 0.2s; cursor: default; }
+    .related-tag:hover { border-color: var(--accent); color: var(--accent2); background: rgba(124,106,247,0.1); }
+    .bottom-nav { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .nav-link { display: flex; align-items: center; gap: 0.5rem; color: var(--text3); text-decoration: none; font-size: 0.85rem; transition: color 0.2s; }
+    .nav-link:hover { color: var(--accent2); }
+    @media (max-width: 640px) { .container { padding: 1.5rem 1rem 4rem; } .card { padding: 1.25rem; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/시스템-설계/index.html">시스템 설계</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/시스템-설계/메시지-신뢰성/index.html">메시지 신뢰성</a>
+      <span class="sep">›</span>
+      <span class="current">Outbox 패턴</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Outbox 패턴 완벽 이해</h1>
+      <p class="meta">시스템 설계 · 메시지 신뢰성 · 2026-03-17 · <span style="color: var(--accent2)">realtime-chat 프로젝트 기반</span></p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Outbox 패턴은 <strong>DB 저장과 외부 시스템 연동을 같은 트랜잭션으로 묶는 것이 불가능할 때</strong>,
+        "나중에 처리할 작업"을 같은 DB에 기록해두고 별도 프로세스가 처리하게 만드는 패턴이다.
+        외부 시스템 장애가 도메인 로직에 영향을 주지 않게 격리된다.
+      </div>
+      <p>
+        <strong>realtime-chat 프로젝트의 문제</strong>: 채팅 메시지를 DB에 저장하면서 동시에 Elasticsearch에도 인덱싱해야 한다.
+        만약 서비스가 직접 ES를 호출하다가 ES가 일시 장애이면 — 메시지는 저장됐는데 검색 인덱스에는 없는 상태가 생긴다.
+      </p>
+      <p>
+        Outbox 패턴은 이 문제를 <strong>트랜잭션 경계를 DB 하나로 좁히는 방식</strong>으로 해결한다.
+        메시지 저장과 outbox 이벤트 기록을 같은 트랜잭션으로 묶고, 별도 프로세스(OutboxProcessor)가 나중에 ES에 인덱싱한다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        문제 상황 — Outbox 없이 직접 ES를 호출하면
+      </div>
+
+      <div class="warn-box">
+        <strong>❌ 위험한 코드 (Outbox 없음)</strong>
+      </div>
+      <pre><code><span class="an">@Transactional</span>
+<span class="kw">public</span> <span class="ty">SendResult</span> <span class="fn">sendMessage</span>(<span class="ty">SendMessageRequest</span> req) {
+    <span class="ty">Message</span> msg = messageRepository.save(<span class="ty">Message</span>.create(...));
+
+    <span class="cm">// ⚡ 여기서 ES가 죽거나 네트워크가 끊기면?</span>
+    esClient.index(i -> i.index(<span class="st">"messages"</span>).id(...).withJson(...));
+    <span class="cm">// → DB엔 저장됐지만 검색에선 영영 안 보임 💀</span>
+}</code></pre>
+
+      <p>두 시스템은 서로 다른 트랜잭션 경계를 가지므로 원자성을 보장할 수 없다. DB 커밋이 성공해도 ES 호출이 실패할 수 있고, 반대 순서도 마찬가지다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        실제 구현 — realtime-chat 프로젝트 코드 분석
+      </div>
+
+      <h2>1단계: Message Entity가 도메인 이벤트를 등록</h2>
+      <p><code>BaseEntity</code>가 Spring의 <code>AbstractAggregateRoot</code>를 상속한다. 덕분에 <code>registerEvent()</code>로 이벤트를 모아두고, <code>repository.save()</code> 시점에 Spring이 자동 발행한다.</p>
+      <pre><code><span class="cm">// Message.java — 도메인 이벤트를 자신이 등록</span>
+<span class="kw">public static</span> <span class="ty">Message</span> <span class="fn">create</span>(<span class="ty">ChatRoom</span> chatRoom, <span class="ty">User</span> sender, ...) {
+    <span class="ty">Message</span> msg = <span class="kw">new</span> <span class="ty">Message</span>(chatRoom, sender, content, ...);
+    msg.registerEvent(<span class="kw">new</span> <span class="ty">MessageDomainEvent</span>(<span class="ty">EventType</span>.CREATED, msg));
+    <span class="kw">return</span> msg;
+}
+
+<span class="kw">public void</span> <span class="fn">edit</span>(<span class="ty">Long</span> userId, <span class="ty">String</span> newContent) {
+    this.content = newContent;
+    this.edited = <span class="kw">true</span>;
+    registerEvent(<span class="kw">new</span> <span class="ty">MessageDomainEvent</span>(<span class="ty">EventType</span>.UPDATED, <span class="kw">this</span>));
+}
+
+<span class="kw">public void</span> <span class="fn">markDeleted</span>(<span class="ty">Long</span> userId) {
+    this.deleted = <span class="kw">true</span>;
+    registerEvent(<span class="kw">new</span> <span class="ty">MessageDomainEvent</span>(<span class="ty">EventType</span>.DELETED, <span class="kw">this</span>));
+}</code></pre>
+
+      <h2>2단계: OutboxEventPublisher가 outbox 테이블에 저장</h2>
+      <p><code>MessageDomainEvent</code>를 수신하면, Message를 JSON으로 직렬화하고 <strong>같은 트랜잭션 안에서</strong> <code>outbox_event</code> 테이블에 저장한다.</p>
+      <pre><code><span class="cm">// OutboxEventPublisher.java</span>
+<span class="an">@EventListener</span>  <span class="cm">// 동일 트랜잭션에서 호출됨</span>
+<span class="kw">public void</span> <span class="fn">handle</span>(<span class="ty">MessageDomainEvent</span> domainEvent) {
+    <span class="ty">Message</span> message = domainEvent.message();
+    <span class="ty">String</span> payload = toJson(<span class="ty">MessageDocument</span>.from(message));
+
+    <span class="ty">OutboxEvent</span> outboxEvent = <span class="kw">switch</span> (domainEvent.eventType()) {
+        <span class="kw">case</span> CREATED -> <span class="ty">OutboxEvent</span>.messageCreated(message.getId(), payload);
+        <span class="kw">case</span> UPDATED -> <span class="ty">OutboxEvent</span>.messageUpdated(message.getId(), payload);
+        <span class="kw">case</span> DELETED -> <span class="ty">OutboxEvent</span>.messageDeleted(message.getId(), payload);
+    };
+    outboxEventRepository.save(outboxEvent); <span class="cm">// DB 커밋과 함께 원자적으로 저장</span>
+
+    <span class="cm">// 즉시 처리 시도를 위한 이벤트 발행 (트랜잭션 밖에서 실행됨)</span>
+    eventPublisher.publishEvent(<span class="kw">new</span> <span class="ty">OutboxEventCreatedEvent</span>(outboxEvent.getId()));
+}</code></pre>
+
+      <div class="good-box">
+        <strong>핵심:</strong> 메시지 저장 트랜잭션이 커밋되면 outbox 이벤트도 반드시 함께 커밋된다. 트랜잭션이 롤백되면 둘 다 롤백된다. 이것이 Outbox 패턴의 본질이다.
+      </div>
+
+      <h2>3단계: OutboxProcessor의 이중 처리 전략</h2>
+      <p>프로젝트는 <strong>즉시 처리 + 폴링 안전망</strong> 두 레이어로 처리한다.</p>
+      <pre><code><span class="cm">// OutboxProcessor.java</span>
+
+<span class="cm">// ① 즉시 처리: 트랜잭션 커밋 직후 비동기로 ES 인덱싱 시도</span>
+<span class="an">@Async</span>
+<span class="an">@TransactionalEventListener</span>(phase = <span class="ty">TransactionPhase</span>.AFTER_COMMIT)
+<span class="an">@Transactional</span>(propagation = <span class="ty">Propagation</span>.REQUIRES_NEW)
+<span class="kw">public void</span> <span class="fn">handleOutboxCreated</span>(<span class="ty">OutboxEventCreatedEvent</span> event) {
+    outboxEventRepository.findById(event.outboxEventId())
+        .ifPresent(<span class="kw">this</span>::processEvent);
+}
+
+<span class="cm">// ② 폴링 안전망: 5초마다 미처리 이벤트 재시도</span>
+<span class="an">@Scheduled</span>(fixedDelay = 5000)
+<span class="an">@Transactional</span>
+<span class="kw">public void</span> <span class="fn">pollUnprocessedEvents</span>() {
+    outboxEventRepository
+        .findByProcessedFalseAndRetryCountLessThanOrderByCreatedAtAsc(MAX_RETRY)
+        .forEach(<span class="kw">this</span>::processEvent);
+}
+
+<span class="kw">private void</span> <span class="fn">processEvent</span>(<span class="ty">OutboxEvent</span> event) {
+    <span class="kw">try</span> {
+        <span class="kw">switch</span> (event.getEventType()) {
+            <span class="kw">case</span> CREATED -> esIndexService.index(event.getPayload());
+            <span class="kw">case</span> UPDATED -> esIndexService.update(event.getPayload());
+            <span class="kw">case</span> DELETED -> esIndexService.delete(event.getPayload());
+        }
+        event.markProcessed(); <span class="cm">// processed = true</span>
+
+    } <span class="kw">catch</span> (<span class="ty">Exception</span> e) {
+        event.incrementRetry(); <span class="cm">// retryCount++</span>
+        <span class="kw">if</span> (event.getRetryCount() >= MAX_RETRY) { <span class="cm">// 5회 초과</span>
+            deadLetterEventRepository.save(<span class="ty">DeadLetterEvent</span>.from(event));
+            event.markProcessed(); <span class="cm">// DLQ로 이동 후 종료</span>
+        }
+    }
+}</code></pre>
+
+      <p><strong>왜 즉시 처리와 폴링 둘 다 쓰나?</strong></p>
+      <ul>
+        <li><strong>즉시 처리</strong>: 정상 케이스에서 메시지 전송 직후 거의 즉시 검색 가능</li>
+        <li><strong>폴링 안전망</strong>: 즉시 처리가 실패했을 때 (ES 일시 장애, 서버 재시작 등) 최대 5초 내 재시도</li>
+      </ul>
+
+      <h2>Dead Letter Queue (DLQ)</h2>
+      <p>5회 재시도 후에도 실패하면 <code>dead_letter_event</code> 테이블로 이동한다. 이 레코드는 수동으로 확인하고 재처리하거나 알림을 발송하는 용도로 쓴다.</p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화 — realtime-chat 프로젝트 Outbox 전체 흐름
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 740 480" xmlns="http://www.w3.org/2000/svg" font-family="'JetBrains Mono', monospace" font-size="10.5">
+          <defs>
+            <marker id="a" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#64748b"/></marker>
+            <marker id="ag" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#34d399"/></marker>
+            <marker id="ap" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#a78bfa"/></marker>
+            <marker id="ay" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#fbbf24"/></marker>
+            <marker id="ar" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#f87171"/></marker>
+          </defs>
+
+          <!-- ─── 상단: 트랜잭션 영역 ─── -->
+          <!-- ChatMessageService -->
+          <rect x="20" y="20" width="150" height="55" rx="8" fill="#1a1d27" stroke="#7c6af7" stroke-width="2"/>
+          <text x="95" y="42" text-anchor="middle" fill="#a78bfa" font-weight="600">ChatMessageService</text>
+          <text x="95" y="58" text-anchor="middle" fill="#64748b">messageRepository</text>
+          <text x="95" y="71" text-anchor="middle" fill="#64748b">.save(Message.create())</text>
+
+          <!-- 화살표: Service → Message.create() -->
+          <line x1="170" y1="48" x2="215" y2="48" stroke="#64748b" stroke-width="1.2" marker-end="url(#a)"/>
+          <text x="192" y="43" text-anchor="middle" fill="#64748b" font-size="9">publish</text>
+
+          <!-- MessageDomainEvent -->
+          <rect x="215" y="28" width="148" height="40" rx="6" fill="#22263a" stroke="#2e3250"/>
+          <text x="289" y="45" text-anchor="middle" fill="#94a3b8">MessageDomainEvent</text>
+          <text x="289" y="60" text-anchor="middle" fill="#64748b">CREATED/UPDATED/DELETED</text>
+
+          <!-- 화살표: DomainEvent → Publisher -->
+          <line x1="363" y1="48" x2="408" y2="48" stroke="#64748b" stroke-width="1.2" marker-end="url(#a)"/>
+          <text x="385" y="43" text-anchor="middle" fill="#64748b" font-size="9">@EventListener</text>
+
+          <!-- OutboxEventPublisher -->
+          <rect x="408" y="20" width="155" height="55" rx="8" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="485" y="42" text-anchor="middle" fill="#38bdf8" font-weight="600">OutboxEventPublisher</text>
+          <text x="485" y="58" text-anchor="middle" fill="#64748b">toJson(MessageDocument)</text>
+          <text x="485" y="71" text-anchor="middle" fill="#64748b">outboxEventRepo.save()</text>
+
+          <!-- 트랜잭션 경계 박스 -->
+          <rect x="10" y="10" width="563" height="74" rx="10" fill="none" stroke="#38bdf8" stroke-width="1" stroke-dasharray="5,3"/>
+          <text x="15" y="97" fill="#38bdf8" font-size="9">하나의 DB 트랜잭션 (커밋되면 messages + outbox_event 모두 저장)</text>
+
+          <!-- ─── 중단: DB 테이블들 ─── -->
+          <!-- PostgreSQL box -->
+          <rect x="10" y="110" width="563" height="145" rx="8" fill="#1a1d27" stroke="#2e3250" stroke-width="1.5"/>
+          <text x="290" y="130" text-anchor="middle" fill="#94a3b8" font-weight="600">PostgreSQL</text>
+          <line x1="10" y1="136" x2="573" y2="136" stroke="#2e3250"/>
+
+          <!-- messages 테이블 -->
+          <rect x="30" y="146" width="235" height="90" rx="6" fill="#22263a" stroke="#2e3250"/>
+          <text x="148" y="164" text-anchor="middle" fill="#94a3b8" font-weight="600">messages</text>
+          <line x1="30" y1="170" x2="265" y2="170" stroke="#2e3250"/>
+          <text x="46" y="186" fill="#64748b">id, chatroom_id, sender_id</text>
+          <text x="46" y="201" fill="#64748b">content, type, deleted</text>
+          <text x="46" y="216" fill="#64748b">edited, unread_count ...</text>
+          <text x="46" y="230" fill="#64748b">created_at, updated_at</text>
+
+          <!-- outbox_event 테이블 -->
+          <rect x="290" y="146" width="255" height="90" rx="6" fill="#22263a" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="417" y="164" text-anchor="middle" fill="#a78bfa" font-weight="600">outbox_event</text>
+          <line x1="290" y1="170" x2="545" y2="170" stroke="#2e3250"/>
+          <text x="306" y="186" fill="#64748b">id, aggregate_type ("MESSAGE")</text>
+          <text x="306" y="201" fill="#64748b">aggregate_id (message.id)</text>
+          <text x="306" y="216" fill="#a78bfa">event_type: CREATED/UPDATED/DELETED</text>
+          <text x="306" y="230" fill="#64748b">payload (JSON), processed, retry_count</text>
+
+          <!-- ─── 하단 좌: OutboxProcessor ─── -->
+          <rect x="10" y="290" width="230" height="120" rx="8" fill="#1a1d27" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="125" y="310" text-anchor="middle" fill="#fbbf24" font-weight="600">OutboxProcessor</text>
+          <line x1="10" y1="317" x2="240" y2="317" stroke="#2e3250"/>
+          <text x="26" y="333" fill="#94a3b8">① @Async @TransactionalEventListener</text>
+          <text x="26" y="349" fill="#64748b">   트랜잭션 커밋 직후 즉시 시도</text>
+          <text x="26" y="368" fill="#94a3b8">② @Scheduled(fixedDelay=5000)</text>
+          <text x="26" y="384" fill="#64748b">   5초마다 PENDING 이벤트 재시도</text>
+          <text x="26" y="400" fill="#f87171">   5회 실패 → DLQ 이동</text>
+
+          <!-- ─── 하단 중: Elasticsearch ─── -->
+          <rect x="280" y="310" width="175" height="80" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+          <text x="368" y="330" text-anchor="middle" fill="#34d399" font-weight="600">Elasticsearch</text>
+          <line x1="280" y1="338" x2="455" y2="338" stroke="#2e3250"/>
+          <text x="296" y="356" fill="#64748b">messages 인덱스</text>
+          <text x="296" y="373" fill="#64748b">index / update / delete</text>
+
+          <!-- ─── 하단 우: DLQ ─── -->
+          <rect x="490" y="310" width="200" height="80" rx="8" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="590" y="330" text-anchor="middle" fill="#f87171" font-weight="600">dead_letter_event</text>
+          <line x1="490" y1="338" x2="690" y2="338" stroke="#2e3250"/>
+          <text x="506" y="356" fill="#64748b">5회 실패한 이벤트 보관</text>
+          <text x="506" y="373" fill="#64748b">수동 확인 / 재처리</text>
+
+          <!-- 화살표들 -->
+          <!-- Publisher → outbox_event (저장) -->
+          <line x1="485" y1="75" x2="430" y2="144" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ap)"/>
+          <text x="448" y="116" fill="#a78bfa" font-size="9">save</text>
+
+          <!-- Publisher → OutboxEventCreatedEvent (비동기 트리거) -->
+          <line x1="485" y1="75" x2="155" y2="288" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#ay)"/>
+          <text x="290" y="205" fill="#fbbf24" font-size="9">OutboxEventCreatedEvent</text>
+
+          <!-- Processor ← DB (폴링) -->
+          <line x1="290" y1="215" x2="215" y2="290" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#ay)"/>
+          <text x="225" y="257" fill="#fbbf24" font-size="9">poll PENDING</text>
+
+          <!-- Processor → ES -->
+          <line x1="240" y1="345" x2="278" y2="355" stroke="#34d399" stroke-width="1.5" marker-end="url(#ag)"/>
+          <text x="259" y="339" text-anchor="middle" fill="#34d399" font-size="9">index</text>
+
+          <!-- Processor → DLQ -->
+          <line x1="240" y1="395" x2="488" y2="370" stroke="#f87171" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#ar)"/>
+          <text x="365" y="400" fill="#f87171" font-size="9">5회 초과 → DLQ</text>
+        </svg>
+      </div>
+      <p>
+        <strong>파란 점선 박스</strong> 안은 하나의 DB 트랜잭션 — 커밋이 성공하면 <code>messages</code>와 <code>outbox_event</code>가 동시에 저장된다.
+        이후 OutboxProcessor가 두 가지 경로로 Elasticsearch 인덱싱을 보장한다.
+      </p>
+    </div>
+
+    <!-- 트레이드오프 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        이 구현의 트레이드오프
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr><th>항목</th><th>realtime-chat 구현</th><th>비고</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>신뢰성</td>
+            <td style="color: var(--green)">At-least-once 보장</td>
+            <td>폴링 안전망 덕분</td>
+          </tr>
+          <tr>
+            <td>ES 동기화 지연</td>
+            <td style="color: var(--green)">즉시 ~ 5초 이내</td>
+            <td>즉시 처리 성공 시 거의 즉시</td>
+          </tr>
+          <tr>
+            <td>중복 인덱싱 가능성</td>
+            <td style="color: var(--yellow)">있음</td>
+            <td>ES는 같은 doc_id로 덮어쓰므로 무해</td>
+          </tr>
+          <tr>
+            <td>재시도 전략</td>
+            <td style="color: var(--yellow)">고정 5회</td>
+            <td>Exponential backoff 적용 시 개선 가능</td>
+          </tr>
+          <tr>
+            <td>폴링 DB 부하</td>
+            <td style="color: var(--yellow)">5초마다 쿼리</td>
+            <td><code>processed=false</code> 인덱스가 있으면 경량</td>
+          </tr>
+          <tr>
+            <td>DLQ 처리</td>
+            <td style="color: var(--yellow)">수동 확인 필요</td>
+            <td>알람/재처리 로직 추가 가능</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">AbstractAggregateRoot (Spring)</span>
+        <span class="related-tag">@TransactionalEventListener</span>
+        <span class="related-tag">At-least-once 전달</span>
+        <span class="related-tag">멱등성 (Idempotency)</span>
+        <span class="related-tag">Dead Letter Queue (DLQ)</span>
+        <span class="related-tag">CDC (Change Data Capture)</span>
+        <span class="related-tag">Debezium</span>
+        <span class="related-tag">Saga 패턴</span>
+        <span class="related-tag">분산 트랜잭션 (2PC)</span>
+        <span class="related-tag">Transactional Outbox Pattern</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/시스템-설계/메시지-신뢰성/index.html" class="nav-link">← 메시지 신뢰성 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
