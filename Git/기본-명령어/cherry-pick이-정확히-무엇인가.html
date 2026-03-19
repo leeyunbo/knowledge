@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>git cherry-pick이란? — 기본 명령어 · Git</title>
+  <style>
+    /* 전체 리셋 & 변수 */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    html, body {
+      overflow-x: hidden;
+      max-width: 100vw;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    /* 레이아웃 */
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; overflow-x: hidden; }
+
+    /* 브레드크럼 */
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+    }
+    .breadcrumb a {
+      color: var(--text3); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    /* 헤더 */
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    /* 섹션 카드 */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    /* 강조 박스 */
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+      overflow-x: auto;
+    }
+
+    /* 리스트 */
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    /* 코드 */
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+      max-width: 100%;
+      overflow-wrap: break-word;
+      word-break: break-all;
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+      word-break: normal;
+    }
+
+    /* SVG 다이어그램 영역 */
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    /* 비교 테이블 */
+    .table-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      margin: 1rem 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    /* 스크롤 힌트: 오른쪽 그림자 */
+    .table-wrap::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 30px;
+      height: 100%;
+      background: linear-gradient(to right, transparent, rgba(15,17,23,0.8));
+      pointer-events: none;
+    }
+    .table-wrap::-webkit-scrollbar { height: 8px; }
+    .table-wrap::-webkit-scrollbar-track { background: var(--bg3); }
+    .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .table-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    .compare-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+    }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* 연관 개념 태그 */
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    /* 하단 네비게이션 */
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    /* 반응형 */
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+
+      /* 모바일에서 테이블 폰트/패딩 축소 + 스크롤 유지 */
+      .compare-table th, .compare-table td {
+        padding: 0.5rem 0.6rem;
+        font-size: 0.8rem;
+      }
+      .compare-table th {
+        font-size: 0.65rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/Git/index.html">Git</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/Git/기본-명령어/index.html">기본 명령어</a>
+      <span class="sep">›</span>
+      <span class="current">cherry-pick</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>git cherry-pick이란 무엇인가?</h1>
+      <p class="meta">Git · 기본 명령어 · 2026-03-19</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <strong>git cherry-pick</strong>은 다른 브랜치의 <strong>특정 커밋만 골라서</strong> 현재 브랜치에 적용하는 명령어입니다. 마치 체리를 하나씩 골라 따듯이, 원하는 커밋만 선택해서 가져옵니다.
+      </div>
+
+      <p><strong>기본 사용법:</strong></p>
+      <pre><code># 특정 커밋 하나 가져오기
+git cherry-pick &lt;commit-hash&gt;
+
+# 예시: abc123 커밋을 현재 브랜치에 적용
+git cherry-pick abc123
+
+# 여러 커밋 가져오기
+git cherry-pick abc123 def456 ghi789
+
+# 범위로 가져오기 (A 다음부터 B까지)
+git cherry-pick A..B</code></pre>
+
+      <p><strong>언제 사용하나요?</strong></p>
+      <ul>
+        <li><strong>핫픽스 전파</strong>: production 브랜치의 버그 수정을 develop에도 적용</li>
+        <li><strong>기능 일부만 가져오기</strong>: feature 브랜치 전체가 아닌 특정 커밋만 필요할 때</li>
+        <li><strong>실수 복구</strong>: 잘못된 브랜치에 커밋했을 때, 올바른 브랜치로 이동</li>
+        <li><strong>릴리즈 선별</strong>: 특정 기능만 먼저 릴리즈할 때</li>
+      </ul>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <p><strong>커밋(Commit)이란?</strong><br>
+      Git에서 커밋은 코드 변경사항의 스냅샷입니다. 각 커밋은 고유한 해시(SHA-1)를 가지며, 부모 커밋에 대한 참조와 변경 내용을 포함합니다.</p>
+
+      <p><strong>브랜치 간 코드 이동 방법 비교</strong></p>
+      <ul>
+        <li><code>git merge</code>: 브랜치 전체를 합침 (히스토리 포함)</li>
+        <li><code>git rebase</code>: 브랜치의 베이스를 옮김 (히스토리 재작성)</li>
+        <li><code>git cherry-pick</code>: 특정 커밋만 복사해서 적용</li>
+      </ul>
+
+      <p><strong>cherry-pick의 원리</strong><br>
+      cherry-pick은 선택한 커밋의 <strong>변경사항(diff)을 복사</strong>해서 현재 브랜치에 <strong>새 커밋</strong>으로 만듭니다. 원본 커밋을 이동시키는 게 아니라 <strong>복제</strong>하는 것이므로, 새 커밋은 다른 해시를 갖습니다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>주요 옵션들</strong></p>
+
+      <pre><code># 커밋 메시지 수정하며 가져오기
+git cherry-pick -e &lt;commit&gt;
+
+# 커밋하지 않고 변경사항만 스테이징
+git cherry-pick -n &lt;commit&gt;
+git cherry-pick --no-commit &lt;commit&gt;
+
+# 원본 커밋 정보를 메시지에 추가
+git cherry-pick -x &lt;commit&gt;
+# 결과: (cherry picked from commit abc123...)
+
+# Merge 커밋을 cherry-pick할 때 부모 지정
+git cherry-pick -m 1 &lt;merge-commit&gt;</code></pre>
+
+      <p><strong>충돌(Conflict) 해결</strong></p>
+
+      <p>cherry-pick 중 충돌이 발생하면:</p>
+
+      <pre><code># 1. 충돌 파일 확인
+git status
+
+# 2. 충돌 해결 후 스테이징
+git add &lt;resolved-files&gt;
+
+# 3. cherry-pick 계속 진행
+git cherry-pick --continue
+
+# 또는 취소하고 원래 상태로
+git cherry-pick --abort
+
+# 현재 커밋 건너뛰기 (여러 커밋 중일 때)
+git cherry-pick --skip</code></pre>
+
+      <p><strong>실무 시나리오: 핫픽스 적용</strong></p>
+
+      <pre><code># 상황: main 브랜치에 긴급 버그 수정을 했는데,
+# 이걸 develop 브랜치에도 적용해야 함
+
+# 1. main에서 버그 수정 커밋 확인
+git log main --oneline
+# abc123 fix: critical payment bug
+
+# 2. develop 브랜치로 이동
+git checkout develop
+
+# 3. 해당 커밋만 가져오기
+git cherry-pick abc123
+
+# 4. 완료! develop에도 버그 수정이 적용됨</code></pre>
+
+      <p><strong>주의사항</strong></p>
+
+      <ul>
+        <li><strong>중복 커밋 주의</strong>: 같은 변경사항이 두 브랜치에 다른 해시로 존재하게 됨. 나중에 merge 시 충돌 가능성</li>
+        <li><strong>의존성 있는 커밋</strong>: A 커밋이 B 커밋에 의존하면, B 없이 A만 cherry-pick하면 문제 발생 가능</li>
+        <li><strong>Merge 커밋</strong>: merge 커밋은 두 부모가 있어서 <code>-m</code> 옵션 필수</li>
+        <li><strong>히스토리 정리</strong>: 남용하면 히스토리가 복잡해짐. 가능하면 merge/rebase 우선 고려</li>
+      </ul>
+
+      <p><strong>cherry-pick vs rebase vs merge</strong></p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>상황</th>
+              <th>권장 명령</th>
+              <th>이유</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>브랜치 전체를 합치고 싶음</td>
+              <td data-label="권장 명령"><code>merge</code></td>
+              <td data-label="이유">히스토리 보존, 안전함</td>
+            </tr>
+            <tr>
+              <td>깔끔한 선형 히스토리 원함</td>
+              <td data-label="권장 명령"><code>rebase</code></td>
+              <td data-label="이유">커밋 재정렬, 깔끔함</td>
+            </tr>
+            <tr>
+              <td>특정 커밋 1-2개만 필요</td>
+              <td data-label="권장 명령"><code>cherry-pick</code></td>
+              <td data-label="이유">선별적 적용 가능</td>
+            </tr>
+            <tr>
+              <td>핫픽스를 여러 브랜치에 전파</td>
+              <td data-label="권장 명령"><code>cherry-pick</code></td>
+              <td data-label="이유">정확히 같은 수정만 적용</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg width="650" height="320" xmlns="http://www.w3.org/2000/svg">
+          <!-- Background -->
+          <rect width="650" height="320" fill="#1a1d27"/>
+
+          <!-- Title -->
+          <text x="325" y="25" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#e2e8f0" text-anchor="middle">
+            git cherry-pick 동작 원리
+          </text>
+
+          <!-- Before Section -->
+          <text x="170" y="55" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#94a3b8" text-anchor="middle">
+            BEFORE
+          </text>
+
+          <!-- Feature branch (before) -->
+          <text x="50" y="85" font-family="Arial, sans-serif" font-size="11" fill="#a78bfa">feature</text>
+          <line x1="90" y1="100" x2="290" y2="100" stroke="#7c6af7" stroke-width="2"/>
+
+          <circle cx="120" cy="100" r="12" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="120" y="104" font-family="monospace" font-size="9" fill="#e2e8f0" text-anchor="middle">A</text>
+
+          <circle cx="170" cy="100" r="12" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="170" y="104" font-family="monospace" font-size="9" fill="#e2e8f0" text-anchor="middle">B</text>
+
+          <circle cx="220" cy="100" r="14" fill="#34d399" stroke="#34d399" stroke-width="2"/>
+          <text x="220" y="104" font-family="monospace" font-size="9" fill="#0f1117" text-anchor="middle" font-weight="bold">C</text>
+          <text x="220" y="130" font-family="Arial, sans-serif" font-size="9" fill="#34d399" text-anchor="middle">이 커밋!</text>
+
+          <circle cx="270" cy="100" r="12" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="270" y="104" font-family="monospace" font-size="9" fill="#e2e8f0" text-anchor="middle">D</text>
+
+          <!-- Main branch (before) -->
+          <text x="50" y="175" font-family="Arial, sans-serif" font-size="11" fill="#38bdf8">main</text>
+          <line x1="90" y1="190" x2="230" y2="190" stroke="#38bdf8" stroke-width="2"/>
+
+          <circle cx="120" cy="190" r="12" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="120" y="194" font-family="monospace" font-size="9" fill="#e2e8f0" text-anchor="middle">X</text>
+
+          <circle cx="170" cy="190" r="12" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="170" y="194" font-family="monospace" font-size="9" fill="#e2e8f0" text-anchor="middle">Y</text>
+
+          <circle cx="220" cy="190" r="12" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="220" y="194" font-family="monospace" font-size="9" fill="#e2e8f0" text-anchor="middle">Z</text>
+          <text x="220" y="220" font-family="Arial, sans-serif" font-size="9" fill="#38bdf8" text-anchor="middle">HEAD</text>
+
+          <!-- Arrow -->
+          <path d="M 320 150 L 360 150" stroke="#fbbf24" stroke-width="3" fill="none" marker-end="url(#arrowhead)"/>
+          <text x="340" y="140" font-family="Arial, sans-serif" font-size="10" fill="#fbbf24" text-anchor="middle">cherry-pick C</text>
+
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#fbbf24"/>
+            </marker>
+          </defs>
+
+          <!-- After Section -->
+          <text x="500" y="55" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#94a3b8" text-anchor="middle">
+            AFTER
+          </text>
+
+          <!-- Feature branch (after) - unchanged -->
+          <text x="380" y="85" font-family="Arial, sans-serif" font-size="11" fill="#a78bfa">feature</text>
+          <line x1="420" y1="100" x2="620" y2="100" stroke="#7c6af7" stroke-width="2"/>
+
+          <circle cx="450" cy="100" r="10" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="450" y="104" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">A</text>
+
+          <circle cx="490" cy="100" r="10" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="490" y="104" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">B</text>
+
+          <circle cx="530" cy="100" r="10" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="530" y="104" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">C</text>
+
+          <circle cx="570" cy="100" r="10" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="570" y="104" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">D</text>
+
+          <text x="530" y="125" font-family="Arial, sans-serif" font-size="8" fill="#64748b" text-anchor="middle">원본 유지</text>
+
+          <!-- Main branch (after) - with C' -->
+          <text x="380" y="175" font-family="Arial, sans-serif" font-size="11" fill="#38bdf8">main</text>
+          <line x1="420" y1="190" x2="620" y2="190" stroke="#38bdf8" stroke-width="2"/>
+
+          <circle cx="450" cy="190" r="10" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="450" y="194" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">X</text>
+
+          <circle cx="490" cy="190" r="10" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="490" y="194" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">Y</text>
+
+          <circle cx="530" cy="190" r="10" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="530" y="194" font-family="monospace" font-size="8" fill="#e2e8f0" text-anchor="middle">Z</text>
+
+          <circle cx="580" cy="190" r="14" fill="#34d399" stroke="#34d399" stroke-width="2"/>
+          <text x="580" y="194" font-family="monospace" font-size="9" fill="#0f1117" text-anchor="middle" font-weight="bold">C'</text>
+          <text x="580" y="220" font-family="Arial, sans-serif" font-size="9" fill="#34d399" text-anchor="middle">새 커밋!</text>
+          <text x="580" y="235" font-family="Arial, sans-serif" font-size="8" fill="#64748b" text-anchor="middle">(다른 해시)</text>
+
+          <!-- Explanation -->
+          <rect x="380" y="260" width="240" height="45" rx="6" fill="rgba(52,211,153,0.1)" stroke="#34d399" stroke-width="1"/>
+          <text x="500" y="278" font-family="Arial, sans-serif" font-size="10" fill="#34d399" text-anchor="middle">
+            💡 C의 변경사항을 복사해서
+          </text>
+          <text x="500" y="293" font-family="Arial, sans-serif" font-size="10" fill="#34d399" text-anchor="middle">
+            main에 새 커밋 C'로 생성
+          </text>
+        </svg>
+      </div>
+
+      <p><strong>다이어그램 설명:</strong></p>
+      <ul>
+        <li><strong>C</strong>: feature 브랜치의 원본 커밋 (그대로 유지)</li>
+        <li><strong>C'</strong>: main 브랜치에 새로 생성된 커밋 (같은 내용, 다른 해시)</li>
+        <li>cherry-pick은 커밋을 "이동"이 아닌 "복제"하는 것</li>
+      </ul>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">git merge</span>
+        <span class="related-tag">git rebase</span>
+        <span class="related-tag">git revert</span>
+        <span class="related-tag">git log</span>
+        <span class="related-tag">commit hash</span>
+        <span class="related-tag">HEAD</span>
+        <span class="related-tag">conflict resolution</span>
+        <span class="related-tag">hotfix workflow</span>
+        <span class="related-tag">git reflog</span>
+        <span class="related-tag">interactive rebase</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/Git/기본-명령어/index.html" class="nav-link">← 기본 명령어 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
