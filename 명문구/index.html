@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>✨ 명문구 — 지식 요람</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --warm: #f5c27a;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --serif: 'Noto Serif KR', 'Georgia', serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+
+    /* 브레드크럼 */
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a { color: var(--text3); text-decoration: none; transition: color 0.2s; }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+
+    /* 헤더 */
+    .page-header { text-align: center; margin-bottom: 3.5rem; }
+    .page-header h1 {
+      font-size: clamp(1.8rem, 5vw, 2.5rem);
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--warm) 0%, var(--accent2) 50%, var(--accent3) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+    .page-header p { color: var(--text3); font-size: 0.95rem; }
+    .quote-count {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(245,194,122,0.12); border: 1px solid rgba(245,194,122,0.25);
+      color: var(--warm); border-radius: 20px;
+      padding: 0.2rem 0.7rem; font-size: 0.75rem; font-weight: 500;
+      margin-top: 0.75rem;
+    }
+
+    /* 명문구 카드 */
+    .quote-card {
+      position: relative;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 2rem 2rem;
+      margin-bottom: 1.5rem;
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+    .quote-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--warm), var(--accent2), var(--accent3));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .quote-card:hover {
+      border-color: rgba(245,194,122,0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .quote-card:hover::before { opacity: 1; }
+
+    /* 큰따옴표 장식 */
+    .quote-mark {
+      position: absolute;
+      top: 1rem; left: 1.5rem;
+      font-size: 4rem;
+      line-height: 1;
+      font-family: var(--serif);
+      color: rgba(245,194,122,0.15);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* 인용 본문 */
+    .quote-body {
+      font-family: var(--serif);
+      font-size: 1.15rem;
+      line-height: 1.9;
+      color: var(--text);
+      padding-left: 0.5rem;
+      border-left: 2px solid rgba(245,194,122,0.25);
+      margin-bottom: 1.5rem;
+      font-style: italic;
+      letter-spacing: 0.01em;
+    }
+
+    /* 출처 */
+    .quote-source {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    .source-icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: rgba(245,194,122,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .source-info { flex: 1; }
+    .source-book {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .source-detail {
+      font-size: 0.75rem;
+      color: var(--text3);
+    }
+    .source-date {
+      font-size: 0.7rem;
+      color: var(--text3);
+      flex-shrink: 0;
+    }
+
+    /* 하단 네비게이션 */
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    .nav-link {
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .quote-card { padding: 2rem 1.25rem 1.5rem; }
+      .quote-body { font-size: 1.05rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <span>명문구</span>
+    </nav>
+
+    <header class="page-header">
+      <h1>✨ 명문구</h1>
+      <p>읽다가 마음에 남은 문장들</p>
+      <div class="quote-count">📝 1개 문구</div>
+    </header>
+
+    <!-- QUOTES -->
+    <div class="quote-card">
+      <span class="quote-mark">"</span>
+      <div class="quote-body">
+        여러분의 애플리케이션 아키텍처는 뭐라고 소리치는가?<br>
+        "헬스 케어 시스템이야"라고 소리치는가?<br>
+        아니면 "Spring/Hibernate야"라고 소리치는가?
+      </div>
+      <div class="quote-source">
+        <div class="source-icon">📘</div>
+        <div class="source-info">
+          <div class="source-book">Clean Architecture</div>
+          <div class="source-detail">Robert C. Martin</div>
+        </div>
+        <span class="source-date">2026-03-21</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록으로 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
