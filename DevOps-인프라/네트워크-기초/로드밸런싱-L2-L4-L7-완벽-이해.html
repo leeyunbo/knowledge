@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>로드밸런싱 L2/L4/L7 완벽 이해 — 네트워크 기초 · DevOps 인프라</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a { color: var(--text3); text-decoration: none; transition: color 0.2s; }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+    .icon-compare { background: rgba(124,106,247,0.2); }
+
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+    }
+
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    .compare-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    h3 {
+      font-size: 1.1rem; font-weight: 600; color: var(--accent2);
+      margin: 1.5rem 0 0.75rem; padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h3:first-child { margin-top: 0; }
+
+    .layer-badge {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      padding: 0.2rem 0.6rem; border-radius: 6px;
+      font-size: 0.8rem; font-weight: 600; margin-right: 0.5rem;
+    }
+    .layer-l2 { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+    .layer-l4 { background: rgba(251,191,36,0.15); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
+    .layer-l7 { background: rgba(52,211,153,0.15); color: var(--green); border: 1px solid rgba(52,211,153,0.3); }
+
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+      .compare-table th, .compare-table td { padding: 0.5rem; font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/index.html">DevOps 인프라</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/네트워크-기초/index.html">네트워크 기초</a>
+      <span class="sep">›</span>
+      <span class="current">로드밸런싱 L2/L4/L7</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>로드밸런싱 — L2, L4, L7 완벽 이해</h1>
+      <p class="meta">DevOps 인프라 · 네트워크 기초 · 2026-03-21</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        로드밸런싱은 들어오는 네트워크 트래픽을 여러 서버에 분산시키는 기술이다. OSI 계층 중 <strong>어느 레벨의 정보를 보고 분산 결정을 내리느냐</strong>에 따라 L2, L4, L7 로드밸런싱으로 나뉜다.
+      </div>
+      <p>쉽게 말하면, 로드밸런서는 <strong>교통 경찰</strong>과 같다. 한 도로(서버)에 차가 몰리면 다른 도로로 유도하여 교통 체증(서버 과부하)을 방지한다.</p>
+      <p>핵심 차이는 <strong>"패킷의 어디까지 열어보느냐"</strong>다:</p>
+      <ul>
+        <li><span class="layer-badge layer-l2">L2</span> MAC 주소만 보고 분산 (가장 저수준)</li>
+        <li><span class="layer-badge layer-l4">L4</span> IP + 포트번호까지 보고 분산 (TCP/UDP 레벨)</li>
+        <li><span class="layer-badge layer-l7">L7</span> HTTP 헤더, URL, 쿠키 등 애플리케이션 내용까지 보고 분산 (가장 고수준)</li>
+      </ul>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <h3>왜 로드밸런싱이 필요한가?</h3>
+      <p>단일 서버는 처리할 수 있는 요청 수에 한계가 있다. 트래픽이 늘어나면 두 가지 선택지가 있다:</p>
+      <ul>
+        <li><strong>Scale-Up (수직 확장)</strong>: 서버의 CPU, 메모리를 업그레이드 — 한계가 명확하고 비용이 급격히 증가</li>
+        <li><strong>Scale-Out (수평 확장)</strong>: 서버를 여러 대 두고 트래픽을 분산 — 로드밸런서가 필수</li>
+      </ul>
+
+      <h3>OSI 계층과의 관계</h3>
+      <p>로드밸런싱의 L2, L4, L7은 OSI 7계층 모델에서 유래한다:</p>
+      <ul>
+        <li><strong>L2 (Data Link)</strong>: MAC 주소 기반 — 프레임 단위 처리</li>
+        <li><strong>L4 (Transport)</strong>: TCP/UDP 포트 기반 — 세그먼트 단위 처리</li>
+        <li><strong>L7 (Application)</strong>: HTTP, gRPC 등 — 메시지 단위 처리</li>
+      </ul>
+      <p>계층이 높을수록 더 많은 정보를 볼 수 있지만, 그만큼 처리 비용(오버헤드)이 증가한다.</p>
+
+      <h3>로드밸런싱 알고리즘</h3>
+      <p>어떤 서버로 보낼지 결정하는 알고리즘도 알아야 한다:</p>
+      <ul>
+        <li><strong>Round Robin</strong>: 순서대로 돌아가며 분배 (가장 단순)</li>
+        <li><strong>Weighted Round Robin</strong>: 서버 성능에 따라 가중치 부여</li>
+        <li><strong>Least Connections</strong>: 현재 연결 수가 가장 적은 서버로</li>
+        <li><strong>IP Hash</strong>: 클라이언트 IP 기반 해시로 항상 같은 서버로 (세션 유지)</li>
+        <li><strong>Least Response Time</strong>: 응답 시간이 가장 빠른 서버로</li>
+      </ul>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h3><span class="layer-badge layer-l2">L2</span> L2 로드밸런싱 (Data Link Layer)</h3>
+      <p>MAC 주소를 변경하여 트래픽을 분산한다. 클라이언트가 보낸 프레임의 <strong>목적지 MAC 주소를 실제 서버의 MAC으로 교체</strong>하여 전달하는 방식이다.</p>
+      <ul>
+        <li><strong>동작 원리</strong>: 로드밸런서와 서버들이 같은 네트워크(같은 서브넷, 같은 VIP)에 있어야 한다. IP 주소는 변경하지 않고 MAC 주소만 바꾼다.</li>
+        <li><strong>장점</strong>: IP 변환이 없어 매우 빠르다. 서버가 클라이언트에게 직접 응답 가능 (DSR — Direct Server Return)</li>
+        <li><strong>단점</strong>: 같은 네트워크 세그먼트에서만 동작. 서버가 물리적으로 가까이 있어야 한다.</li>
+        <li><strong>실무 사용</strong>: 대규모 트래픽 환경에서 DSR 모드와 함께 사용. 응답 트래픽이 로드밸런서를 거치지 않으므로 병목을 줄인다.</li>
+      </ul>
+
+      <h3><span class="layer-badge layer-l4">L4</span> L4 로드밸런싱 (Transport Layer)</h3>
+      <p>TCP/UDP 레벨에서 <strong>IP 주소와 포트 번호</strong>를 기반으로 트래픽을 분산한다. 패킷의 페이로드(내용)는 보지 않는다.</p>
+      <ul>
+        <li><strong>동작 원리</strong>: 클라이언트의 TCP SYN 패킷을 받으면 대상 서버를 결정하고, 이후 해당 연결의 모든 패킷을 같은 서버로 전달 (Connection-level affinity)</li>
+        <li><strong>NAT 방식</strong>: 목적지 IP를 서버 IP로 변환 (DNAT). 응답 시 다시 로드밸런서 IP로 변환 (SNAT)</li>
+        <li><strong>장점</strong>: 패킷 내용을 해석하지 않으므로 빠르고 효율적. SSL/TLS 종단이 불필요. 프로토콜에 무관 (HTTP뿐 아니라 DB, SMTP, 게임 서버 등 모두 가능)</li>
+        <li><strong>단점</strong>: 요청 내용(URL, 헤더)을 모르므로 세밀한 라우팅 불가. 마이크로서비스별 분기 불가.</li>
+        <li><strong>대표 제품</strong>: AWS NLB (Network Load Balancer), HAProxy (TCP mode), LVS (Linux Virtual Server), F5 BIG-IP</li>
+      </ul>
+
+      <h3><span class="layer-badge layer-l7">L7</span> L7 로드밸런싱 (Application Layer)</h3>
+      <p>HTTP/HTTPS 요청의 <strong>전체 내용을 파싱</strong>하여 URL 경로, 호스트 헤더, 쿠키, HTTP 메서드 등을 기반으로 분산한다.</p>
+      <ul>
+        <li><strong>동작 원리</strong>: 로드밸런서가 TCP 연결을 종료(terminate)하고, HTTP 요청을 파싱한 뒤, 규칙에 따라 적절한 백엔드 서버로 새 연결을 맺어 요청을 전달</li>
+        <li><strong>콘텐츠 기반 라우팅 예시</strong>:
+          <ul>
+            <li><code>/api/*</code> → API 서버 클러스터로</li>
+            <li><code>/static/*</code> → CDN 또는 정적 파일 서버로</li>
+            <li><code>Host: admin.example.com</code> → 관리자 서버로</li>
+            <li><code>Cookie: AB_TEST=B</code> → B 테스트 서버로</li>
+          </ul>
+        </li>
+        <li><strong>SSL Termination</strong>: L7 로드밸런서에서 HTTPS를 복호화하고, 백엔드에는 HTTP로 전달. 인증서 관리를 중앙화할 수 있다.</li>
+        <li><strong>장점</strong>: 가장 정밀한 라우팅. 요청/응답 변환 가능 (헤더 추가/삭제, URL 재작성). WebSocket, gRPC 등 프로토콜별 최적화. 보안 기능 (WAF, Rate Limiting, Bot 탐지)</li>
+        <li><strong>단점</strong>: 패킷 내용 파싱으로 인한 오버헤드. L4 대비 처리량(throughput)이 낮다. SSL 복호화 비용.</li>
+        <li><strong>대표 제품</strong>: AWS ALB (Application Load Balancer), Nginx, Envoy Proxy, Traefik, Cloudflare</li>
+      </ul>
+
+      <h3>실무에서의 조합 패턴</h3>
+      <p>실제 프로덕션 환경에서는 L4와 L7을 <strong>조합</strong>해서 사용하는 경우가 많다:</p>
+      <pre><code>Client → L4 LB (NLB) → L7 LB (Nginx/ALB) → Backend Servers</code></pre>
+      <ul>
+        <li>L4 LB가 앞단에서 대규모 트래픽을 빠르게 분산</li>
+        <li>L7 LB가 뒷단에서 콘텐츠 기반 정밀 라우팅 수행</li>
+        <li>Google, Netflix 등 대규모 서비스가 이 구조를 사용</li>
+      </ul>
+
+      <h3>헬스 체크</h3>
+      <p>로드밸런서는 주기적으로 서버 상태를 확인하여 장애 서버를 자동으로 제외한다:</p>
+      <ul>
+        <li><strong>L4 헬스 체크</strong>: TCP 연결이 되는지 확인 (포트가 열려있는지)</li>
+        <li><strong>L7 헬스 체크</strong>: HTTP GET <code>/health</code>로 200 응답이 오는지 확인 — 애플리케이션 수준의 정상 여부 판단 가능</li>
+      </ul>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 520" xmlns="http://www.w3.org/2000/svg" font-family="Pretendard, -apple-system, sans-serif">
+          <!-- Background -->
+          <rect width="800" height="520" fill="#22263a" rx="12"/>
+
+          <!-- Title -->
+          <text x="400" y="35" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700">로드밸런싱 계층별 비교: 어디까지 열어보는가?</text>
+
+          <!-- Client -->
+          <rect x="340" y="55" width="120" height="40" rx="8" fill="#1a1d27" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="400" y="80" text-anchor="middle" fill="#a78bfa" font-size="13" font-weight="600">Client</text>
+
+          <!-- Arrow down -->
+          <line x1="400" y1="95" x2="400" y2="125" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+          <!-- L2 Section -->
+          <rect x="30" y="130" width="230" height="155" rx="10" fill="rgba(248,113,113,0.06)" stroke="rgba(248,113,113,0.3)" stroke-width="1"/>
+          <text x="145" y="155" text-anchor="middle" fill="#f87171" font-size="14" font-weight="700">L2 로드밸런싱</text>
+          <text x="145" y="175" text-anchor="middle" fill="#94a3b8" font-size="11">MAC 주소만 확인</text>
+
+          <rect x="55" y="190" width="180" height="30" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="145" y="210" text-anchor="middle" fill="#f87171" font-size="11" font-weight="500">Dst MAC → Server MAC 변경</text>
+
+          <text x="145" y="245" text-anchor="middle" fill="#64748b" font-size="10">같은 서브넷 필수</text>
+          <text x="145" y="260" text-anchor="middle" fill="#64748b" font-size="10">DSR 모드 가능</text>
+          <text x="145" y="275" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">⚡ 가장 빠름</text>
+
+          <!-- L4 Section -->
+          <rect x="285" y="130" width="230" height="155" rx="10" fill="rgba(251,191,36,0.06)" stroke="rgba(251,191,36,0.3)" stroke-width="1"/>
+          <text x="400" y="155" text-anchor="middle" fill="#fbbf24" font-size="14" font-weight="700">L4 로드밸런싱</text>
+          <text x="400" y="175" text-anchor="middle" fill="#94a3b8" font-size="11">IP + Port 확인</text>
+
+          <rect x="310" y="190" width="180" height="30" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="400" y="210" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="500">DNAT: VIP → Server IP</text>
+
+          <text x="400" y="245" text-anchor="middle" fill="#64748b" font-size="10">TCP/UDP 프로토콜 무관</text>
+          <text x="400" y="260" text-anchor="middle" fill="#64748b" font-size="10">Connection-level 라우팅</text>
+          <text x="400" y="275" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">⚡ 빠름 · 범용적</text>
+
+          <!-- L7 Section -->
+          <rect x="540" y="130" width="230" height="155" rx="10" fill="rgba(52,211,153,0.06)" stroke="rgba(52,211,153,0.3)" stroke-width="1"/>
+          <text x="655" y="155" text-anchor="middle" fill="#34d399" font-size="14" font-weight="700">L7 로드밸런싱</text>
+          <text x="655" y="175" text-anchor="middle" fill="#94a3b8" font-size="11">URL, Header, Cookie 확인</text>
+
+          <rect x="565" y="190" width="180" height="30" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="655" y="210" text-anchor="middle" fill="#34d399" font-size="11" font-weight="500">/api/* → API Server</text>
+
+          <text x="655" y="245" text-anchor="middle" fill="#64748b" font-size="10">SSL Termination</text>
+          <text x="655" y="260" text-anchor="middle" fill="#64748b" font-size="10">콘텐츠 기반 정밀 라우팅</text>
+          <text x="655" y="275" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">🎯 가장 정밀</text>
+
+          <!-- Packet visualization -->
+          <text x="400" y="315" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">패킷 구조에서 보는 범위</text>
+
+          <!-- Packet layers -->
+          <rect x="80" y="335" width="640" height="35" rx="4" fill="rgba(248,113,113,0.12)" stroke="rgba(248,113,113,0.4)"/>
+          <text x="100" y="357" fill="#f87171" font-size="12" font-weight="600">L2 Frame</text>
+          <text x="230" y="357" fill="#94a3b8" font-size="11">Dst MAC | Src MAC | EtherType</text>
+
+          <rect x="80" y="380" width="640" height="35" rx="4" fill="rgba(251,191,36,0.12)" stroke="rgba(251,191,36,0.4)"/>
+          <text x="100" y="402" fill="#fbbf24" font-size="12" font-weight="600">L4 Segment</text>
+          <text x="250" y="402" fill="#94a3b8" font-size="11">Src IP | Dst IP | Src Port | Dst Port | Protocol</text>
+
+          <rect x="80" y="425" width="640" height="35" rx="4" fill="rgba(52,211,153,0.12)" stroke="rgba(52,211,153,0.4)"/>
+          <text x="100" y="447" fill="#34d399" font-size="12" font-weight="600">L7 Message</text>
+          <text x="262" y="447" fill="#94a3b8" font-size="11">GET /api/users HTTP/1.1 | Host: api.com | Cookie: ...</text>
+
+          <!-- Bracket annotations -->
+          <text x="40" y="357" text-anchor="middle" fill="#f87171" font-size="20">←</text>
+          <text x="40" y="402" text-anchor="middle" fill="#fbbf24" font-size="20">←</text>
+          <text x="40" y="447" text-anchor="middle" fill="#34d399" font-size="20">←</text>
+
+          <text x="15" y="360" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">L2</text>
+          <text x="15" y="405" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">L4</text>
+          <text x="15" y="450" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">L7</text>
+
+          <!-- Bottom note -->
+          <text x="400" y="490" text-anchor="middle" fill="#64748b" font-size="11">위 계층으로 갈수록 더 많은 정보를 파악 → 더 정밀한 분산이 가능하지만 처리 비용 증가</text>
+          <text x="400" y="508" text-anchor="middle" fill="#64748b" font-size="11">실무에서는 L4 (NLB) → L7 (ALB/Nginx) 조합을 가장 많이 사용</text>
+
+          <!-- Arrow marker -->
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p style="color: var(--text2); font-size: 0.9rem; margin-top: 0.5rem;">위 다이어그램은 L2/L4/L7 로드밸런서가 패킷의 어느 부분까지 읽는지를 시각적으로 보여준다. L2는 MAC만, L4는 IP+Port까지, L7은 HTTP 요청 전체를 파싱한다.</p>
+    </div>
+
+    <!-- 비교 테이블 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-compare">✦</div>
+        한눈에 비교
+      </div>
+      <div style="overflow-x: auto;">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>구분</th>
+              <th><span class="layer-badge layer-l2">L2</span></th>
+              <th><span class="layer-badge layer-l4">L4</span></th>
+              <th><span class="layer-badge layer-l7">L7</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">OSI 계층</td>
+              <td>Data Link</td>
+              <td>Transport</td>
+              <td>Application</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">판단 기준</td>
+              <td>MAC 주소</td>
+              <td>IP + Port</td>
+              <td>URL, Header, Cookie</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">속도</td>
+              <td style="color: var(--green);">★★★</td>
+              <td style="color: var(--green);">★★☆</td>
+              <td style="color: var(--yellow);">★☆☆</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">라우팅 정밀도</td>
+              <td style="color: var(--yellow);">★☆☆</td>
+              <td style="color: var(--yellow);">★★☆</td>
+              <td style="color: var(--green);">★★★</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">SSL 처리</td>
+              <td>불가</td>
+              <td>Pass-through</td>
+              <td>Termination 가능</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">프로토콜</td>
+              <td>Ethernet</td>
+              <td>TCP, UDP, 모두</td>
+              <td>HTTP, gRPC, WS</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">DSR</td>
+              <td style="color: var(--green);">가능</td>
+              <td>일부 가능</td>
+              <td style="color: var(--red);">불가</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">대표 제품</td>
+              <td>LVS (DSR)</td>
+              <td>AWS NLB, LVS</td>
+              <td>AWS ALB, Nginx</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text2); font-weight: 500;">주 사용처</td>
+              <td>초고성능, 같은 DC</td>
+              <td>DB, 게임, 범용</td>
+              <td>웹 서비스, API</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">OSI 7계층</span>
+        <span class="related-tag">Reverse Proxy</span>
+        <span class="related-tag">NAT / DNAT / SNAT</span>
+        <span class="related-tag">DSR (Direct Server Return)</span>
+        <span class="related-tag">Health Check</span>
+        <span class="related-tag">SSL Termination</span>
+        <span class="related-tag">Sticky Session</span>
+        <span class="related-tag">AWS NLB vs ALB</span>
+        <span class="related-tag">HAProxy</span>
+        <span class="related-tag">Nginx upstream</span>
+        <span class="related-tag">Service Mesh (Envoy)</span>
+        <span class="related-tag">CDN</span>
+        <span class="related-tag">GSLB (Global Server LB)</span>
+        <span class="related-tag">Keep-Alive</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/DevOps-인프라/네트워크-기초/index.html" class="nav-link">← 네트워크 기초 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
