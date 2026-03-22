@@ -1,6 +1,6 @@
-# 지식 요람
+# bok's wiki
 
-궁금한 것들을 AI와 함께 파고든 기록
+아 이게 그거였구나
 
 🌐 https://leeyunbo.github.io/knowledge
 
