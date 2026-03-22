@@ -34,12 +34,12 @@
       <div class="highlight-box">
         Jenkins를 Docker로 띄우되, Docker Socket을 마운트하면 Jenkins가 호스트의 다른 컨테이너를 빌드하고 재시작할 수 있다.
       </div>
-      <p>Jenkins를 Homebrew 대신 Docker로 운영하면 격리되고 관리가 깔끔하다. 핵심은 세 가지 볼륨 마운트다:</p>
+      <p>Jenkins를 직접 설치하지 않고 Docker로 운영하면 환경이 격리되고 관리가 깔끔하다. 핵심은 세 가지 볼륨 마운트다:</p>
       <table class="compare-table">
         <tr><th>마운트</th><th>용도</th></tr>
         <tr><td><code>/var/run/docker.sock</code></td><td>호스트 Docker API 접근 — 다른 컨테이너 제어</td></tr>
-        <tr><td><code>jenkins_home</code> (볼륨)</td><td>Jenkins 설정/플러그인/빌드 기록 영속화</td></tr>
-        <tr><td><code>~/Project</code> → <code>/host-project</code></td><td>소스 코드 접근</td></tr>
+        <tr><td><code>jenkins_home</code> (Named Volume)</td><td>Jenkins 설정/플러그인/빌드 기록 영속화</td></tr>
+        <tr><td>소스 코드 디렉토리 (Bind Mount)</td><td>호스트의 프로젝트 소스를 컨테이너 안에서 접근</td></tr>
       </table>
     </div>
 
@@ -71,12 +71,12 @@ USER jenkins</code></pre>
       <p><strong>중요:</strong> 컨테이너를 재생성하면 내부에 수동 설치한 것은 전부 날아간다. 따라서 <code>docker exec</code>로 설치하는 게 아니라 <strong>이미지 자체에 포함</strong>시켜야 한다.</p>
 
       <p style="margin-top: 1.5rem;"><strong>docker-compose 분리 원칙</strong></p>
-      <p>Jenkins가 앱을 재배포할 때 DB까지 영향받으면 안 된다. 따라서:</p>
+      <p>Jenkins가 앱을 재배포할 때 DB나 캐시 같은 인프라까지 영향받으면 안 된다. 따라서 compose 파일을 분리하는 것이 일반적이다:</p>
       <ul>
-        <li><code>docker-compose.yml</code> — 인프라(PostgreSQL 등), 항상 떠있음</li>
-        <li><code>docker-compose.app.yml</code> — 앱만, Jenkins가 재배포하는 대상</li>
+        <li><code>docker-compose.infra.yml</code> — DB, Redis 등 인프라. 항상 떠있음</li>
+        <li><code>docker-compose.app.yml</code> — 앱 컨테이너만. Jenkins가 재배포하는 대상</li>
       </ul>
-      <p>이렇게 분리하면 Jenkins는 앱 컨테이너만 교체하고, DB는 무관하게 유지된다.</p>
+      <p>이렇게 분리하면 Jenkins는 앱 컨테이너만 교체하고, 인프라는 무관하게 유지된다.</p>
     </div>
 
     <!-- 시각화 -->
@@ -110,14 +110,14 @@ USER jenkins</code></pre>
           <!-- App Container -->
           <rect x="30" y="210" width="200" height="80" rx="10" fill="#22263a" stroke="#34d399" stroke-width="1.5"/>
           <text x="50" y="238" fill="#34d399" font-size="13" font-weight="600">App Container</text>
-          <text x="50" y="258" fill="#94a3b8" font-size="11">houseping:latest</text>
-          <text x="50" y="275" fill="#94a3b8" font-size="11">:10030</text>
+          <text x="50" y="258" fill="#94a3b8" font-size="11">my-app:latest</text>
+          <text x="50" y="275" fill="#94a3b8" font-size="11">배포 대상</text>
 
           <!-- DB Container -->
           <rect x="270" y="210" width="200" height="80" rx="10" fill="#22263a" stroke="#fbbf24" stroke-width="1.5"/>
-          <text x="290" y="238" fill="#fbbf24" font-size="13" font-weight="600">DB Container</text>
-          <text x="290" y="258" fill="#94a3b8" font-size="11">postgres:16-alpine</text>
-          <text x="290" y="275" fill="#94a3b8" font-size="11">:5432 (항상 유지)</text>
+          <text x="290" y="238" fill="#fbbf24" font-size="13" font-weight="600">Infra Container</text>
+          <text x="290" y="258" fill="#94a3b8" font-size="11">DB, Redis 등</text>
+          <text x="290" y="275" fill="#94a3b8" font-size="11">항상 유지</text>
 
           <!-- Arrow: Daemon -> App -->
           <path d="M 520 120 L 520 230 L 240 230" stroke="#34d399" stroke-width="1.5" fill="none" stroke-dasharray="6,4" marker-end="url(#arrow-green)"/>
@@ -130,7 +130,7 @@ USER jenkins</code></pre>
           </defs>
         </svg>
       </div>
-      <p>Jenkins가 Docker Socket을 통해 호스트의 Docker 데몬에게 명령을 보내고, 데몬이 앱 컨테이너를 빌드/재시작한다. DB 컨테이너는 Jenkins가 건드리지 않는다.</p>
+      <p>Jenkins가 Docker Socket을 통해 호스트의 Docker 데몬에게 명령을 보내고, 데몬이 앱 컨테이너를 빌드/재시작한다. 인프라 컨테이너는 Jenkins가 건드리지 않는다.</p>
     </div>
 
     <!-- 연관 개념 -->

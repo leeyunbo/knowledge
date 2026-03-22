@@ -32,9 +32,9 @@
         핵심 답변
       </div>
       <div class="highlight-box">
-        로컬 Jenkins는 Webhook을 받을 수 없으므로 Poll SCM으로 주기적으로 GitHub를 확인하고, Cron의 H 표현식으로 부하를 분산한다.
+        Jenkins 파이프라인은 <strong>변경 감지 방식</strong>(Webhook vs Poll SCM)과 <strong>빌드 옵션</strong>(동시 실행 제한, 이전 빌드 중단 등)을 설정해야 한다.
       </div>
-      <p>Jenkins 파이프라인은 <strong>언제 트리거할지</strong>(변경 감지)와 <strong>어떻게 실행할지</strong>(빌드 옵션)를 설정해야 한다.</p>
+      <p>트리거 방식은 Jenkins가 외부에서 접근 가능한지에 따라 결정되고, 빌드 옵션은 안정적인 배포를 위해 세팅한다.</p>
     </div>
 
     <!-- 배경 개념 -->
@@ -58,7 +58,7 @@
           <td>주기만큼 딜레이</td>
         </tr>
       </table>
-      <p style="margin-top: 1rem;">로컬 Jenkins는 <code>localhost</code>라 GitHub이 접근할 수 없다. ngrok 같은 터널을 쓸 수 있지만, <strong>Poll SCM이 훨씬 간단하고 안전</strong>하다.</p>
+      <p style="margin-top: 1rem;"><strong>선택 기준:</strong> Jenkins가 공인 IP/도메인으로 외부에 노출되어 있으면 Webhook이 효율적이다. 내부망이나 로컬 환경이라면 Poll SCM을 쓴다. ngrok 같은 터널링도 가능하지만 운영 환경에서는 Webhook이 표준이다.</p>
     </div>
 
     <!-- Cron 표현식 -->
@@ -110,15 +110,14 @@
         </tr>
       </table>
 
-      <p style="margin-top: 1.5rem;"><strong>안 건드려도 되는 것:</strong></p>
+      <p style="margin-top: 1.5rem;"><strong>상황에 따라 선택하는 것:</strong></p>
       <table class="compare-table">
-        <tr><th>옵션</th><th>설명</th></tr>
-        <tr><td>GitHub project</td><td>UI에서 레포 링크 연결. 동작에 무관</td></tr>
-        <tr><td>Pipeline speed/durability</td><td>빌드 로그 디스크 쓰기 빈도. 기본값 충분</td></tr>
-        <tr><td>Preserve stashes</td><td>빌드 간 파일 공유. 불필요</td></tr>
-        <tr><td>Throttle builds</td><td>빌드 횟수 제한. 프로젝트 적으면 불필요</td></tr>
-        <tr><td>빌드 매개변수</td><td>빌드 시 파라미터 입력. 현재 불필요</td></tr>
-        <tr><td>빌드 원격 유발</td><td>외부 HTTP 요청으로 빌드 시작. Poll SCM 쓰면 불필요</td></tr>
+        <tr><th>옵션</th><th>설명</th><th>언제 필요한가</th></tr>
+        <tr><td>GitHub project</td><td>UI에서 레포 링크 연결</td><td>편의 기능. 동작에 무관</td></tr>
+        <tr><td>Pipeline speed/durability</td><td>빌드 로그 디스크 쓰기 빈도</td><td>대부분 기본값으로 충분</td></tr>
+        <tr><td>Throttle builds</td><td>일정 시간 내 빌드 횟수 제한</td><td>프로젝트가 많거나 리소스 제한 있을 때</td></tr>
+        <tr><td>빌드 매개변수</td><td>빌드 시 파라미터 입력 (브랜치, 환경 등)</td><td>수동 배포나 환경 분기가 필요할 때</td></tr>
+        <tr><td>빌드 원격 유발</td><td>외부 HTTP 요청으로 빌드 시작</td><td>다른 시스템에서 빌드를 트리거할 때</td></tr>
       </table>
     </div>
 
