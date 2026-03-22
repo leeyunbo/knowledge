@@ -51,16 +51,8 @@ description: 책 읽으면서 모르는 개념을 물어보면, 아름다운 HTM
 <body>
   <div class="container">
 
-    <!-- 브레드크럼 -->
-    <nav class="breadcrumb">
-      <a href="/knowledge/index.html">bok's wiki</a>
-      <span class="sep">›</span>
-      <a href="/knowledge/{책제목}/index.html">{책제목}</a>
-      <span class="sep">›</span>
-      <a href="/knowledge/{책제목}/{목차}/index.html">{목차}</a>
-      <span class="sep">›</span>
-      <span class="current">{질문 요약}</span>
-    </nav>
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="breadcrumb"></nav>
 
     <!-- 헤더 -->
     <header class="page-header">
@@ -122,13 +114,11 @@ description: 책 읽으면서 모르는 개념을 물어보면, 아름다운 HTM
       </div>
     </div>
 
-    <!-- 하단 네비게이션 -->
-    <nav class="bottom-nav">
-      <a href="/knowledge/{책제목}/{목차}/index.html" class="nav-link">← {목차} 목록</a>
-      <a href="/knowledge/index.html" class="nav-link">전체 목록 →</a>
-    </nav>
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="bottom-nav"></nav>
 
   </div>
+<script src="/knowledge/nav.js"></script>
 </body>
 </html>
 ```
@@ -150,13 +140,8 @@ description: 책 읽으면서 모르는 개념을 물어보면, 아름다운 HTM
 </head>
 <body>
   <div class="container">
-    <nav class="breadcrumb">
-      <a href="/knowledge/index.html">bok's wiki</a>
-      <span class="sep">›</span>
-      <a href="/knowledge/{책제목}/index.html">{책제목}</a>
-      <span class="sep">›</span>
-      <span>{목차}</span>
-    </nav>
+    <!-- nav.js가 자동 생성 -->
+    <nav class="breadcrumb"></nav>
     <h1>{목차}</h1>
     <p class="subtitle">{책제목} &nbsp;·&nbsp; <span class="count">💡 {n}개 메모</span></p>
     <div class="memo-list">
@@ -171,6 +156,7 @@ description: 책 읽으면서 모르는 개념을 물어보면, 아름다운 HTM
       </a>
     </div>
   </div>
+<script src="/knowledge/nav.js"></script>
 </body>
 </html>
 ```
