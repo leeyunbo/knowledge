@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>메인프레임이 안정적인 이유 — SECTION2 메인프레임 · 개발자도 궁금한 IT 인프라</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="breadcrumb"></nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>메인프레임이 안정적인 이유 — Unix와 뭐가 다른가?</h1>
+      <p class="meta">개발자도 궁금한 IT 인프라 · SECTION2 메인프레임 · 2026-03-23</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        메인프레임은 I/O 처리를 CPU에서 완전히 분리한 <strong>채널 서브시스템(Channel Subsystem)</strong> 덕분에 CPU 사용률이 높아져도 큐잉 없이 안정적으로 동작한다.
+      </div>
+      <p>
+        Unix/Linux 서버는 CPU가 연산도 하고 I/O 제어도 한다. CPU 사용률이 올라가면 I/O 요청이 CPU를 기다리며 큐에 쌓이고, 이게 전체 시스템을 느리게 만든다. CPU 사용률 70~80%만 넘어가도 체감 성능이 급격히 떨어진다.
+      </p>
+      <p>
+        메인프레임은 설계 철학 자체가 다르다. <strong>I/O를 처리하는 전용 프로세서(채널)</strong>가 따로 있어서, CPU는 순수하게 연산만 담당한다. CPU가 100% 가까이 사용되어도 I/O는 별도 경로로 처리되니까 큐잉이 발생하지 않는다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <p><strong>Unix/Linux에서 CPU 사용률이 높으면 왜 느려지는가?</strong></p>
+      <p>
+        Unix 계열 시스템에서는 CPU가 모든 것을 처리한다. 애플리케이션 로직, 디스크 읽기/쓰기, 네트워크 패킷 처리 등이 전부 CPU의 일이다. 이를 <strong>인터럽트 기반 I/O</strong>라고 한다.
+      </p>
+      <ul>
+        <li>디스크에서 데이터를 읽으려면 → CPU가 디스크 컨트롤러에 명령을 보내고, 완료 인터럽트를 받아서 처리</li>
+        <li>네트워크 패킷이 들어오면 → CPU가 인터럽트를 받아서 패킷을 처리</li>
+        <li>CPU가 바빠지면 → 인터럽트 처리가 밀리고, I/O 요청이 큐에 쌓이고, 응답시간이 늘어남</li>
+      </ul>
+      <p>
+        이것이 <strong>큐잉(Queueing) 현상</strong>이다. CPU 사용률이 올라갈수록 큐 대기 시간이 기하급수적으로 증가한다 (대기행렬 이론의 M/M/1 모델).
+      </p>
+
+      <p style="margin-top: 1.5rem;"><strong>채널 서브시스템(Channel Subsystem)이란?</strong></p>
+      <p>
+        메인프레임에만 존재하는 하드웨어 구조로, I/O 처리를 전담하는 <strong>독립적인 프로세서 그룹</strong>이다. CPU와는 별도의 데이터 경로(채널)를 가지고 있어서, CPU 개입 없이 디스크·네트워크·테이프 등의 I/O를 자체적으로 처리한다.
+      </p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+      <p><strong>메인프레임의 안정성을 만드는 설계 원칙들:</strong></p>
+
+      <p><strong>1. I/O와 연산의 완전한 분리</strong></p>
+      <p>
+        메인프레임의 채널 서브시스템은 단순한 DMA 컨트롤러가 아니다. <strong>자체 명령어 세트(Channel Command Words, CCW)</strong>를 가진 독립 프로세서다. CPU는 "이 데이터를 디스크에서 읽어라"라는 채널 프로그램만 던져주면, 채널이 알아서 실행하고 완료 시 CPU에 알린다. CPU는 그 사이에 다른 연산을 계속한다.
+      </p>
+
+      <p><strong>2. 전용 I/O 프로세서의 계층 구조</strong></p>
+      <ul>
+        <li><strong>SAP (System Assist Processor)</strong> — I/O 인터럽트를 관리하는 전용 프로세서</li>
+        <li><strong>채널 경로(Channel Path)</strong> — 디바이스까지의 물리적 데이터 경로. 하나의 디바이스에 여러 경로를 둬서 장애 시 자동 우회</li>
+        <li><strong>제어 유닛(Control Unit)</strong> — 디바이스 그룹을 관리하며 캐싱·에러 복구를 자체 처리</li>
+      </ul>
+
+      <p><strong>3. 워크로드 매니저(WLM)</strong></p>
+      <p>
+        메인프레임 OS(z/OS)에는 워크로드 매니저가 내장되어 있다. 업무별 우선순위(서비스 클래스)를 정의하면, WLM이 <strong>CPU·메모리·I/O 자원을 실시간으로 재분배</strong>한다. 중요한 온라인 트랜잭션이 배치 작업 때문에 느려지는 일이 없다.
+      </p>
+
+      <p><strong>4. 하드웨어 레벨 이중화</strong></p>
+      <ul>
+        <li>CPU, 메모리, I/O 채널 모두 <strong>N+1 이상의 이중화</strong></li>
+        <li>장애 발생 시 하드웨어가 자동으로 결함 부품을 격리하고 예비로 전환</li>
+        <li>CPU 고장 시에도 OS 재부팅 없이 해당 CPU만 분리 가능</li>
+      </ul>
+
+      <p style="margin-top: 1.5rem;"><strong>왜 Unix/Linux는 이 구조를 안 쓰는가?</strong></p>
+      <p>
+        비용 때문이다. 채널 서브시스템은 전용 하드웨어이므로 가격이 비싸다. Unix/Linux 서버는 범용 하드웨어 위에서 <strong>소프트웨어로 I/O를 관리</strong>하는 방식을 택했다. 대신 스케일 아웃(서버를 여러 대 두는 것)으로 부하를 분산한다. 메인프레임은 <strong>한 대로 모든 걸 처리하는 스케일 업</strong> 철학이다.
+      </p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 780 400" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', -apple-system, sans-serif">
+          <!-- Unix/Linux 쪽 -->
+          <text x="190" y="25" text-anchor="middle" fill="#f87171" font-size="14" font-weight="700">Unix/Linux 서버</text>
+
+          <rect x="120" y="40" width="140" height="60" rx="10" fill="#22263a" stroke="#f87171" stroke-width="1.5"/>
+          <text x="190" y="68" text-anchor="middle" fill="#f87171" font-size="13" font-weight="600">CPU</text>
+          <text x="190" y="88" text-anchor="middle" fill="#94a3b8" font-size="10">연산 + I/O 제어</text>
+
+          <!-- 큐 표시 -->
+          <rect x="100" y="120" width="180" height="35" rx="6" fill="#22263a" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="190" y="142" text-anchor="middle" fill="#fbbf24" font-size="11">I/O 큐 (CPU 바쁘면 대기)</text>
+
+          <line x1="190" y1="100" x2="190" y2="120" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+
+          <rect x="60" y="175" width="90" height="45" rx="8" fill="#22263a" stroke="#64748b" stroke-width="1"/>
+          <text x="105" y="202" text-anchor="middle" fill="#94a3b8" font-size="11">Disk</text>
+
+          <rect x="170" y="175" width="90" height="45" rx="8" fill="#22263a" stroke="#64748b" stroke-width="1"/>
+          <text x="215" y="202" text-anchor="middle" fill="#94a3b8" font-size="11">Network</text>
+
+          <rect x="280" y="175" width="90" height="45" rx="8" fill="#22263a" stroke="#64748b" stroke-width="1"/>
+          <text x="325" y="202" text-anchor="middle" fill="#94a3b8" font-size="11">Tape</text>
+
+          <line x1="145" y1="155" x2="105" y2="175" stroke="#94a3b8" stroke-width="1" marker-end="url(#arr-gray)"/>
+          <line x1="190" y1="155" x2="215" y2="175" stroke="#94a3b8" stroke-width="1" marker-end="url(#arr-gray)"/>
+          <line x1="235" y1="155" x2="325" y2="175" stroke="#94a3b8" stroke-width="1" marker-end="url(#arr-gray)"/>
+
+          <!-- CPU 사용률 경고 -->
+          <text x="190" y="250" text-anchor="middle" fill="#f87171" font-size="11" font-weight="500">CPU 70%+ → 큐잉 폭발 → 느려짐</text>
+
+          <!-- 구분선 -->
+          <line x1="400" y1="10" x2="400" y2="270" stroke="#2e3250" stroke-width="1" stroke-dasharray="6,4"/>
+
+          <!-- 메인프레임 쪽 -->
+          <text x="590" y="25" text-anchor="middle" fill="#34d399" font-size="14" font-weight="700">메인프레임 (z/Architecture)</text>
+
+          <rect x="520" y="40" width="140" height="60" rx="10" fill="#22263a" stroke="#34d399" stroke-width="1.5"/>
+          <text x="590" y="68" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">CPU (CP)</text>
+          <text x="590" y="88" text-anchor="middle" fill="#94a3b8" font-size="10">순수 연산만</text>
+
+          <!-- 채널 서브시스템 -->
+          <rect x="430" y="120" width="320" height="50" rx="10" fill="#22263a" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="590" y="143" text-anchor="middle" fill="#38bdf8" font-size="13" font-weight="600">채널 서브시스템 (Channel Subsystem)</text>
+          <text x="590" y="160" text-anchor="middle" fill="#94a3b8" font-size="10">전용 I/O 프로세서 — CPU 독립</text>
+
+          <line x1="590" y1="100" x2="590" y2="120" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+          <text x="620" y="112" fill="#34d399" font-size="9">명령만 전달</text>
+
+          <rect x="440" y="195" width="90" height="45" rx="8" fill="#22263a" stroke="#64748b" stroke-width="1"/>
+          <text x="485" y="222" text-anchor="middle" fill="#94a3b8" font-size="11">Disk</text>
+
+          <rect x="550" y="195" width="90" height="45" rx="8" fill="#22263a" stroke="#64748b" stroke-width="1"/>
+          <text x="595" y="222" text-anchor="middle" fill="#94a3b8" font-size="11">Network</text>
+
+          <rect x="660" y="195" width="90" height="45" rx="8" fill="#22263a" stroke="#64748b" stroke-width="1"/>
+          <text x="705" y="222" text-anchor="middle" fill="#94a3b8" font-size="11">Tape</text>
+
+          <line x1="510" y1="170" x2="485" y2="195" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+          <line x1="590" y1="170" x2="595" y2="195" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+          <line x1="670" y1="170" x2="705" y2="195" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+          <!-- 메인프레임 결론 -->
+          <text x="590" y="270" text-anchor="middle" fill="#34d399" font-size="11" font-weight="500">CPU 100%여도 I/O 영향 없음</text>
+
+          <!-- 하단 비교 박스 -->
+          <rect x="30" y="290" width="340" height="90" rx="10" fill="rgba(248,113,113,0.08)" stroke="#f87171" stroke-width="1"/>
+          <text x="200" y="315" text-anchor="middle" fill="#f87171" font-size="12" font-weight="600">Unix: CPU가 모든 것을 처리</text>
+          <text x="200" y="335" text-anchor="middle" fill="#94a3b8" font-size="11">CPU 바쁨 → I/O도 느려짐</text>
+          <text x="200" y="355" text-anchor="middle" fill="#94a3b8" font-size="11">해결책: 서버를 늘린다 (Scale Out)</text>
+
+          <rect x="410" y="290" width="340" height="90" rx="10" fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1"/>
+          <text x="580" y="315" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">메인프레임: I/O를 분리</text>
+          <text x="580" y="335" text-anchor="middle" fill="#94a3b8" font-size="11">CPU와 I/O가 독립 → 서로 영향 없음</text>
+          <text x="580" y="355" text-anchor="middle" fill="#94a3b8" font-size="11">한 대로 버틴다 (Scale Up)</text>
+
+          <defs>
+            <marker id="arr-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#94a3b8"/></marker>
+            <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#38bdf8"/></marker>
+          </defs>
+        </svg>
+      </div>
+      <p>
+        Unix는 CPU 하나가 연산과 I/O를 모두 처리해서 병목이 생긴다. 메인프레임은 채널 서브시스템이 I/O를 전담하므로 CPU 부하와 I/O 성능이 독립적이다.
+      </p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">채널 서브시스템 (Channel Subsystem)</span>
+        <span class="related-tag">z/OS 워크로드 매니저 (WLM)</span>
+        <span class="related-tag">대기행렬 이론 (Queueing Theory)</span>
+        <span class="related-tag">Scale Up vs Scale Out</span>
+        <span class="related-tag">DMA (Direct Memory Access)</span>
+        <span class="related-tag">LPAR (논리적 파티션)</span>
+        <span class="related-tag">인터럽트 기반 I/O</span>
+      </div>
+    </div>
+
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
