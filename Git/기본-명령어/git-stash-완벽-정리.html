@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>git stash 완벽 정리 — 기본 명령어 · Git</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="breadcrumb"></nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>git stash 완벽 정리</h1>
+      <p class="meta">Git · 기본 명령어 · 2026-03-23</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <code>git stash</code>는 작업 중인 변경사항을 <strong>임시 저장소에 보관</strong>하고 워킹 디렉토리를 깨끗한 상태로 되돌리는 명령어다. 브랜치 전환이나 급한 핫픽스가 필요할 때 커밋하지 않고도 작업을 보존할 수 있다.
+      </div>
+      <p>
+        커밋하기엔 애매하고, 버리기엔 아까운 작업물을 잠깐 치워두는 것이다. stash는 스택(LIFO) 구조로 쌓이며, 나중에 원하는 시점에 꺼내서 다시 적용할 수 있다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <p><strong>Git의 세 가지 영역과 stash의 위치:</strong></p>
+      <ul>
+        <li><strong>워킹 디렉토리</strong> — 실제 파일을 수정하는 곳</li>
+        <li><strong>스테이징 영역(Index)</strong> — <code>git add</code>한 변경사항</li>
+        <li><strong>로컬 저장소</strong> — <code>git commit</code>한 스냅샷</li>
+        <li><strong>Stash</strong> — 위 세 영역과 별도로 존재하는 <strong>임시 보관소</strong>. 스택 구조로 여러 개 쌓을 수 있다.</li>
+      </ul>
+      <p>
+        <code>git stash</code>를 실행하면 워킹 디렉토리와 스테이징 영역의 변경사항이 stash로 이동하고, 워킹 디렉토리는 마지막 커밋 상태로 돌아간다.
+      </p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>핵심 명령어 정리:</strong></p>
+      <table class="compare-table">
+        <tr><th>명령어</th><th>설명</th></tr>
+        <tr><td><code>git stash</code></td><td>변경사항을 stash에 저장하고 워킹 디렉토리를 clean 상태로</td></tr>
+        <tr><td><code>git stash -m "메시지"</code></td><td>설명 메시지와 함께 stash 저장</td></tr>
+        <tr><td><code>git stash -u</code></td><td>untracked 파일(새로 만든 파일)까지 포함해서 stash</td></tr>
+        <tr><td><code>git stash list</code></td><td>stash 목록 확인 (<code>stash@{0}</code>, <code>stash@{1}</code>, ...)</td></tr>
+        <tr><td><code>git stash pop</code></td><td>가장 최근 stash를 꺼내서 적용하고 <strong>stash에서 삭제</strong></td></tr>
+        <tr><td><code>git stash apply</code></td><td>stash를 적용하되 <strong>stash에서 삭제하지 않음</strong></td></tr>
+        <tr><td><code>git stash apply stash@{2}</code></td><td>특정 stash를 지정해서 적용</td></tr>
+        <tr><td><code>git stash drop stash@{1}</code></td><td>특정 stash 삭제</td></tr>
+        <tr><td><code>git stash clear</code></td><td>모든 stash 삭제</td></tr>
+        <tr><td><code>git stash show -p</code></td><td>stash 내용을 diff로 확인</td></tr>
+      </table>
+
+      <p style="margin-top: 1.5rem;"><strong>pop vs apply — 언제 뭘 쓰나?</strong></p>
+      <ul>
+        <li><strong>pop</strong> — 일반적인 경우. 꺼내고 나면 stash에서 사라진다. "한 번 쓰고 끝"일 때.</li>
+        <li><strong>apply</strong> — stash를 여러 브랜치에 적용하고 싶을 때. stash가 남아있으므로 반복 사용 가능.</li>
+      </ul>
+
+      <p style="margin-top: 1.5rem;"><strong>실전 시나리오:</strong></p>
+      <p><strong>1. 급한 핫픽스가 들어왔을 때</strong></p>
+<pre><code># feature 브랜치에서 작업 중...
+git stash -m "feature-login 작업 중"
+git checkout main
+git checkout -b hotfix/urgent-bug
+# 핫픽스 작업 & 커밋 & 머지
+git checkout feature/login
+git stash pop   # 아까 작업하던 거 복원</code></pre>
+
+      <p><strong>2. 브랜치를 잘못 골라서 작업했을 때</strong></p>
+<pre><code># main에서 작업해버렸다...
+git stash
+git checkout feature/correct-branch
+git stash pop   # 올바른 브랜치에서 복원</code></pre>
+
+      <p><strong>3. pull 전에 충돌 방지</strong></p>
+<pre><code>git stash
+git pull origin main
+git stash pop   # 충돌 나면 수동 해결</code></pre>
+
+      <p style="margin-top: 1.5rem;"><strong>주의사항:</strong></p>
+      <ul>
+        <li><code>git stash</code>는 기본적으로 <strong>tracked 파일만</strong> 저장한다. 새로 만든 파일(untracked)은 <code>-u</code> 옵션을 붙여야 한다.</li>
+        <li>stash는 <strong>브랜치에 종속되지 않는다</strong>. A 브랜치에서 stash한 걸 B 브랜치에서 pop할 수 있다.</li>
+        <li>stash pop 시 <strong>충돌이 발생하면</strong> stash가 자동 삭제되지 않는다. 충돌 해결 후 수동으로 <code>git stash drop</code> 해야 한다.</li>
+        <li>장기 보관용이 아니다. 오래 쌓아두면 뭘 stash했는지 잊어버린다. <code>-m</code>으로 메시지를 남기자.</li>
+      </ul>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', -apple-system, sans-serif">
+          <!-- Working Directory -->
+          <rect x="30" y="30" width="180" height="70" rx="10" fill="#22263a" stroke="#f87171" stroke-width="1.5"/>
+          <text x="120" y="60" text-anchor="middle" fill="#f87171" font-size="13" font-weight="600">워킹 디렉토리</text>
+          <text x="120" y="80" text-anchor="middle" fill="#94a3b8" font-size="10">수정한 파일들</text>
+
+          <!-- Staging -->
+          <rect x="260" y="30" width="180" height="70" rx="10" fill="#22263a" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="350" y="60" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">스테이징 영역</text>
+          <text x="350" y="80" text-anchor="middle" fill="#94a3b8" font-size="10">git add한 파일들</text>
+
+          <!-- Repository -->
+          <rect x="490" y="30" width="180" height="70" rx="10" fill="#22263a" stroke="#34d399" stroke-width="1.5"/>
+          <text x="580" y="60" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">로컬 저장소</text>
+          <text x="580" y="80" text-anchor="middle" fill="#94a3b8" font-size="10">커밋된 스냅샷</text>
+
+          <!-- Stash -->
+          <rect x="200" y="180" width="300" height="90" rx="12" fill="#22263a" stroke="#a78bfa" stroke-width="2"/>
+          <text x="350" y="210" text-anchor="middle" fill="#a78bfa" font-size="15" font-weight="700">Stash (스택)</text>
+          <text x="350" y="235" text-anchor="middle" fill="#94a3b8" font-size="11">stash@{0} ← 최신</text>
+          <text x="350" y="255" text-anchor="middle" fill="#64748b" font-size="11">stash@{1}, stash@{2}, ...</text>
+
+          <!-- Arrow: Working → Stash (git stash) -->
+          <path d="M 120 100 L 120 160 Q 120 180 140 190 L 195 210" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arr-purple)"/>
+          <text x="60" y="155" fill="#a78bfa" font-size="11" font-weight="500">git stash</text>
+
+          <!-- Arrow: Staging → Stash -->
+          <path d="M 350 100 L 350 175" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arr-purple)" stroke-dasharray="5,3"/>
+
+          <!-- Arrow: Stash → Working (git stash pop) -->
+          <path d="M 505 210 L 560 210 Q 580 210 580 190 L 580 130 Q 580 110 560 110 L 220 110 Q 210 110 210 100" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-blue)"/>
+          <text x="590" y="170" fill="#38bdf8" font-size="11" font-weight="500">git stash pop</text>
+
+          <defs>
+            <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a78bfa"/></marker>
+            <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#38bdf8"/></marker>
+          </defs>
+        </svg>
+      </div>
+      <p>
+        <code>git stash</code>는 워킹 디렉토리와 스테이징 영역의 변경사항을 Stash 스택에 저장한다. <code>git stash pop</code>은 스택 최상단에서 꺼내 워킹 디렉토리에 복원한다.
+      </p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">git stash branch</span>
+        <span class="related-tag">워킹 디렉토리 / 스테이징 / 저장소</span>
+        <span class="related-tag">git checkout</span>
+        <span class="related-tag">git cherry-pick</span>
+        <span class="related-tag">git reset</span>
+        <span class="related-tag">untracked files</span>
+      </div>
+    </div>
+
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
