@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비관적 락과 IN_PROGRESS 패턴 — 락과 동시성 제어 · 설계 스터디</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>비관적 락과 IN_PROGRESS 패턴</h1>
+      <p class="meta">설계 스터디 · 락과 동시성 제어 · 2026-03-25</p>
+    </header>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        외부 API 호출이 포함된 트랜잭션에서 락을 잡으면 안 된다.
+        <strong>IN_PROGRESS 상태</strong>로 선점하고 락을 해제한 뒤 외부 호출, 결과에 따라 완료/롤백하는 3단계 패턴을 쓴다.
+      </div>
+    </div>
+
+    <!-- 비관적 vs 낙관적 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        비관적 락 vs 낙관적 락
+      </div>
+      <pre><code>// 비관적 락 — DB 수준에서 row 잠금 (SELECT ... FOR UPDATE)
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT p FROM Payment p WHERE p.id = :id")
+Optional&lt;Payment&gt; findByIdWithLock(@Param("id") Long id);
+
+// 낙관적 락 — 커밋 시점에 버전 충돌 감지
+@Version
+private Long version;  // UPDATE ... WHERE version = ?</code></pre>
+      <table class="compare-table">
+        <thead>
+          <tr><th></th><th>비관적 락</th><th>낙관적 락</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>방식</td><td>조회 시점에 row 잠금</td><td>커밋 시점에 충돌 감지</td></tr>
+          <tr><td>충돌 시</td><td>대기</td><td>OptimisticLockException</td></tr>
+          <tr><td>적합</td><td>충돌이 잦을 때 (결제 취소)</td><td>충돌이 드물 때 (일반 수정)</td></tr>
+          <tr><td>단점</td><td>대기 시간, 데드락 가능</td><td>재시도 로직 필요</td></tr>
+        </tbody>
+      </table>
+      <p>트랜잭션이 커밋/롤백될 때 비관적 락이 해제된다.</p>
+    </div>
+
+    <!-- 문제: 락 잡고 API 호출 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        왜 락 잡고 외부 API 호출하면 안 되는가
+      </div>
+      <pre><code>// ❌ 나쁜 패턴 — 락 잡은 상태에서 외부 API 호출
+@Transactional
+public void cancelPayment(Long paymentId, ...) {
+    Payment payment = repository.findByIdWithLock(paymentId);  // 🔒 락 시작
+    검증...
+    cardApiClient.cancel(...);  // 50~150ms 대기 (이 동안 다른 요청 전부 블로킹!)
+    payment.cancel(...);
+}  // 커밋 → 🔓 락 해제</code></pre>
+      <p>외부 API가 느려지면(타임아웃 등) 같은 row에 접근하는 모든 요청이 줄줄이 대기한다. 치명적.</p>
+    </div>
+
+    <!-- 3단계 패턴 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        해결: 3단계 패턴 (Saga)
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="11">
+          <!-- Step 1 -->
+          <rect x="10" y="30" width="200" height="100" rx="8" fill="#22263a" stroke="#7c6af7"/>
+          <text x="110" y="55" text-anchor="middle" fill="#a78bfa" font-weight="bold">1단계: 선점</text>
+          <text x="25" y="78" fill="#94a3b8" font-size="10">락 획득 🔒</text>
+          <text x="25" y="95" fill="#94a3b8" font-size="10">검증 (상태, 금액)</text>
+          <text x="25" y="112" fill="#34d399" font-size="10">→ CANCEL_IN_PROGRESS</text>
+          <text x="25" y="126" fill="#94a3b8" font-size="10">커밋 → 락 해제 🔓</text>
+
+          <!-- Arrow -->
+          <line x1="215" y1="80" x2="245" y2="80" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+          <!-- Step 2 -->
+          <rect x="250" y="30" width="200" height="100" rx="8" fill="#22263a" stroke="#fbbf24"/>
+          <text x="350" y="55" text-anchor="middle" fill="#fbbf24" font-weight="bold">2단계: 외부 호출</text>
+          <text x="265" y="78" fill="#94a3b8" font-size="10">락 없음 ✅</text>
+          <text x="265" y="95" fill="#94a3b8" font-size="10">cardApiClient.cancel()</text>
+          <text x="265" y="112" fill="#94a3b8" font-size="10">결과를 DB에 기록</text>
+          <text x="265" y="126" fill="#94a3b8" font-size="10">(CardApiResult)</text>
+
+          <!-- Arrow -->
+          <line x1="455" y1="80" x2="485" y2="80" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+          <!-- Step 3 -->
+          <rect x="490" y="10" width="200" height="60" rx="8" fill="#22263a" stroke="#34d399"/>
+          <text x="590" y="35" text-anchor="middle" fill="#34d399" font-weight="bold">3a: 성공</text>
+          <text x="505" y="55" fill="#34d399" font-size="10">→ APPROVED / CANCELED</text>
+
+          <rect x="490" y="90" width="200" height="60" rx="8" fill="#22263a" stroke="#f87171"/>
+          <text x="590" y="115" text-anchor="middle" fill="#f87171" font-weight="bold">3b: 실패</text>
+          <text x="505" y="135" fill="#f87171" font-size="10">→ 이전 상태로 롤백</text>
+
+          <!-- IN_PROGRESS 효과 -->
+          <rect x="10" y="170" width="680" height="90" rx="8" fill="rgba(124,106,247,0.08)" stroke="#7c6af7" stroke-opacity="0.3"/>
+          <text x="350" y="195" text-anchor="middle" fill="#a78bfa" font-weight="bold" font-size="12">IN_PROGRESS 상태의 역할</text>
+          <text x="30" y="218" fill="#34d399" font-size="10">1. 동시성 차단 — 다른 요청이 같은 결제를 건드리지 못함</text>
+          <text x="30" y="236" fill="#34d399" font-size="10">2. 락 구간 최소화 — 외부 API 호출 동안 DB 락을 안 잡음</text>
+          <text x="30" y="254" fill="#34d399" font-size="10">3. 장애 복구 기준 — IN_PROGRESS가 5분 이상 남아있으면 비정상 → 스케줄러가 복구</text>
+
+          <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/></marker></defs>
+        </svg>
+      </div>
+      <pre><code>// PaymentService — 오케스트레이터 (@Transactional 없음)
+public Payment cancelPayment(Long paymentId, BigDecimal cancelAmount, String cancelReason) {
+    // 1단계: 트랜잭션 1 — 락 + 선점
+    String approvalNumber = transitionService.startCancel(paymentId, cancelAmount);
+
+    try {
+        // 2단계: 락 없이 외부 API + 결과 저장
+        cardApiService.cancel(paymentId, approvalNumber, cancelAmount);
+    } catch (CardApiClient.CardApiException e) {
+        // 3b: 실패 → 롤백
+        transitionService.rollbackCancel(paymentId);
+        throw new CardApiFailedException(e.getMessage());
+    }
+
+    // 3a: 성공 → 완료
+    return transitionService.completeCancel(paymentId, cancelAmount, cancelReason);
+}</code></pre>
+    </div>
+
+    <!-- 동시 요청 시나리오 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        동시 취소 요청 시나리오
+      </div>
+      <pre><code>Thread A: startCancel(30000)
+  → findByIdWithLock 🔒
+  → status = APPROVED ✅
+  → status = CANCEL_IN_PROGRESS → 커밋 → 🔓
+
+Thread B: startCancel(30000)
+  → findByIdWithLock 🔒 (A 커밋 후 진입)
+  → status = CANCEL_IN_PROGRESS ≠ APPROVED ❌ → 예외!</code></pre>
+      <p>IN_PROGRESS 상태가 다른 요청을 자연스럽게 차단한다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Saga 패턴</span>
+        <span class="related-tag">보상 트랜잭션</span>
+        <span class="related-tag">SELECT FOR UPDATE</span>
+        <span class="related-tag">데드락</span>
+        <span class="related-tag">분산 락</span>
+        <span class="related-tag">Redis Lock</span>
+        <span class="related-tag">멱등성</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>

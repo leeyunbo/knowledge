@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LAZY 로딩과 프록시, 그리고 self-invocation — JPA 실전 패턴 · 설계 스터디</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>LAZY 로딩과 프록시, 그리고 self-invocation</h1>
+      <p class="meta">설계 스터디 · JPA 실전 패턴 · 2026-03-25</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        JPA의 LAZY 로딩, @Transactional 모두 <strong>프록시</strong>로 동작한다.
+        프록시의 원리를 이해하면 왜 self-invocation에서 트랜잭션이 안 걸리는지, 왜 트랜잭션 밖에서 LAZY 접근하면 터지는지 전부 설명된다.
+      </div>
+    </div>
+
+    <!-- LAZY vs EAGER -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        LAZY vs EAGER
+      </div>
+      <pre><code>@OneToMany(fetch = FetchType.LAZY)   // 기본값 — 접근할 때 SQL 실행
+@OneToMany(fetch = FetchType.EAGER)  // 항상 즉시 로딩</code></pre>
+      <p>
+        <strong>EAGER를 안 쓰는 이유</strong> — 결제 조회할 때마다 취소 내역이 항상 딸려 나온다.
+        상태 체크만 하면 되는 곳에서도 불필요한 JOIN이 발생한다.
+      </p>
+      <p><strong>원칙: 기본은 LAZY, 필요한 곳에서만 FETCH JOIN.</strong></p>
+      <pre><code>// FETCH JOIN으로 필요할 때만 한 번에 가져오기
+@Query("SELECT p FROM Payment p LEFT JOIN FETCH p.cancels WHERE p.id = :id")
+Optional&lt;Payment&gt; findByIdWithCancels(@Param("id") Long id);
+
+// LEFT JOIN FETCH → cancels 없어도 Payment 반환
+// JOIN FETCH → cancels 없으면 결과 없음</code></pre>
+    </div>
+
+    <!-- 프록시 동작 원리 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        프록시 동작 원리
+      </div>
+      <p>Hibernate가 <strong>엔티티를 상속한 가짜 클래스</strong>를 런타임에 만든다.</p>
+      <pre><code>// Hibernate가 런타임에 만드는 프록시 (개념적)
+public class Payment$HibernateProxy extends Payment {
+    private boolean loaded = false;
+
+    @Override
+    public List&lt;PaymentCancel&gt; getCancels() {
+        if (!loaded) {
+            // 이 시점에 SQL 실행
+            loaded = true;
+        }
+        return super.getCancels();
+    }
+}</code></pre>
+      <p>그래서 엔티티 클래스에 제약이 있다:</p>
+      <ul>
+        <li><code>final</code> 클래스 ❌ → 상속 못 하면 프록시 못 만듦</li>
+        <li><code>private</code> 기본 생성자 ❌ → <code>protected</code> 이상이어야 인스턴스 생성 가능</li>
+        <li><code>final</code> 메서드 ❌ → 오버라이드 못 하면 가로채기 못 함</li>
+      </ul>
+      <p>
+        <strong>단일 엔티티</strong>(<code>@ManyToOne</code>) → 엔티티 상속 프록시<br>
+        <strong>컬렉션</strong>(<code>@OneToMany</code>) → Hibernate가 <code>PersistentBag</code>으로 교체
+      </p>
+    </div>
+
+    <!-- self-invocation -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        @Transactional self-invocation 문제
+      </div>
+      <p><code>@Transactional</code>도 프록시로 동작한다. 외부 호출만 프록시를 타고, 내부 호출은 안 탄다.</p>
+      <pre><code>@Service
+public class PaymentService {
+
+    @Transactional
+    public void methodA() { ... }  // 트랜잭션 걸림
+
+    public void methodB() {
+        this.methodA();  // ❌ this = 진짜 객체, 프록시 아님 → 트랜잭션 무시
+    }
+}
+
+// 외부에서 호출하면 프록시를 탐
+paymentService.methodA();  // ✅ 프록시 → 트랜잭션 시작</code></pre>
+      <p><strong>해결책: 별도 빈으로 분리.</strong></p>
+      <pre><code>// PaymentTransitionService (별도 빈)
+@Transactional
+public void startCancel(...) { ... }
+
+// PaymentService에서 호출 → 항상 프록시 탐
+transitionService.startCancel(...);</code></pre>
+    </div>
+
+    <!-- dirty checking -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        dirty checking과 불변 객체
+      </div>
+      <p>JPA는 엔티티 스냅샷과 현재 필드 값을 비교해서 변경을 감지한다.</p>
+      <pre><code>// BigDecimal은 불변 — 재할당해야 변경 감지
+this.canceledAmount.add(cancelAmount);                    // ❌ 새 객체 반환, 필드 그대로
+this.canceledAmount = this.canceledAmount.add(cancelAmount); // ✅ 필드 재할당 → dirty checking 감지
+
+// 컬렉션은 별도 추적 — 내부 변경도 감지
+this.cancels.add(new PaymentCancel(...));  // ✅ JPA가 감지</code></pre>
+    </div>
+
+    <!-- 트랜잭션 분리 시 주의 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        트랜잭션 분리 시 엔티티 재조회
+      </div>
+      <p>트랜잭션 1에서 조회한 엔티티를 트랜잭션 2에서 쓸 수 없다.</p>
+      <pre><code>startCancel()     ← 트랜잭션 1: 조회, 상태 변경, 커밋 → 엔티티 detached
+API 호출           ← 트랜잭션 없음
+completeCancel()  ← 트랜잭션 2: 새 영속성 컨텍스트 → 다시 조회해야 함</code></pre>
+      <p>JPA의 트레이드오프 — MyBatis라면 조회 없이 바로 UPDATE 가능하지만, JPA는 엔티티 기반이라 조회가 필수.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">영속성 컨텍스트</span>
+        <span class="related-tag">1차 캐시</span>
+        <span class="related-tag">Spring AOP</span>
+        <span class="related-tag">CGLIB 프록시</span>
+        <span class="related-tag">@EnumType.STRING</span>
+        <span class="related-tag">N+1 문제</span>
+        <span class="related-tag">detached 엔티티</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
