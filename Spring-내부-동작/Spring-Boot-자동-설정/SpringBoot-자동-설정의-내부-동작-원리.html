@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Boot 자동 설정의 내부 동작 원리 — Spring Boot 자동 설정 · Spring 내부 동작</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Spring Boot 자동 설정의 내부 동작 원리</h1>
+      <p class="meta">Spring 내부 동작 · Spring Boot 자동 설정 · 2026-03-25</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Spring Boot의 자동 설정은 <strong>@EnableAutoConfiguration</strong>이
+        <strong>AutoConfigurationImportSelector</strong>를 통해
+        <code>META-INF/spring/...AutoConfiguration.imports</code> 파일에 나열된 설정 클래스들을 로드하고,
+        각 클래스에 붙은 <strong>@Conditional</strong> 계열 어노테이션으로 <em>클래스패스 존재 여부, 기존 빈 유무, 프로퍼티 값</em> 등을
+        검사한 뒤 조건을 만족하는 빈만 등록하는 메커니즘이다.
+      </div>
+      <p>
+        개발자가 <code>spring-boot-starter-web</code>만 의존성에 추가하면
+        Tomcat, Jackson, DispatcherServlet 등이 자동으로 구성되는 이유가 바로 이 과정 때문이다.
+        아래에서 <code>SpringApplication.run()</code> 호출 시점부터 내장 톰캣이 뜨고 요청을 받기까지의 전 과정을 추적한다.
+      </p>
+    </div>
+
+    <!-- 1. @SpringBootApplication 분해 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        1. @SpringBootApplication 분해
+      </div>
+      <p><code>@SpringBootApplication</code>은 세 어노테이션의 합성(composed annotation)이다.</p>
+      <pre><code><span class="an">@SpringBootConfiguration</span>   <span class="cm">// = @Configuration의 특수화</span>
+<span class="an">@EnableAutoConfiguration</span>    <span class="cm">// 자동 설정 핵심 트리거</span>
+<span class="an">@ComponentScan</span>              <span class="cm">// 현재 패키지 + 하위 패키지 스캔</span>
+<span class="kw">public @interface</span> <span class="ty">SpringBootApplication</span> { ... }</code></pre>
+
+      <h2>@SpringBootConfiguration</h2>
+      <p>
+        <code>@Configuration</code>의 특수 버전이다. 클래스 자체가 빈 정의의 소스임을 선언한다.
+        Spring Boot는 애플리케이션 전체에서 <strong>하나의 @SpringBootConfiguration만 존재해야</strong> 한다는 규약을 가진다.
+        테스트에서 <code>@SpringBootTest</code>가 자동으로 이 어노테이션이 붙은 클래스를 탐색하는 이유이기도 하다.
+      </p>
+
+      <h2>@EnableAutoConfiguration</h2>
+      <p>
+        자동 설정의 <strong>진짜 트리거</strong>다. 내부에 <code>@Import(AutoConfigurationImportSelector.class)</code>가 선언되어 있어,
+        Spring의 <code>ConfigurationClassPostProcessor</code>가 이 Import를 처리할 때
+        <code>AutoConfigurationImportSelector.getAutoConfigurationEntry()</code>가 호출된다.
+      </p>
+
+      <h2>@ComponentScan</h2>
+      <p>
+        메인 클래스가 위치한 패키지를 기준으로 <code>@Component</code>, <code>@Service</code>,
+        <code>@Repository</code>, <code>@Controller</code> 등이 붙은 클래스를 스캔하여 빈으로 등록한다.
+        <strong>메인 클래스를 루트 패키지에 두는 관례</strong>가 중요한 이유다.
+      </p>
+    </div>
+
+    <!-- 2. SpringApplication.run() 내부 흐름 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        2. SpringApplication.run() 내부 흐름
+      </div>
+      <p><code>SpringApplication.run(App.class, args)</code>를 호출하면 내부에서 다음 단계를 순서대로 밟는다.</p>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 620" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="11">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+            </marker>
+            <marker id="arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+            </marker>
+            <marker id="arr-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
+            </marker>
+          </defs>
+
+          <!-- Title -->
+          <text x="400" y="25" text-anchor="middle" fill="#a78bfa" font-size="14" font-weight="bold">SpringApplication.run() 전체 흐름</text>
+
+          <!-- Step 1: SpringApplication 생성 -->
+          <rect x="250" y="45" width="300" height="40" rx="8" fill="#22263a" stroke="#7c6af7"/>
+          <text x="400" y="70" text-anchor="middle" fill="#a78bfa" font-size="12">1. new SpringApplication()</text>
+
+          <line x1="400" y1="85" x2="400" y2="105" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 1 details -->
+          <rect x="80" y="105" width="200" height="30" rx="6" fill="#22263a" stroke="#94a3b8" stroke-dasharray="4"/>
+          <text x="180" y="124" text-anchor="middle" fill="#94a3b8" font-size="9">WebApplicationType 추론</text>
+          <rect x="300" y="105" width="200" height="30" rx="6" fill="#22263a" stroke="#94a3b8" stroke-dasharray="4"/>
+          <text x="400" y="124" text-anchor="middle" fill="#94a3b8" font-size="9">ApplicationContextInitializer 로드</text>
+          <rect x="520" y="105" width="200" height="30" rx="6" fill="#22263a" stroke="#94a3b8" stroke-dasharray="4"/>
+          <text x="620" y="124" text-anchor="middle" fill="#94a3b8" font-size="9">ApplicationListener 로드</text>
+
+          <line x1="400" y1="135" x2="400" y2="160" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 2: Listeners -->
+          <rect x="250" y="160" width="300" height="40" rx="8" fill="#22263a" stroke="#38bdf8"/>
+          <text x="400" y="185" text-anchor="middle" fill="#38bdf8" font-size="12">2. RunListeners.starting()</text>
+
+          <line x1="400" y1="200" x2="400" y2="225" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 3: Environment -->
+          <rect x="250" y="225" width="300" height="40" rx="8" fill="#22263a" stroke="#38bdf8"/>
+          <text x="400" y="250" text-anchor="middle" fill="#38bdf8" font-size="12">3. Environment 준비</text>
+
+          <rect x="80" y="230" width="150" height="25" rx="6" fill="#22263a" stroke="#94a3b8" stroke-dasharray="4"/>
+          <text x="155" y="247" text-anchor="middle" fill="#94a3b8" font-size="9">application.yml 로드</text>
+
+          <line x1="400" y1="265" x2="400" y2="290" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 4: ApplicationContext 생성 -->
+          <rect x="250" y="290" width="300" height="40" rx="8" fill="#22263a" stroke="#fbbf24"/>
+          <text x="400" y="315" text-anchor="middle" fill="#fbbf24" font-size="12">4. ApplicationContext 생성</text>
+
+          <rect x="560" y="295" width="220" height="25" rx="6" fill="#22263a" stroke="#94a3b8" stroke-dasharray="4"/>
+          <text x="670" y="312" text-anchor="middle" fill="#94a3b8" font-size="9">AnnotationConfigServletWebServer...</text>
+
+          <line x1="400" y1="330" x2="400" y2="355" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 5: prepareContext -->
+          <rect x="250" y="355" width="300" height="40" rx="8" fill="#22263a" stroke="#fbbf24"/>
+          <text x="400" y="380" text-anchor="middle" fill="#fbbf24" font-size="12">5. prepareContext()</text>
+
+          <rect x="80" y="360" width="150" height="25" rx="6" fill="#22263a" stroke="#94a3b8" stroke-dasharray="4"/>
+          <text x="155" y="377" text-anchor="middle" fill="#94a3b8" font-size="9">Initializer 호출 + 소스 등록</text>
+
+          <line x1="400" y1="395" x2="400" y2="420" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 6: refreshContext - 핵심 -->
+          <rect x="200" y="420" width="400" height="50" rx="8" fill="rgba(52,211,153,0.1)" stroke="#34d399" stroke-width="2"/>
+          <text x="400" y="443" text-anchor="middle" fill="#34d399" font-size="13" font-weight="bold">6. refreshContext() — 핵심!</text>
+          <text x="400" y="460" text-anchor="middle" fill="#94a3b8" font-size="9">BeanDefinition 등록 + 자동 설정 + 내장 서버 시작</text>
+
+          <line x1="300" y1="470" x2="200" y2="500" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr-green)"/>
+          <line x1="400" y1="470" x2="400" y2="500" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr-green)"/>
+          <line x1="500" y1="470" x2="600" y2="500" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr-green)"/>
+
+          <!-- refresh 세부 -->
+          <rect x="80" y="500" width="220" height="35" rx="6" fill="#22263a" stroke="#34d399"/>
+          <text x="190" y="522" text-anchor="middle" fill="#34d399" font-size="10">invokeBeanFactoryPostProcessors</text>
+
+          <rect x="310" y="500" width="180" height="35" rx="6" fill="#22263a" stroke="#34d399"/>
+          <text x="400" y="522" text-anchor="middle" fill="#34d399" font-size="10">AutoConfiguration 처리</text>
+
+          <rect x="510" y="500" width="200" height="35" rx="6" fill="#22263a" stroke="#34d399"/>
+          <text x="610" y="522" text-anchor="middle" fill="#34d399" font-size="10">onRefresh → 내장 서버 시작</text>
+
+          <line x1="400" y1="535" x2="400" y2="560" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Step 7: Runners -->
+          <rect x="250" y="560" width="300" height="40" rx="8" fill="#22263a" stroke="#34d399"/>
+          <text x="400" y="585" text-anchor="middle" fill="#34d399" font-size="12">7. Runners 실행 + 애플리케이션 Ready</text>
+        </svg>
+      </div>
+
+      <h2>단계별 상세</h2>
+
+      <p><strong>1단계: SpringApplication 인스턴스 생성</strong></p>
+      <ul>
+        <li><strong>WebApplicationType 추론:</strong> 클래스패스에 <code>DispatcherServlet</code>이 있으면 <code>SERVLET</code>, <code>DispatcherHandler</code>가 있으면 <code>REACTIVE</code>, 둘 다 없으면 <code>NONE</code></li>
+        <li><code>spring.factories</code>에서 <code>ApplicationContextInitializer</code>와 <code>ApplicationListener</code> 구현체를 로드</li>
+        <li>메인 클래스(primary source)를 추론하여 저장</li>
+      </ul>
+
+      <p><strong>2단계: SpringApplicationRunListeners.starting()</strong></p>
+      <ul>
+        <li><code>ApplicationStartingEvent</code> 발행. 로깅 시스템 초기화 등이 이 시점에 수행됨</li>
+      </ul>
+
+      <p><strong>3단계: Environment 준비</strong></p>
+      <ul>
+        <li><code>ConfigurableEnvironment</code> 생성 (Servlet이면 <code>ApplicationServletEnvironment</code>)</li>
+        <li>커맨드라인 인자, 시스템 프로퍼티, OS 환경 변수, <code>application.yml/properties</code> 등을 <code>PropertySource</code>로 로드</li>
+        <li><code>ApplicationEnvironmentPreparedEvent</code> 발행 → <code>ConfigFileApplicationListener</code>(Boot 2.x) 또는 <code>ConfigDataEnvironmentPostProcessor</code>(Boot 3.x)가 설정 파일을 파싱</li>
+      </ul>
+
+      <p><strong>4단계: ApplicationContext 생성</strong></p>
+      <ul>
+        <li>SERVLET 타입이면 <code>AnnotationConfigServletWebServerApplicationContext</code> 인스턴스 생성</li>
+        <li>이 컨텍스트가 <code>ServletWebServerApplicationContext</code>를 상속하므로 내장 서버 라이프사이클을 관리할 수 있다</li>
+      </ul>
+
+      <p><strong>5단계: prepareContext()</strong></p>
+      <ul>
+        <li>Environment를 컨텍스트에 설정</li>
+        <li><code>ApplicationContextInitializer.initialize()</code> 호출</li>
+        <li>메인 클래스를 <code>BeanDefinition</code>으로 등록 (이 클래스에 <code>@SpringBootApplication</code>이 붙어 있으므로 자동 설정의 시작점이 됨)</li>
+      </ul>
+
+      <p><strong>6단계: refreshContext() — 가장 핵심</strong></p>
+      <ul>
+        <li>내부적으로 <code>AbstractApplicationContext.refresh()</code>를 호출</li>
+        <li><code>invokeBeanFactoryPostProcessors()</code>에서 <code>ConfigurationClassPostProcessor</code>가 실행됨</li>
+        <li>이때 <code>@EnableAutoConfiguration</code>의 <code>@Import(AutoConfigurationImportSelector.class)</code>가 처리되어 자동 설정 클래스들이 로드됨</li>
+        <li><code>onRefresh()</code>에서 <code>ServletWebServerApplicationContext.createWebServer()</code>가 호출되어 내장 서버가 생성되고 시작됨</li>
+        <li><code>finishBeanFactoryInitialization()</code>에서 모든 싱글턴 빈이 실제로 인스턴스화됨</li>
+      </ul>
+
+      <p><strong>7단계: Runners 실행</strong></p>
+      <ul>
+        <li><code>ApplicationRunner</code>와 <code>CommandLineRunner</code> 구현체가 실행됨</li>
+        <li><code>ApplicationReadyEvent</code> 발행 → 애플리케이션이 트래픽을 받을 준비 완료</li>
+      </ul>
+    </div>
+
+    <!-- 3. Auto-Configuration 메커니즘 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        3. Auto-Configuration 메커니즘 상세
+      </div>
+
+      <h2>AutoConfigurationImportSelector의 동작</h2>
+      <p>
+        <code>@EnableAutoConfiguration</code> 내부의 <code>@Import(AutoConfigurationImportSelector.class)</code>가 핵심이다.
+        <code>ConfigurationClassPostProcessor</code>가 <code>@Import</code>를 만나면
+        <code>AutoConfigurationImportSelector</code>를 <code>DeferredImportSelector</code>로서 처리한다.
+      </p>
+
+      <div class="warn-box">
+        <strong>DeferredImportSelector:</strong> 일반 <code>ImportSelector</code>와 달리, 모든 <code>@Configuration</code> 클래스가
+        처리된 <em>뒤에</em> 실행된다. 이 덕분에 사용자 정의 빈이 먼저 등록되고, 자동 설정은 나중에 처리되어
+        <code>@ConditionalOnMissingBean</code>이 올바르게 동작한다.
+      </div>
+
+      <h2>자동 설정 후보 클래스 로딩</h2>
+      <pre><code><span class="cm">// AutoConfigurationImportSelector 핵심 흐름 (간소화)</span>
+<span class="kw">protected</span> AutoConfigurationEntry <span class="fn">getAutoConfigurationEntry</span>(AnnotationMetadata metadata) {
+    <span class="cm">// 1. 후보 클래스 목록 로드</span>
+    List&lt;String&gt; configurations = <span class="fn">getCandidateConfigurations</span>(metadata, attributes);
+    <span class="cm">// 2. 중복 제거</span>
+    configurations = <span class="fn">removeDuplicates</span>(configurations);
+    <span class="cm">// 3. exclude 속성으로 명시적 제외</span>
+    Set&lt;String&gt; exclusions = <span class="fn">getExclusions</span>(metadata, attributes);
+    configurations.removeAll(exclusions);
+    <span class="cm">// 4. AutoConfigurationImportFilter로 사전 필터링</span>
+    configurations = <span class="fn">getConfigurationClassFilter</span>().filter(configurations);
+    <span class="cm">// 5. 이벤트 발행</span>
+    <span class="fn">fireAutoConfigurationImportEvents</span>(configurations, exclusions);
+    <span class="kw">return new</span> AutoConfigurationEntry(configurations, exclusions);
+}</code></pre>
+
+      <h2>Spring Boot 2.x vs 3.x: 설정 파일 위치</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>버전</th><th>파일 경로</th><th>형식</th><th>비고</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Spring Boot 2.x</td>
+              <td><code>META-INF/spring.factories</code></td>
+              <td><code>EnableAutoConfiguration=클래스1,클래스2,...</code></td>
+              <td>모든 팩토리 로딩에 공유되는 범용 파일</td>
+            </tr>
+            <tr>
+              <td>Spring Boot 2.7+</td>
+              <td>둘 다 지원 (중복 제거)</td>
+              <td>하위 호환 + 새 형식</td>
+              <td>마이그레이션 기간</td>
+            </tr>
+            <tr>
+              <td>Spring Boot 3.x</td>
+              <td><code>META-INF/spring/<br>org.springframework.boot.autoconfigure<br>.AutoConfiguration.imports</code></td>
+              <td>한 줄에 FQCN 하나씩</td>
+              <td><code>spring.factories</code>의 자동 설정 지원 제거</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Spring Boot 3.x에서 <code>spring.factories</code>가 완전히 사라진 것은 아니다.</strong>
+        <code>ApplicationContextInitializer</code>, <code>ApplicationListener</code> 등
+        자동 설정 이외의 팩토리 로딩은 여전히 <code>spring.factories</code>를 사용한다.
+        제거된 것은 <code>EnableAutoConfiguration</code> 키에 대한 지원뿐이다.</p>
+
+      <h2>사전 필터링 (AutoConfigurationImportFilter)</h2>
+      <p>
+        Spring Boot는 모든 후보 클래스를 실제로 로드하기 전에 <code>AutoConfigurationImportFilter</code>
+        (예: <code>OnClassCondition</code>)를 통해 <strong>ASM 기반으로 바이트코드 메타데이터만 읽어서</strong> 빠르게 필터링한다.
+        클래스패스에 없는 라이브러리와 관련된 자동 설정은 이 단계에서 대부분 걸러져 성능에 큰 영향을 미치지 않는다.
+      </p>
+    </div>
+
+    <!-- 4. @Conditional 어노테이션 패밀리 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        4. @Conditional 어노테이션 패밀리
+      </div>
+      <p>
+        자동 설정의 핵심은 <strong>"조건부 빈 등록"</strong>이다.
+        Spring Framework의 <code>@Conditional</code>을 확장한 Spring Boot 전용 어노테이션들이 이를 담당한다.
+      </p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>어노테이션</th><th>조건</th><th>대표적 사용 예</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>@ConditionalOnClass</code></td>
+              <td>지정된 클래스가 클래스패스에 <strong>존재</strong>할 때</td>
+              <td><code>DataSource.class</code>가 있으면 DB 자동 설정 활성</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnMissingClass</code></td>
+              <td>지정된 클래스가 클래스패스에 <strong>없을</strong> 때</td>
+              <td>특정 라이브러리 미존재 시 폴백 구성</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnBean</code></td>
+              <td>지정된 타입의 빈이 이미 <strong>등록</strong>되어 있을 때</td>
+              <td><code>DataSource</code> 빈이 있어야 JdbcTemplate 등록</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnMissingBean</code></td>
+              <td>지정된 타입의 빈이 <strong>아직 없을</strong> 때</td>
+              <td>사용자가 직접 정의 안 했으면 기본 빈 제공</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnProperty</code></td>
+              <td>특정 프로퍼티가 지정된 값을 가질 때</td>
+              <td><code>spring.cache.type=redis</code>일 때만 Redis 캐시 설정</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnWebApplication</code></td>
+              <td>웹 애플리케이션(Servlet 또는 Reactive) 환경일 때</td>
+              <td>DispatcherServlet 자동 설정</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnNotWebApplication</code></td>
+              <td>웹 환경이 <strong>아닐</strong> 때</td>
+              <td>CLI/배치 전용 구성</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnResource</code></td>
+              <td>지정된 리소스 파일이 클래스패스에 존재할 때</td>
+              <td>특정 설정 파일이 있을 때만 활성화</td>
+            </tr>
+            <tr>
+              <td><code>@ConditionalOnExpression</code></td>
+              <td>SpEL 표현식이 true일 때</td>
+              <td>복합 조건 표현</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="good-box">
+        <strong>핵심 원리:</strong> <code>@ConditionalOnClass</code>는 ASM 바이트코드 파싱으로 평가하므로
+        해당 클래스가 실제로 클래스패스에 없어도 <code>ClassNotFoundException</code>이 발생하지 않는다.
+        어노테이션의 <code>value</code> 속성에 클래스를 직접 참조해도 안전한 이유다.
+      </div>
+
+      <h2>조건 평가 순서</h2>
+      <p>Spring Boot는 조건을 다음 순서로 평가한다:</p>
+      <ol>
+        <li><strong>클래스 조건</strong> (<code>@ConditionalOnClass</code> / <code>@ConditionalOnMissingClass</code>) — 가장 먼저, <code>AutoConfigurationImportFilter</code> 단계에서 사전 필터링</li>
+        <li><strong>빈 조건</strong> (<code>@ConditionalOnBean</code> / <code>@ConditionalOnMissingBean</code>) — <code>ConfigurationPhase.REGISTER_BEAN</code> 단계에서 평가</li>
+        <li><strong>프로퍼티 조건</strong> (<code>@ConditionalOnProperty</code>) — Environment 바인딩 후 평가</li>
+      </ol>
+    </div>
+
+    <!-- 5. 실제 예시: DataSourceAutoConfiguration -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        5. 실제 예시: DataSourceAutoConfiguration
+      </div>
+      <p>H2 의존성만 추가하면 DataSource가 자동 생성되는 과정을 추적해보자.</p>
+
+      <pre><code><span class="cm">// DataSourceAutoConfiguration (Spring Boot 3.x)</span>
+<span class="an">@AutoConfiguration</span>(before = DataSourceInitializationAutoConfiguration.<span class="kw">class</span>)
+<span class="an">@ConditionalOnClass</span>({ DataSource.<span class="kw">class</span>, EmbeddedDatabaseType.<span class="kw">class</span> })
+<span class="an">@ConditionalOnMissingBean</span>(type = <span class="st">"io.r2dbc.spi.ConnectionFactory"</span>)
+<span class="an">@EnableConfigurationProperties</span>(DataSourceProperties.<span class="kw">class</span>)
+<span class="an">@Import</span>({ DataSourcePoolMetadataProvidersConfiguration.<span class="kw">class</span> })
+<span class="kw">public class</span> <span class="ty">DataSourceAutoConfiguration</span> {
+
+    <span class="an">@Configuration</span>(proxyBeanMethods = <span class="kw">false</span>)
+    <span class="an">@Conditional</span>(EmbeddedDatabaseCondition.<span class="kw">class</span>)
+    <span class="an">@ConditionalOnMissingBean</span>({ DataSource.<span class="kw">class</span>, XADataSource.<span class="kw">class</span> })
+    <span class="an">@Import</span>(EmbeddedDataSourceConfiguration.<span class="kw">class</span>)
+    <span class="kw">static class</span> <span class="ty">EmbeddedDatabaseConfiguration</span> { }
+
+    <span class="an">@Configuration</span>(proxyBeanMethods = <span class="kw">false</span>)
+    <span class="an">@Conditional</span>(PooledDataSourceCondition.<span class="kw">class</span>)
+    <span class="an">@ConditionalOnMissingBean</span>({ DataSource.<span class="kw">class</span>, XADataSource.<span class="kw">class</span> })
+    <span class="an">@Import</span>({ DataSourceConfiguration.Hikari.<span class="kw">class</span>, ... })
+    <span class="kw">static class</span> <span class="ty">PooledDataSourceConfiguration</span> { }
+}</code></pre>
+
+      <h2>조건 평가 흐름</h2>
+      <ol>
+        <li><code>@ConditionalOnClass({DataSource.class, EmbeddedDatabaseType.class})</code>
+          → <code>javax.sql.DataSource</code>는 JDK에 포함, <code>EmbeddedDatabaseType</code>은 <code>spring-jdbc</code>에 포함 → <strong>통과</strong></li>
+        <li><code>@ConditionalOnMissingBean(type="io.r2dbc.spi.ConnectionFactory")</code>
+          → R2DBC가 없으므로 → <strong>통과</strong></li>
+        <li><code>@EnableConfigurationProperties(DataSourceProperties.class)</code>
+          → <code>spring.datasource.*</code> 프로퍼티를 <code>DataSourceProperties</code> 빈에 바인딩</li>
+        <li>내부 클래스 <code>EmbeddedDatabaseConfiguration</code>:
+          <ul>
+            <li><code>EmbeddedDatabaseCondition</code> → H2/HSQL/Derby 드라이버가 클래스패스에 있는지 확인</li>
+            <li><code>@ConditionalOnMissingBean(DataSource.class)</code> → 사용자가 직접 DataSource를 정의하지 않았는지 확인</li>
+            <li>둘 다 통과하면 <code>EmbeddedDataSourceConfiguration</code>이 임베디드 DB DataSource를 생성</li>
+          </ul>
+        </li>
+      </ol>
+
+      <div class="good-box">
+        <strong>사용자가 직접 DataSource 빈을 정의하면?</strong>
+        <code>@ConditionalOnMissingBean(DataSource.class)</code> 조건이 실패하여
+        자동 설정의 DataSource는 등록되지 않는다. 사용자 빈이 항상 우선한다.
+      </div>
+    </div>
+
+    <!-- 6. 내장 톰캣 구동 과정 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        6. 내장 톰캣 구동 과정
+      </div>
+
+      <p><code>spring-boot-starter-web</code>을 추가하면 내장 톰캣이 자동으로 뜨는 전체 과정이다.</p>
+
+      <h2>자동 설정 진입점</h2>
+      <pre><code><span class="cm">// ServletWebServerFactoryAutoConfiguration</span>
+<span class="an">@AutoConfiguration</span>
+<span class="an">@ConditionalOnClass</span>(ServletRequest.<span class="kw">class</span>)
+<span class="an">@ConditionalOnWebApplication</span>(type = Type.SERVLET)
+<span class="an">@EnableConfigurationProperties</span>(ServerProperties.<span class="kw">class</span>)
+<span class="an">@Import</span>({
+    ServletWebServerFactoryAutoConfiguration.BeanPostProcessorsRegistrar.<span class="kw">class</span>,
+    ServletWebServerFactoryConfiguration.EmbeddedTomcat.<span class="kw">class</span>,   <span class="cm">// Tomcat</span>
+    ServletWebServerFactoryConfiguration.EmbeddedJetty.<span class="kw">class</span>,    <span class="cm">// Jetty</span>
+    ServletWebServerFactoryConfiguration.EmbeddedUndertow.<span class="kw">class</span>  <span class="cm">// Undertow</span>
+})
+<span class="kw">public class</span> <span class="ty">ServletWebServerFactoryAutoConfiguration</span> { ... }</code></pre>
+
+      <pre><code><span class="cm">// EmbeddedTomcat 내부 클래스</span>
+<span class="an">@Configuration</span>(proxyBeanMethods = <span class="kw">false</span>)
+<span class="an">@ConditionalOnClass</span>({ Servlet.<span class="kw">class</span>, Tomcat.<span class="kw">class</span>, UpgradeProtocol.<span class="kw">class</span> })
+<span class="an">@ConditionalOnMissingBean</span>(value = ServletWebServerFactory.<span class="kw">class</span>,
+                          search = SearchStrategy.CURRENT)
+<span class="kw">static class</span> <span class="ty">EmbeddedTomcat</span> {
+    <span class="an">@Bean</span>
+    <span class="ty">TomcatServletWebServerFactory</span> <span class="fn">tomcatServletWebServerFactory</span>(...) {
+        <span class="cm">// TomcatServletWebServerFactory 빈 생성</span>
+    }
+}</code></pre>
+
+      <h2>서버 시작 타이밍</h2>
+      <p>
+        <code>refreshContext()</code> 과정에서 <code>AbstractApplicationContext.refresh()</code>의
+        <code>onRefresh()</code> 단계가 호출된다.
+        <code>ServletWebServerApplicationContext</code>는 이 메서드를 오버라이드하여
+        <code>createWebServer()</code>를 호출한다.
+      </p>
+
+      <pre><code><span class="cm">// ServletWebServerApplicationContext</span>
+<span class="kw">protected void</span> <span class="fn">onRefresh</span>() {
+    <span class="kw">super</span>.onRefresh();
+    <span class="kw">try</span> {
+        <span class="fn">createWebServer</span>();    <span class="cm">// 여기서 내장 서버 생성!</span>
+    } <span class="kw">catch</span> (Throwable ex) { ... }
+}
+
+<span class="kw">private void</span> <span class="fn">createWebServer</span>() {
+    <span class="cm">// 1. BeanFactory에서 ServletWebServerFactory 빈 조회</span>
+    <span class="ty">ServletWebServerFactory</span> factory = <span class="fn">getWebServerFactory</span>();
+    <span class="cm">// 2. factory.getWebServer()로 Tomcat 인스턴스 생성</span>
+    <span class="kw">this</span>.webServer = factory.<span class="fn">getWebServer</span>(getSelfInitializer());
+    <span class="cm">// 3. 아직 시작은 하지 않음 (paused 상태)</span>
+}</code></pre>
+
+      <h2>TomcatServletWebServerFactory.getWebServer() 내부</h2>
+      <ol>
+        <li><code>new Tomcat()</code> 인스턴스 생성</li>
+        <li>Connector 설정 (기본 포트 8080, 프로토콜 HTTP/1.1)</li>
+        <li>Engine → Host → Context 계층 구조 구성</li>
+        <li><code>ServerProperties</code>(<code>server.port</code>, <code>server.servlet.context-path</code> 등)의 값 반영</li>
+        <li><code>TomcatWebServer</code> 인스턴스로 감싸서 반환 (이 시점에서는 아직 <code>start()</code> 호출 전)</li>
+      </ol>
+
+      <p>
+        실제 <code>Tomcat.start()</code>는 <code>finishRefresh()</code> 단계에서
+        <code>WebServer.start()</code>가 호출될 때 수행된다.
+        이 시점에서 커넥터가 바인딩되고 HTTP 요청을 수신할 수 있게 된다.
+      </p>
+    </div>
+
+    <!-- 7. @ConfigurationProperties -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        7. @ConfigurationProperties 바인딩 메커니즘
+      </div>
+
+      <p>
+        <code>@ConfigurationProperties</code>는 <code>application.yml/properties</code>의 값을
+        <strong>타입-안전한 자바 빈</strong>에 자동 바인딩하는 메커니즘이다.
+      </p>
+
+      <pre><code><span class="an">@ConfigurationProperties</span>(prefix = <span class="st">"server"</span>)
+<span class="kw">public class</span> <span class="ty">ServerProperties</span> {
+    <span class="kw">private</span> Integer port;                   <span class="cm">// server.port</span>
+    <span class="kw">private</span> InetAddress address;             <span class="cm">// server.address</span>
+    <span class="kw">private final</span> Servlet servlet = <span class="kw">new</span> Servlet();
+
+    <span class="kw">public static class</span> <span class="ty">Servlet</span> {
+        <span class="kw">private</span> String contextPath;           <span class="cm">// server.servlet.context-path</span>
+    }
+    <span class="cm">// getter/setter ...</span>
+}</code></pre>
+
+      <h2>바인딩 과정</h2>
+      <ol>
+        <li><code>@EnableConfigurationProperties(ServerProperties.class)</code>가 선언되면
+            <code>ConfigurationPropertiesBindingPostProcessor</code>가 등록됨</li>
+        <li>이 <code>BeanPostProcessor</code>가 빈 초기화 시점에 <code>Binder</code>를 사용하여 <code>Environment</code>의 프로퍼티를 빈 필드에 바인딩</li>
+        <li><code>Binder</code>는 <code>ConfigurationPropertySource</code>를 통해 프로퍼티를 읽는데,
+            이때 <strong>Relaxed Binding</strong> 규칙이 적용됨</li>
+      </ol>
+
+      <h2>Relaxed Binding 규칙</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>프로퍼티 표기</th><th>예시</th><th>매핑 대상</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>kebab-case (권장)</td><td><code>server.servlet.context-path</code></td><td rowspan="4"><code>contextPath</code> 필드</td></tr>
+            <tr><td>camelCase</td><td><code>server.servlet.contextPath</code></td></tr>
+            <tr><td>snake_case</td><td><code>server.servlet.context_path</code></td></tr>
+            <tr><td>UPPER_CASE (환경변수)</td><td><code>SERVER_SERVLET_CONTEXT_PATH</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="warn-box">
+        <strong>Spring Boot 3.x에서는 Canonical Form으로 정규화:</strong>
+        프로퍼티를 내부적으로 <code>server.servlet.context-path</code> 형태(소문자 + 하이픈)로 정규화한 뒤 비교한다.
+        <code>ConfigurationPropertyName</code> 클래스가 이 정규화를 담당한다.
+      </div>
+
+      <h2>타입 변환</h2>
+      <p>
+        <code>Binder</code>는 Spring의 <code>ConversionService</code>를 사용하여
+        문자열 프로퍼티를 <code>Integer</code>, <code>Duration</code>, <code>DataSize</code>, <code>InetAddress</code> 등
+        다양한 타입으로 자동 변환한다.
+        <code>@DurationUnit</code>, <code>@DataSizeUnit</code> 같은 어노테이션으로 단위를 명시할 수도 있다.
+      </p>
+      <pre><code><span class="cm">// application.yml</span>
+server:
+  port: <span class="st">8443</span>
+  shutdown: <span class="st">graceful</span>
+  servlet:
+    session:
+      timeout: <span class="st">30m</span>       <span class="cm">// → Duration.ofMinutes(30)</span></code></pre>
+    </div>
+
+    <!-- 8. spring-boot-starter의 역할 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        8. spring-boot-starter의 역할
+      </div>
+
+      <p>
+        Starter는 <strong>의존성 묶음(dependency aggregator)</strong>이자 <strong>자동 설정 트리거</strong>다.
+        Starter 자체에는 코드가 거의 없고, <code>pom.xml</code>(또는 <code>build.gradle</code>)에
+        관련 라이브러리들을 전이 의존성으로 선언한다.
+      </p>
+
+      <pre><code><span class="cm">// spring-boot-starter-web이 가져오는 의존성 (간소화)</span>
+spring-boot-starter-web
+├── spring-boot-starter              <span class="cm">// 코어 (logging, yaml, auto-configure)</span>
+│   ├── spring-boot-autoconfigure    <span class="cm">// 148개+ 자동 설정 클래스 포함</span>
+│   └── spring-boot-starter-logging  <span class="cm">// Logback + SLF4J</span>
+├── spring-web                       <span class="cm">// RestTemplate, WebClient 등</span>
+├── spring-webmvc                    <span class="cm">// DispatcherServlet, @Controller</span>
+├── spring-boot-starter-tomcat       <span class="cm">// 내장 Tomcat</span>
+│   └── tomcat-embed-core
+└── spring-boot-starter-json         <span class="cm">// Jackson</span></code></pre>
+
+      <h2>Starter가 자동 설정을 트리거하는 원리</h2>
+      <ol>
+        <li><code>spring-boot-starter-web</code>을 추가하면 <code>tomcat-embed-core</code>가 클래스패스에 들어옴</li>
+        <li><code>spring-boot-autoconfigure</code> JAR의 <code>.imports</code> 파일에 <code>ServletWebServerFactoryAutoConfiguration</code>이 이미 등록되어 있음</li>
+        <li>해당 자동 설정의 <code>@ConditionalOnClass(Servlet.class, Tomcat.class)</code> 조건이 통과됨</li>
+        <li>Tomcat 관련 빈들이 자동 등록 → 내장 서버가 시작됨</li>
+      </ol>
+
+      <div class="highlight-box">
+        <strong>요약:</strong> Starter는 코드가 아니라 <em>의존성을 클래스패스에 올리는 역할</em>만 한다.
+        실제 설정 로직은 <code>spring-boot-autoconfigure</code> 모듈 안에 있고,
+        <code>@ConditionalOnClass</code>가 클래스패스를 감지하여 활성화한다.
+      </div>
+    </div>
+
+    <!-- 시각화: 전체 흐름 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        전체 자동 설정 흐름 시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="11">
+          <defs>
+            <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+            </marker>
+          </defs>
+
+          <text x="400" y="25" text-anchor="middle" fill="#a78bfa" font-size="14" font-weight="bold">자동 설정 처리 흐름도</text>
+
+          <!-- 1단계: 소스 -->
+          <rect x="250" y="40" width="300" height="40" rx="8" fill="#22263a" stroke="#7c6af7"/>
+          <text x="400" y="65" text-anchor="middle" fill="#a78bfa" font-size="12">@SpringBootApplication 메인 클래스</text>
+
+          <line x1="400" y1="80" x2="400" y2="105" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- 2단계: 어노테이션 분해 -->
+          <rect x="50" y="105" width="200" height="35" rx="8" fill="#22263a" stroke="#38bdf8"/>
+          <text x="150" y="127" text-anchor="middle" fill="#38bdf8" font-size="10">@ComponentScan</text>
+
+          <rect x="300" y="105" width="200" height="35" rx="8" fill="#22263a" stroke="#fbbf24"/>
+          <text x="400" y="127" text-anchor="middle" fill="#fbbf24" font-size="10">@EnableAutoConfiguration</text>
+
+          <rect x="550" y="105" width="200" height="35" rx="8" fill="#22263a" stroke="#94a3b8"/>
+          <text x="650" y="127" text-anchor="middle" fill="#94a3b8" font-size="10">@SpringBootConfiguration</text>
+
+          <line x1="400" y1="140" x2="400" y2="170" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- 3단계: ImportSelector -->
+          <rect x="220" y="170" width="360" height="40" rx="8" fill="#22263a" stroke="#fbbf24"/>
+          <text x="400" y="195" text-anchor="middle" fill="#fbbf24" font-size="12">AutoConfigurationImportSelector</text>
+
+          <line x1="400" y1="210" x2="400" y2="240" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- 4단계: imports 파일 -->
+          <rect x="150" y="240" width="500" height="40" rx="8" fill="#22263a" stroke="#34d399"/>
+          <text x="400" y="265" text-anchor="middle" fill="#34d399" font-size="11">META-INF/spring/...AutoConfiguration.imports (148개+ 후보)</text>
+
+          <line x1="400" y1="280" x2="400" y2="310" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- 5단계: 필터링 -->
+          <rect x="200" y="310" width="400" height="40" rx="8" fill="rgba(248,113,113,0.1)" stroke="#f87171"/>
+          <text x="400" y="335" text-anchor="middle" fill="#f87171" font-size="12">@Conditional 필터링 (대부분 탈락)</text>
+
+          <!-- 필터 상세 -->
+          <rect x="30" y="320" width="150" height="22" rx="4" fill="#22263a" stroke="#94a3b8" stroke-dasharray="3"/>
+          <text x="105" y="335" text-anchor="middle" fill="#94a3b8" font-size="8">@ConditionalOnClass</text>
+
+          <rect x="630" y="320" width="150" height="22" rx="4" fill="#22263a" stroke="#94a3b8" stroke-dasharray="3"/>
+          <text x="705" y="335" text-anchor="middle" fill="#94a3b8" font-size="8">@ConditionalOnMissingBean</text>
+
+          <line x1="400" y1="350" x2="400" y2="380" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- 6단계: 빈 등록 -->
+          <rect x="200" y="380" width="400" height="40" rx="8" fill="rgba(52,211,153,0.1)" stroke="#34d399" stroke-width="2"/>
+          <text x="400" y="405" text-anchor="middle" fill="#34d399" font-size="12" font-weight="bold">조건 통과한 빈만 ApplicationContext에 등록</text>
+
+          <line x1="250" y1="420" x2="150" y2="450" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr2)"/>
+          <line x1="400" y1="420" x2="400" y2="450" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr2)"/>
+          <line x1="550" y1="420" x2="650" y2="450" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- 결과 빈들 -->
+          <rect x="60" y="450" width="180" height="30" rx="6" fill="#22263a" stroke="#34d399"/>
+          <text x="150" y="470" text-anchor="middle" fill="#34d399" font-size="10">DataSource + JdbcTemplate</text>
+
+          <rect x="290" y="450" width="220" height="30" rx="6" fill="#22263a" stroke="#34d399"/>
+          <text x="400" y="470" text-anchor="middle" fill="#34d399" font-size="10">DispatcherServlet + Tomcat</text>
+
+          <rect x="560" y="450" width="180" height="30" rx="6" fill="#22263a" stroke="#34d399"/>
+          <text x="650" y="470" text-anchor="middle" fill="#34d399" font-size="10">Jackson + HttpMessageConverter</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 디버깅 팁 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        자동 설정 디버깅 팁
+      </div>
+
+      <h2>ConditionEvaluationReport 확인</h2>
+      <p><code>application.properties</code>에 다음을 추가하면 어떤 자동 설정이 매칭/스킵되었는지 확인 가능하다:</p>
+      <pre><code><span class="cm"># 자동 설정 조건 평가 결과를 상세하게 출력</span>
+debug=<span class="st">true</span></code></pre>
+
+      <p>출력 예시:</p>
+      <pre><code>============================
+CONDITIONS EVALUATION REPORT
+============================
+
+Positive matches:
+-----------------
+   DataSourceAutoConfiguration matched:
+      - @ConditionalOnClass found required classes
+        'javax.sql.DataSource', 'org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType'
+
+Negative matches:
+-----------------
+   ActiveMQAutoConfiguration:
+      Did not match:
+         - @ConditionalOnClass did not find required class
+           'jakarta.jms.ConnectionFactory'</code></pre>
+
+      <h2>특정 자동 설정 비활성화</h2>
+      <pre><code><span class="cm">// 방법 1: 어노테이션</span>
+<span class="an">@SpringBootApplication</span>(exclude = { DataSourceAutoConfiguration.<span class="kw">class</span> })
+
+<span class="cm">// 방법 2: 프로퍼티</span>
+spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration</code></pre>
+    </div>
+
+    <!-- 함께 알면 좋은 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">@Configuration</span>
+        <span class="related-tag">@Import</span>
+        <span class="related-tag">ImportSelector</span>
+        <span class="related-tag">BeanFactoryPostProcessor</span>
+        <span class="related-tag">Spring SPI (spring.factories)</span>
+        <span class="related-tag">ApplicationContext 라이프사이클</span>
+        <span class="related-tag">DispatcherServlet</span>
+        <span class="related-tag">Embedded Tomcat</span>
+        <span class="related-tag">@Profile</span>
+        <span class="related-tag">Spring Boot Actuator</span>
+        <span class="related-tag">GraalVM Native Image</span>
+        <span class="related-tag">@AutoConfiguration</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>

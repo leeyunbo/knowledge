@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스프링 AOP와 프록시 내부 동작 원리 — AOP와 프록시 · Spring 내부 동작</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>스프링 AOP와 프록시 내부 동작 원리</h1>
+      <p class="meta">Spring 내부 동작 · AOP와 프록시 · 2026-03-25</p>
+    </header>
+
+    <!-- ========== 핵심 답변 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Spring AOP는 <strong>런타임 프록시</strong>로 동작한다.
+        대상 빈을 감싸는 프록시 객체가 메서드 호출을 가로채고, Advice(부가 로직)를 실행한 뒤 실제 타깃을 호출한다.
+        <code class="cm">@Transactional</code>, <code class="cm">@Cacheable</code>, <code class="cm">@Async</code> 모두 이 프록시 메커니즘 위에서 동작하며,
+        프록시를 거치지 않는 <strong>self-invocation</strong>에서는 AOP가 적용되지 않는다.
+      </div>
+      <p>
+        프록시 구현에는 두 가지 방식이 있다.
+        <strong>JDK Dynamic Proxy</strong>(인터페이스 기반)와 <strong>CGLIB Proxy</strong>(상속 기반).
+        Spring Boot 2.0부터 기본값은 CGLIB이며, <code class="cm">proxyTargetClass=true</code>가 디폴트다.
+      </p>
+    </div>
+
+    <!-- ========== 프록시 패턴 — 왜 Spring이 프록시를 쓰는가 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        프록시 패턴 — 왜 Spring이 프록시를 쓰는가
+      </div>
+      <p>
+        <strong>프록시 패턴</strong>은 실제 객체에 대한 접근을 제어하는 대리 객체를 두는 디자인 패턴이다.
+        클라이언트는 프록시를 통해 타깃 객체에 접근하므로, 타깃 코드를 수정하지 않고도 부가 기능을 끼워 넣을 수 있다.
+      </p>
+      <p>
+        Spring은 이 패턴을 활용해 <strong>횡단 관심사(Cross-Cutting Concerns)</strong>를 분리한다.
+        트랜잭션 관리, 로깅, 보안, 캐싱 같은 공통 로직을 비즈니스 코드에서 분리해 별도 Aspect로 관리하고,
+        런타임에 프록시를 통해 자동으로 적용한다.
+      </p>
+      <pre><code><span class="kw">// 클라이언트가 보는 것: 프록시 객체</span>
+<span class="kw">// 실제 호출 흐름</span>
+Client → <span class="ty">Proxy</span> → [Before Advice] → <span class="ty">Target</span>.method() → [After Advice] → Client</code></pre>
+    </div>
+
+    <!-- ========== AOP 핵심 용어 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        AOP 핵심 용어
+      </div>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>용어</th><th>설명</th><th>Spring AOP에서</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Aspect</strong></td>
+              <td>횡단 관심사를 모듈화한 클래스</td>
+              <td><code class="an">@Aspect</code> 어노테이션이 붙은 클래스</td>
+            </tr>
+            <tr>
+              <td><strong>Join Point</strong></td>
+              <td>Advice가 적용될 수 있는 지점</td>
+              <td>Spring AOP에서는 <strong>메서드 실행 시점</strong>만 지원 (필드 접근, 생성자 호출 등은 AspectJ만 가능)</td>
+            </tr>
+            <tr>
+              <td><strong>Advice</strong></td>
+              <td>특정 Join Point에서 실행되는 부가 로직</td>
+              <td>
+                <code class="an">@Before</code> — 메서드 실행 전<br>
+                <code class="an">@AfterReturning</code> — 정상 반환 후<br>
+                <code class="an">@AfterThrowing</code> — 예외 발생 후<br>
+                <code class="an">@After</code> — 무조건 실행 (finally)<br>
+                <code class="an">@Around</code> — 전후 모두 제어 (가장 강력)
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Pointcut</strong></td>
+              <td>어떤 Join Point에 Advice를 적용할지 결정하는 표현식</td>
+              <td><code class="st">execution(* com.example.service.*.*(..))</code> 같은 AspectJ 포인트컷 표현식</td>
+            </tr>
+            <tr>
+              <td><strong>Weaving</strong></td>
+              <td>Aspect를 타깃 객체에 연결하는 과정</td>
+              <td>Spring AOP는 <strong>런타임 위빙</strong> — BeanPostProcessor가 프록시를 생성</td>
+            </tr>
+            <tr>
+              <td><strong>Target Object</strong></td>
+              <td>프록시가 감싸는 실제 비즈니스 객체</td>
+              <td>Spring 컨테이너에 등록된 원본 빈</td>
+            </tr>
+            <tr>
+              <td><strong>AOP Proxy</strong></td>
+              <td>AOP가 적용된 대리 객체</td>
+              <td>JDK Dynamic Proxy 또는 CGLIB Proxy</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Advice 타입별 실행 순서</h3>
+      <pre><code><span class="an">@Around</span> — proceed() 호출 전
+  <span class="an">@Before</span>
+    Target.method() 실행
+  <span class="an">@AfterReturning</span> (정상) / <span class="an">@AfterThrowing</span> (예외)
+  <span class="an">@After</span> (finally)
+<span class="an">@Around</span> — proceed() 호출 후</code></pre>
+
+      <pre><code><span class="an">@Aspect</span>
+<span class="an">@Component</span>
+<span class="kw">public class</span> <span class="ty">LoggingAspect</span> {
+
+    <span class="an">@Around</span>(<span class="st">"execution(* com.example.service.*.*(..))"</span>)
+    <span class="kw">public</span> Object <span class="fn">logExecution</span>(ProceedingJoinPoint joinPoint) <span class="kw">throws</span> Throwable {
+        <span class="kw">long</span> start = System.currentTimeMillis();
+        Object result = joinPoint.<span class="fn">proceed</span>();  <span class="kw">// 타깃 메서드 실행</span>
+        <span class="kw">long</span> elapsed = System.currentTimeMillis() - start;
+        log.info(<span class="st">"{} executed in {}ms"</span>, joinPoint.getSignature(), elapsed);
+        <span class="kw">return</span> result;
+    }
+}</code></pre>
+    </div>
+
+    <!-- ========== JDK Dynamic Proxy ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        JDK Dynamic Proxy — 인터페이스 기반
+      </div>
+      <p>
+        Java 표준 라이브러리 <code class="ty">java.lang.reflect.Proxy</code>가 제공하는 프록시 메커니즘이다.
+        <strong>인터페이스를 구현하는 프록시 클래스</strong>를 런타임에 동적으로 생성한다.
+      </p>
+
+      <h3>핵심 API</h3>
+      <pre><code><span class="kw">// 프록시 생성</span>
+Object proxy = <span class="ty">Proxy</span>.<span class="fn">newProxyInstance</span>(
+    classLoader,           <span class="kw">// 프록시 클래스를 정의할 클래스로더</span>
+    <span class="kw">new</span> Class[]{ <span class="ty">MyService</span>.class },  <span class="kw">// 프록시가 구현할 인터페이스 배열</span>
+    invocationHandler      <span class="kw">// 메서드 호출을 가로챌 핸들러</span>
+);</code></pre>
+
+      <h3>InvocationHandler 인터페이스</h3>
+      <pre><code><span class="kw">public interface</span> <span class="ty">InvocationHandler</span> {
+    Object <span class="fn">invoke</span>(Object proxy, Method method, Object[] args) <span class="kw">throws</span> Throwable;
+}</code></pre>
+
+      <h3>내부 동작 흐름</h3>
+      <ol>
+        <li><code class="fn">Proxy.newProxyInstance()</code> 호출</li>
+        <li>내부적으로 <code class="fn">Proxy.getProxyClass()</code>가 <strong>바이트코드를 동적 생성</strong>하여 프록시 클래스를 만듦</li>
+        <li>생성된 프록시 클래스는 <code class="ty">java.lang.reflect.Proxy</code>를 상속하고, 지정된 인터페이스를 구현</li>
+        <li>프록시 클래스의 생성자에 <code class="ty">InvocationHandler</code>를 전달하여 인스턴스 생성</li>
+        <li>프록시의 모든 메서드 호출 → <code class="fn">InvocationHandler.invoke()</code>로 위임</li>
+      </ol>
+
+      <pre><code><span class="kw">// 내부적으로 생성되는 프록시 클래스 (개념)</span>
+<span class="kw">public class</span> <span class="ty">$Proxy0</span> <span class="kw">extends</span> <span class="ty">Proxy</span> <span class="kw">implements</span> <span class="ty">MyService</span> {
+    <span class="kw">private</span> InvocationHandler h;
+
+    <span class="kw">public</span> <span class="ty">$Proxy0</span>(InvocationHandler h) {
+        <span class="kw">super</span>(h);
+        <span class="kw">this</span>.h = h;
+    }
+
+    <span class="an">@Override</span>
+    <span class="kw">public</span> void <span class="fn">doSomething</span>() {
+        <span class="kw">// 모든 호출이 InvocationHandler로 위임됨</span>
+        h.<span class="fn">invoke</span>(<span class="kw">this</span>, doSomethingMethod, <span class="kw">null</span>);
+    }
+}</code></pre>
+
+      <div class="warn-box">
+        <strong>제약사항:</strong> 타깃 객체가 반드시 <strong>인터페이스를 구현</strong>해야 한다.
+        인터페이스가 없는 구체 클래스에는 JDK Dynamic Proxy를 적용할 수 없다.
+        또한 <code class="ty">Proxy</code>를 이미 상속하므로 다른 클래스를 상속할 수 없다 (Java 단일 상속).
+      </div>
+    </div>
+
+    <!-- ========== CGLIB Proxy ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        CGLIB Proxy — 상속 기반 바이트코드 조작
+      </div>
+      <p>
+        <strong>CGLIB(Code Generation Library)</strong>는 ASM 라이브러리를 사용해 바이트코드를 직접 조작하여
+        타깃 클래스의 <strong>서브클래스</strong>를 런타임에 생성한다.
+        인터페이스 없이도 프록시를 만들 수 있다.
+        Spring Framework는 CGLIB를 <code class="cm">spring-core</code>에 내장(repackage)하고 있다.
+      </p>
+
+      <h3>핵심 API</h3>
+      <pre><code><span class="ty">Enhancer</span> enhancer = <span class="kw">new</span> <span class="ty">Enhancer</span>();
+enhancer.<span class="fn">setSuperclass</span>(<span class="ty">MyServiceImpl</span>.class);  <span class="kw">// 타깃 클래스를 부모로 설정</span>
+enhancer.<span class="fn">setCallback</span>(methodInterceptor);       <span class="kw">// 메서드 가로채기 콜백</span>
+<span class="ty">MyServiceImpl</span> proxy = (<span class="ty">MyServiceImpl</span>) enhancer.<span class="fn">create</span>();</code></pre>
+
+      <h3>MethodInterceptor 인터페이스</h3>
+      <pre><code><span class="kw">public interface</span> <span class="ty">MethodInterceptor</span> <span class="kw">extends</span> <span class="ty">Callback</span> {
+    Object <span class="fn">intercept</span>(Object obj, Method method, Object[] args,
+                      MethodProxy proxy) <span class="kw">throws</span> Throwable;
+}
+
+<span class="kw">// 사용 예시</span>
+<span class="ty">MethodInterceptor</span> interceptor = (obj, method, args, proxy) -> {
+    System.out.println(<span class="st">"Before: "</span> + method.getName());
+    Object result = proxy.<span class="fn">invokeSuper</span>(obj, args);  <span class="kw">// 부모(타깃) 메서드 호출</span>
+    System.out.println(<span class="st">"After: "</span> + method.getName());
+    <span class="kw">return</span> result;
+};</code></pre>
+
+      <h3>내부 동작 흐름</h3>
+      <ol>
+        <li><code class="ty">Enhancer</code>가 타깃 클래스를 상속하는 서브클래스의 <strong>바이트코드를 ASM으로 생성</strong></li>
+        <li>서브클래스의 모든 non-final 메서드를 오버라이드</li>
+        <li>오버라이드된 메서드에서 <code class="ty">MethodInterceptor</code>의 <code class="fn">intercept()</code>를 호출</li>
+        <li><code class="fn">MethodProxy.invokeSuper()</code>로 실제 부모 클래스의 원본 메서드를 호출</li>
+      </ol>
+
+      <pre><code><span class="kw">// CGLIB가 생성하는 서브클래스 (개념)</span>
+<span class="kw">public class</span> <span class="ty">MyServiceImpl$$EnhancerByCGLIB$$a1b2c3</span> <span class="kw">extends</span> <span class="ty">MyServiceImpl</span> {
+    <span class="kw">private</span> MethodInterceptor interceptor;
+
+    <span class="an">@Override</span>
+    <span class="kw">public</span> void <span class="fn">doSomething</span>() {
+        interceptor.<span class="fn">intercept</span>(
+            <span class="kw">this</span>,
+            doSomethingMethod,
+            <span class="kw">new</span> Object[]{},
+            methodProxy
+        );
+    }
+}</code></pre>
+
+      <div class="warn-box">
+        <strong>제약사항:</strong>
+        <ul style="margin:0.5em 0 0 1.2em;padding:0">
+          <li><code class="kw">final</code> 클래스는 프록시 생성 불가 — 상속이 불가능하기 때문</li>
+          <li><code class="kw">final</code> 메서드는 오버라이드 불가 — 해당 메서드에는 AOP가 적용되지 않음</li>
+          <li><code class="kw">private</code> 메서드도 오버라이드 불가 — AOP 미적용</li>
+          <li>프록시 인스턴스와 타깃 인스턴스, <strong>두 개의 객체</strong>가 생성됨 (메모리 오버헤드)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ========== JDK vs CGLIB 비교 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        JDK Dynamic Proxy vs CGLIB Proxy 비교
+      </div>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>구분</th><th>JDK Dynamic Proxy</th><th>CGLIB Proxy</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>프록시 생성 방식</strong></td>
+              <td>인터페이스를 구현하는 새 클래스 생성</td>
+              <td>타깃 클래스를 상속하는 서브클래스 생성</td>
+            </tr>
+            <tr>
+              <td><strong>인터페이스 필요 여부</strong></td>
+              <td>반드시 필요</td>
+              <td>불필요 (구체 클래스 직접 프록시)</td>
+            </tr>
+            <tr>
+              <td><strong>핵심 API</strong></td>
+              <td><code class="ty">java.lang.reflect.Proxy</code><br><code class="ty">InvocationHandler</code></td>
+              <td><code class="ty">Enhancer</code><br><code class="ty">MethodInterceptor</code></td>
+            </tr>
+            <tr>
+              <td><strong>바이트코드 조작</strong></td>
+              <td>Java 리플렉션 API로 프록시 클래스 생성</td>
+              <td>ASM 라이브러리로 바이트코드 직접 조작</td>
+            </tr>
+            <tr>
+              <td><strong>메서드 호출</strong></td>
+              <td><code class="fn">Method.invoke()</code> (리플렉션)</td>
+              <td><code class="fn">MethodProxy.invokeSuper()</code> (FastClass — 리플렉션 없이 직접 호출)</td>
+            </tr>
+            <tr>
+              <td><strong>성능</strong></td>
+              <td>리플렉션 기반으로 상대적으로 느림</td>
+              <td>FastClass 덕분에 메서드 호출 시 더 빠름</td>
+            </tr>
+            <tr>
+              <td><strong>제약</strong></td>
+              <td>인터페이스 없으면 사용 불가</td>
+              <td>final 클래스/메서드 프록시 불가</td>
+            </tr>
+            <tr>
+              <td><strong>Spring Boot 기본값</strong></td>
+              <td>-</td>
+              <td>Spring Boot 2.0부터 기본값</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ========== Spring이 프록시를 선택하는 방법 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        ProxyFactory — Spring이 프록시 방식을 결정하는 방법
+      </div>
+      <p>
+        Spring AOP에서 프록시 생성의 핵심은 <code class="ty">DefaultAopProxyFactory</code>다.
+        이 클래스가 타깃 객체의 특성을 확인하고 JDK 또는 CGLIB 프록시를 선택한다.
+      </p>
+
+      <h3>DefaultAopProxyFactory의 판단 로직</h3>
+      <pre><code><span class="kw">// DefaultAopProxyFactory.createAopProxy() 내부 로직 (간략화)</span>
+<span class="kw">public</span> <span class="ty">AopProxy</span> <span class="fn">createAopProxy</span>(<span class="ty">AdvisedSupport</span> config) {
+    <span class="kw">if</span> (config.<span class="fn">isOptimize</span>()
+        || config.<span class="fn">isProxyTargetClass</span>()       <span class="kw">// proxyTargetClass=true이면 CGLIB</span>
+        || <span class="fn">hasNoUserSuppliedProxyInterfaces</span>(config)) {  <span class="kw">// 인터페이스 없으면 CGLIB</span>
+
+        Class&lt;?&gt; targetClass = config.<span class="fn">getTargetClass</span>();
+        <span class="kw">if</span> (targetClass.<span class="fn">isInterface</span>() || <span class="ty">Proxy</span>.<span class="fn">isProxyClass</span>(targetClass)) {
+            <span class="kw">return new</span> <span class="ty">JdkDynamicAopProxy</span>(config);  <span class="kw">// 인터페이스 자체면 JDK</span>
+        }
+        <span class="kw">return new</span> <span class="ty">ObjenesisCglibAopProxy</span>(config);  <span class="kw">// CGLIB</span>
+    }
+    <span class="kw">return new</span> <span class="ty">JdkDynamicAopProxy</span>(config);  <span class="kw">// 기본: JDK</span>
+}</code></pre>
+
+      <h3>Spring Boot 2.0부터 CGLIB가 기본값인 이유</h3>
+      <div class="good-box">
+        <strong>spring.aop.proxy-target-class=true</strong> (Spring Boot 2.0 기본값)
+        <ul style="margin:0.5em 0 0 1.2em;padding:0">
+          <li><strong>일관성</strong> — 인터페이스 유무에 관계없이 항상 같은 프록시 방식을 사용</li>
+          <li><strong>구체 클래스 주입 가능</strong> — 인터페이스 없이도 타입 안전한 DI 가능. 테스트에서도 편리</li>
+          <li><strong>어노테이션 중복 제거</strong> — JDK 프록시에서는 인터페이스에도 어노테이션을 선언해야 하는 경우가 있었음</li>
+          <li><strong>실무 편의성</strong> — 대부분의 Spring 애플리케이션에서 인터페이스 없이 서비스 클래스를 직접 사용</li>
+        </ul>
+      </div>
+
+      <p>Spring Boot 1.x에서는 JDK Dynamic Proxy가 기본이었으나, 2.0에서 변경되었다.</p>
+    </div>
+
+    <!-- ========== @Transactional 내부 동작 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        @Transactional 내부 동작 원리
+      </div>
+      <p>
+        <code class="an">@Transactional</code>은 Spring AOP 기반으로 동작한다.
+        컨테이너가 빈을 생성할 때 <code class="ty">TransactionInterceptor</code>가 포함된 프록시를 만들고,
+        이 인터셉터가 트랜잭션의 시작-커밋-롤백을 제어한다.
+      </p>
+
+      <h3>전체 호출 흐름</h3>
+      <pre><code><span class="kw">1.</span> 클라이언트가 <span class="ty">Proxy</span>.method() 호출
+<span class="kw">2.</span> <span class="ty">TransactionInterceptor</span>.<span class="fn">invoke</span>() 실행
+<span class="kw">3.</span>   → <span class="ty">TransactionAspectSupport</span>.<span class="fn">invokeWithinTransaction</span>()
+<span class="kw">4.</span>     → <span class="ty">TransactionAttributeSource</span>에서 트랜잭션 메타데이터 추출
+<span class="kw">5.</span>       (propagation, isolation, readOnly, timeout, rollbackFor 등)
+<span class="kw">6.</span>     → <span class="ty">PlatformTransactionManager</span>.<span class="fn">getTransaction</span>() 호출
+<span class="kw">7.</span>       → <span class="ty">DataSourceTransactionManager</span>.<span class="fn">doBegin</span>()
+<span class="kw">8.</span>         → DataSource에서 <span class="ty">Connection</span> 획득
+<span class="kw">9.</span>         → <span class="ty">Connection</span>.<span class="fn">setAutoCommit</span>(<span class="kw">false</span>)   <span class="kw">// ← 핵심! DB 트랜잭션 시작</span>
+<span class="kw">10.</span>        → <span class="ty">TransactionSynchronizationManager</span>에 Connection을 ThreadLocal로 바인딩
+<span class="kw">11.</span>    → 타깃 메서드 실행 (비즈니스 로직)
+<span class="kw">12.</span>    → 예외 없으면: <span class="ty">Connection</span>.<span class="fn">commit</span>()
+<span class="kw">13.</span>    → 예외 발생 시: <span class="ty">Connection</span>.<span class="fn">rollback</span>()
+<span class="kw">14.</span>    → Connection 정리 (autoCommit 복원, 바인딩 해제)</code></pre>
+
+      <h3>핵심 컴포넌트 역할</h3>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>컴포넌트</th><th>역할</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code class="ty">TransactionInterceptor</code></td>
+              <td>AOP Alliance의 <code class="ty">MethodInterceptor</code> 구현체. 메서드 호출을 가로채서 트랜잭션 로직을 실행</td>
+            </tr>
+            <tr>
+              <td><code class="ty">TransactionAttributeSource</code></td>
+              <td><code class="an">@Transactional</code> 어노테이션에서 트랜잭션 속성(propagation, isolation 등)을 읽어옴</td>
+            </tr>
+            <tr>
+              <td><code class="ty">PlatformTransactionManager</code></td>
+              <td>트랜잭션 추상화 인터페이스. <code class="fn">getTransaction()</code>, <code class="fn">commit()</code>, <code class="fn">rollback()</code> 세 메서드를 정의</td>
+            </tr>
+            <tr>
+              <td><code class="ty">DataSourceTransactionManager</code></td>
+              <td>JDBC 기반 구현체. Connection을 직접 관리. <code class="fn">doBegin()</code>에서 <code class="fn">setAutoCommit(false)</code> 호출</td>
+            </tr>
+            <tr>
+              <td><code class="ty">JpaTransactionManager</code></td>
+              <td>JPA 기반 구현체. EntityManager와 연동. 내부적으로 JDBC Connection을 관리</td>
+            </tr>
+            <tr>
+              <td><code class="ty">TransactionSynchronizationManager</code></td>
+              <td><strong>ThreadLocal</strong>로 현재 스레드의 트랜잭션 상태(Connection, EntityManager 등)를 관리</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="warn-box">
+        <strong>주의:</strong> <code class="an">@Transactional</code>은 기본적으로 <strong>RuntimeException(Unchecked)</strong>에서만 롤백한다.
+        Checked Exception에서도 롤백하려면 <code class="cm">@Transactional(rollbackFor = Exception.class)</code>를 명시해야 한다.
+      </div>
+    </div>
+
+    <!-- ========== Self-Invocation 문제 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        Self-Invocation 문제 — 같은 클래스 내부 호출 시 AOP 미적용
+      </div>
+      <p>
+        Spring AOP의 가장 대표적인 함정이다.
+        같은 빈의 메서드를 내부에서 <code class="kw">this</code>로 호출하면, <strong>프록시를 거치지 않고 타깃 객체의 메서드를 직접 호출</strong>하므로
+        AOP Advice가 전혀 적용되지 않는다.
+      </p>
+
+      <pre><code><span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">OrderService</span> {
+
+    <span class="an">@Transactional</span>
+    <span class="kw">public</span> void <span class="fn">createOrder</span>() {
+        <span class="kw">// ... 주문 생성 로직</span>
+    }
+
+    <span class="kw">public</span> void <span class="fn">processOrder</span>() {
+        <span class="kw">this</span>.<span class="fn">createOrder</span>();  <span class="kw">// ❌ this = 실제 타깃 객체 (프록시 아님)</span>
+                            <span class="kw">//    → @Transactional이 동작하지 않음!</span>
+    }
+}</code></pre>
+
+      <h3>왜 이런 일이 발생하는가?</h3>
+      <p>
+        외부에서 <code class="cm">orderService.processOrder()</code>를 호출하면 프록시가 가로채지만,
+        <code class="fn">processOrder()</code> 내부에서 <code class="kw">this</code>.<code class="fn">createOrder()</code>를 호출할 때의 <code class="kw">this</code>는
+        <strong>프록시가 아닌 실제 타깃 객체</strong>를 가리킨다.
+        프록시는 외부에서 들어오는 호출만 가로챌 수 있고, 타깃 내부의 호출은 관여할 수 없다.
+      </p>
+
+      <h3>해결 방법</h3>
+      <div class="good-box">
+        <strong>방법 1. 별도 빈으로 분리 (권장)</strong> — 가장 깔끔하고 Spring 공식 권장 방법
+      </div>
+      <pre><code><span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">OrderTransactionService</span> {
+    <span class="an">@Transactional</span>
+    <span class="kw">public</span> void <span class="fn">createOrder</span>() { ... }
+}
+
+<span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">OrderService</span> {
+    <span class="kw">private final</span> <span class="ty">OrderTransactionService</span> txService;
+
+    <span class="kw">public</span> void <span class="fn">processOrder</span>() {
+        txService.<span class="fn">createOrder</span>();  <span class="kw">// ✅ 다른 빈 → 프록시를 통해 호출 → 트랜잭션 적용</span>
+    }
+}</code></pre>
+
+      <pre><code><span class="kw">// 방법 2. 자기 자신을 주입 (비추 — 순환 참조 유발 가능)</span>
+<span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">OrderService</span> {
+    <span class="an">@Autowired</span>
+    <span class="kw">private</span> <span class="ty">OrderService</span> self;  <span class="kw">// 프록시 객체가 주입됨</span>
+
+    <span class="kw">public</span> void <span class="fn">processOrder</span>() {
+        self.<span class="fn">createOrder</span>();  <span class="kw">// ✅ 프록시를 통해 호출</span>
+    }
+}
+
+<span class="kw">// 방법 3. ApplicationContext에서 빈을 꺼내기 (비추 — Service Locator 안티패턴)</span>
+<span class="an">@Service</span>
+<span class="kw">public class</span> <span class="ty">OrderService</span> <span class="kw">implements</span> <span class="ty">ApplicationContextAware</span> {
+    <span class="kw">private</span> <span class="ty">ApplicationContext</span> ctx;
+
+    <span class="kw">public</span> void <span class="fn">processOrder</span>() {
+        ctx.<span class="fn">getBean</span>(<span class="ty">OrderService</span>.class).<span class="fn">createOrder</span>();  <span class="kw">// ✅ 프록시 반환</span>
+    }
+}
+
+<span class="kw">// 방법 4. AspectJ 위빙 사용 (런타임 프록시가 아닌 컴파일/로드 타임 위빙)</span>
+<span class="kw">// → self-invocation 문제 자체가 없음 (바이트코드에 직접 삽입되므로)</span></code></pre>
+
+      <div class="warn-box">
+        <strong>영향 범위:</strong> <code class="an">@Transactional</code> 뿐 아니라 <code class="an">@Cacheable</code>,
+        <code class="an">@Async</code>, <code class="an">@Retryable</code>, 커스텀 AOP 등
+        <strong>프록시 기반의 모든 어노테이션</strong>이 self-invocation에 영향을 받는다.
+      </div>
+    </div>
+
+    <!-- ========== Spring AOP vs AspectJ ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        Spring AOP vs AspectJ
+      </div>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>구분</th><th>Spring AOP</th><th>AspectJ</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>위빙 시점</strong></td>
+              <td>런타임 (프록시 생성)</td>
+              <td>컴파일 타임 / 포스트 컴파일 / 로드 타임</td>
+            </tr>
+            <tr>
+              <td><strong>구현 방식</strong></td>
+              <td>JDK Dynamic Proxy 또는 CGLIB</td>
+              <td>바이트코드에 직접 Aspect 코드 삽입</td>
+            </tr>
+            <tr>
+              <td><strong>Join Point</strong></td>
+              <td>메서드 실행만</td>
+              <td>메서드 실행, 필드 접근, 생성자 호출, static 초기화 등 모든 Join Point</td>
+            </tr>
+            <tr>
+              <td><strong>self-invocation</strong></td>
+              <td>AOP 미적용 (프록시를 안 거침)</td>
+              <td>정상 적용 (바이트코드에 직접 삽입됨)</td>
+            </tr>
+            <tr>
+              <td><strong>final 클래스/메서드</strong></td>
+              <td>CGLIB로는 프록시 불가</td>
+              <td>적용 가능 (바이트코드 조작이므로)</td>
+            </tr>
+            <tr>
+              <td><strong>성능</strong></td>
+              <td>런타임 오버헤드 있음</td>
+              <td>런타임 오버헤드 없음 (8~35배 빠른 벤치마크 결과)</td>
+            </tr>
+            <tr>
+              <td><strong>설정 복잡도</strong></td>
+              <td>Spring 빈만 등록하면 끝</td>
+              <td>AspectJ 컴파일러(ajc) 또는 Load-Time Weaver 설정 필요</td>
+            </tr>
+            <tr>
+              <td><strong>Spring 통합</strong></td>
+              <td>기본 내장</td>
+              <td>별도 의존성 + 설정 필요</td>
+            </tr>
+            <tr>
+              <td><strong>적용 대상</strong></td>
+              <td>Spring 빈만</td>
+              <td>모든 Java 객체 (POJO 포함)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>AspectJ 위빙 타입 3가지</h3>
+      <ol>
+        <li><strong>Compile-Time Weaving (CTW)</strong> — <code class="cm">ajc</code> 컴파일러가 소스 코드 컴파일 시 Aspect를 삽입. 가장 빠름</li>
+        <li><strong>Post-Compile Weaving (Binary Weaving)</strong> — 이미 컴파일된 .class 파일이나 JAR에 Aspect를 삽입</li>
+        <li><strong>Load-Time Weaving (LTW)</strong> — ClassLoader가 클래스를 로드하는 시점에 Aspect를 삽입. <code class="cm">-javaagent</code> 옵션 필요</li>
+      </ol>
+
+      <div class="highlight-box">
+        <strong>실무 권장:</strong> 대부분의 경우 Spring AOP만으로 충분하다.
+        self-invocation이 꼭 필요하거나, 메서드 실행 외의 Join Point가 필요하거나, 극도의 성능이 요구될 때만 AspectJ를 고려한다.
+      </div>
+    </div>
+
+    <!-- ========== BeanPostProcessor에서 프록시 생성 시점 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        BeanPostProcessor에서 프록시가 생성되는 시점
+      </div>
+      <p>
+        Spring AOP 프록시는 <code class="ty">AbstractAutoProxyCreator</code>에 의해 생성된다.
+        이 클래스는 <code class="ty">BeanPostProcessor</code>를 구현하며,
+        빈의 초기화 라이프사이클 중에 프록시 생성 여부를 결정한다.
+      </p>
+
+      <h3>빈 라이프사이클에서의 프록시 생성 위치</h3>
+      <pre><code><span class="kw">1.</span> Bean 정의 등록 (BeanDefinition)
+<span class="kw">2.</span> Bean 인스턴스 생성 (<span class="fn">createBeanInstance</span>)
+<span class="kw">3.</span> 의존성 주입 (<span class="fn">populateBean</span>)
+<span class="kw">4.</span> 초기화 콜백 (<span class="fn">initializeBean</span>)
+   <span class="kw">4-1.</span> <span class="ty">BeanPostProcessor</span>.<span class="fn">postProcessBeforeInitialization</span>()
+   <span class="kw">4-2.</span> <span class="an">@PostConstruct</span> / <span class="ty">InitializingBean</span>.<span class="fn">afterPropertiesSet</span>() / init-method
+   <span class="kw">4-3.</span> <span class="ty">BeanPostProcessor</span>.<span class="fn">postProcessAfterInitialization</span>()
+        <span class="kw">└─ ★ AbstractAutoProxyCreator가 여기서 프록시를 생성</span>
+<span class="kw">5.</span> 빈 사용 준비 완료 (컨테이너에 프록시 객체가 등록됨)</code></pre>
+
+      <h3>AbstractAutoProxyCreator 주요 구현체</h3>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr><th>클래스</th><th>역할</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code class="ty">AnnotationAwareAspectJAutoProxyCreator</code></td>
+              <td><code class="an">@Aspect</code> 어노테이션 기반 AOP를 처리. <code class="an">@EnableAspectJAutoProxy</code>로 활성화</td>
+            </tr>
+            <tr>
+              <td><code class="ty">InfrastructureAdvisorAutoProxyCreator</code></td>
+              <td><code class="an">@Transactional</code> 같은 Spring 인프라 Advisor를 처리</td>
+            </tr>
+            <tr>
+              <td><code class="ty">DefaultAdvisorAutoProxyCreator</code></td>
+              <td>ApplicationContext에 등록된 모든 Advisor에 대해 자동 프록시 생성</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>프록시 생성 판단 과정</h3>
+      <pre><code><span class="kw">// AbstractAutoProxyCreator.postProcessAfterInitialization()</span>
+<span class="kw">public</span> Object <span class="fn">postProcessAfterInitialization</span>(Object bean, String beanName) {
+    <span class="kw">if</span> (bean != <span class="kw">null</span>) {
+        Object cacheKey = <span class="fn">getCacheKey</span>(bean.getClass(), beanName);
+        <span class="kw">if</span> (!<span class="kw">this</span>.earlyProxyReferences.contains(cacheKey)) {
+            <span class="kw">return</span> <span class="fn">wrapIfNecessary</span>(bean, beanName, cacheKey);
+        }
+    }
+    <span class="kw">return</span> bean;
+}
+
+<span class="kw">// wrapIfNecessary() 내부</span>
+<span class="kw">1.</span> 이 빈에 적용할 Advisor(인터셉터)가 있는지 탐색
+<span class="kw">2.</span> Advisor가 있으면 → <span class="ty">ProxyFactory</span>를 생성하고 Advisor를 추가
+<span class="kw">3.</span> <span class="ty">ProxyFactory</span>.<span class="fn">getProxy</span>() → <span class="ty">DefaultAopProxyFactory</span>가 JDK/CGLIB 결정
+<span class="kw">4.</span> 프록시 객체 반환 → 컨테이너에 원본 대신 프록시가 등록됨</code></pre>
+
+      <div class="highlight-box">
+        즉, 다른 빈이 <code class="an">@Autowired</code>로 주입받는 것은 <strong>원본 객체가 아닌 프록시 객체</strong>다.
+        컨테이너에 프록시가 등록되므로, 외부 호출은 항상 프록시를 통과한다.
+      </div>
+    </div>
+
+    <!-- ========== 시각화 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화 — 프록시를 통한 메서드 호출 흐름
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:900px;font-family:'Pretendard','Noto Sans KR',sans-serif">
+          <defs>
+            <marker id="ah" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#60a5fa"/>
+            </marker>
+            <marker id="ah-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#f87171"/>
+            </marker>
+            <marker id="ah-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#4ade80"/>
+            </marker>
+          </defs>
+
+          <!-- Client -->
+          <rect x="30" y="30" width="120" height="50" rx="8" fill="#1e293b" stroke="#60a5fa" stroke-width="2"/>
+          <text x="90" y="60" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="bold">Client</text>
+
+          <!-- Arrow: Client → Proxy -->
+          <line x1="150" y1="55" x2="220" y2="55" stroke="#60a5fa" stroke-width="2" marker-end="url(#ah)"/>
+          <text x="185" y="47" text-anchor="middle" fill="#94a3b8" font-size="11">호출</text>
+
+          <!-- Proxy Box (large) -->
+          <rect x="230" y="10" width="430" height="200" rx="12" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="6,4"/>
+          <text x="445" y="32" text-anchor="middle" fill="#f59e0b" font-size="13" font-weight="bold">AOP Proxy (CGLIB / JDK Dynamic Proxy)</text>
+
+          <!-- Before Advice -->
+          <rect x="260" y="50" width="160" height="40" rx="6" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1.5"/>
+          <text x="340" y="75" text-anchor="middle" fill="#93c5fd" font-size="12">Before Advice</text>
+
+          <!-- TransactionInterceptor -->
+          <rect x="260" y="100" width="160" height="40" rx="6" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1.5"/>
+          <text x="340" y="118" text-anchor="middle" fill="#93c5fd" font-size="11">TransactionInterceptor</text>
+          <text x="340" y="132" text-anchor="middle" fill="#94a3b8" font-size="10">setAutoCommit(false)</text>
+
+          <!-- Arrow to target -->
+          <line x1="420" y1="120" x2="470" y2="120" stroke="#60a5fa" stroke-width="2" marker-end="url(#ah)"/>
+
+          <!-- Target -->
+          <rect x="480" y="65" width="150" height="110" rx="8" fill="#1a2332" stroke="#4ade80" stroke-width="2"/>
+          <text x="555" y="90" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="bold">Target Object</text>
+          <text x="555" y="112" text-anchor="middle" fill="#e2e8f0" font-size="11">methodA()</text>
+          <text x="555" y="132" text-anchor="middle" fill="#e2e8f0" font-size="11">methodB()</text>
+          <text x="555" y="152" text-anchor="middle" fill="#94a3b8" font-size="10">비즈니스 로직</text>
+
+          <!-- After Advice -->
+          <rect x="260" y="155" width="160" height="40" rx="6" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1.5"/>
+          <text x="340" y="178" text-anchor="middle" fill="#93c5fd" font-size="12">After / commit / rollback</text>
+
+          <!-- ===== Self-Invocation Section ===== -->
+          <text x="450" y="250" text-anchor="middle" fill="#f87171" font-size="14" font-weight="bold">Self-Invocation 문제</text>
+
+          <!-- External call -->
+          <rect x="30" y="280" width="120" height="50" rx="8" fill="#1e293b" stroke="#60a5fa" stroke-width="2"/>
+          <text x="90" y="310" text-anchor="middle" fill="#e2e8f0" font-size="13">외부 호출</text>
+
+          <line x1="150" y1="305" x2="220" y2="305" stroke="#4ade80" stroke-width="2" marker-end="url(#ah-green)"/>
+
+          <!-- Proxy (good path) -->
+          <rect x="230" y="280" width="150" height="50" rx="8" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+          <text x="305" y="310" text-anchor="middle" fill="#fbbf24" font-size="13">Proxy</text>
+
+          <line x1="380" y1="305" x2="460" y2="305" stroke="#4ade80" stroke-width="2" marker-end="url(#ah-green)"/>
+          <text x="420" y="297" text-anchor="middle" fill="#4ade80" font-size="11">AOP 적용</text>
+
+          <!-- Target (good path) -->
+          <rect x="470" y="280" width="160" height="50" rx="8" fill="#1a2332" stroke="#4ade80" stroke-width="2"/>
+          <text x="550" y="302" text-anchor="middle" fill="#4ade80" font-size="12">methodA()</text>
+          <text x="550" y="318" text-anchor="middle" fill="#4ade80" font-size="11">@Transactional ✅</text>
+
+          <!-- Self-invocation path -->
+          <rect x="470" y="370" width="160" height="50" rx="8" fill="#1a2332" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="550" y="400" text-anchor="middle" fill="#e2e8f0" font-size="12">methodB()</text>
+
+          <!-- this.methodA() call - bypasses proxy -->
+          <path d="M550,420 L550,460 L750,460 L750,395 L640,395" fill="none" stroke="#f87171" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#ah-red)"/>
+          <text x="680" y="452" text-anchor="middle" fill="#f87171" font-size="11">this.methodA()</text>
+
+          <!-- Target methodA (bad path) -->
+          <rect x="640" y="370" width="160" height="50" rx="8" fill="#1a2332" stroke="#f87171" stroke-width="2"/>
+          <text x="720" y="392" text-anchor="middle" fill="#f87171" font-size="12">methodA()</text>
+          <text x="720" y="408" text-anchor="middle" fill="#f87171" font-size="11">@Transactional ❌</text>
+
+          <!-- Labels -->
+          <text x="720" y="440" text-anchor="middle" fill="#94a3b8" font-size="10">프록시를 안 거침</text>
+
+          <!-- Legend -->
+          <rect x="30" y="470" width="14" height="14" rx="3" fill="#4ade80"/>
+          <text x="50" y="482" fill="#e2e8f0" font-size="11">외부 호출 → 프록시 경유 → AOP 적용</text>
+
+          <rect x="350" y="470" width="14" height="14" rx="3" fill="#f87171"/>
+          <text x="370" y="482" fill="#e2e8f0" font-size="11">내부 호출 (this) → 프록시 미경유 → AOP 미적용</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ========== 빈 라이프사이클과 프록시 생성 시각화 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화 — 빈 라이프사이클과 프록시 생성 시점
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:800px;font-family:'Pretendard','Noto Sans KR',sans-serif">
+          <defs>
+            <marker id="ah2" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#60a5fa"/>
+            </marker>
+          </defs>
+
+          <!-- Step boxes -->
+          <rect x="20" y="30" width="130" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+          <text x="85" y="52" text-anchor="middle" fill="#94a3b8" font-size="10">1단계</text>
+          <text x="85" y="70" text-anchor="middle" fill="#e2e8f0" font-size="12">인스턴스 생성</text>
+
+          <line x1="150" y1="57" x2="175" y2="57" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <rect x="180" y="30" width="130" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+          <text x="245" y="52" text-anchor="middle" fill="#94a3b8" font-size="10">2단계</text>
+          <text x="245" y="70" text-anchor="middle" fill="#e2e8f0" font-size="12">의존성 주입 (DI)</text>
+
+          <line x1="310" y1="57" x2="335" y2="57" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <rect x="340" y="30" width="130" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+          <text x="405" y="52" text-anchor="middle" fill="#94a3b8" font-size="10">3단계</text>
+          <text x="405" y="70" text-anchor="middle" fill="#e2e8f0" font-size="12">초기화 콜백</text>
+
+          <line x1="470" y1="57" x2="495" y2="57" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <!-- Highlight: proxy creation -->
+          <rect x="500" y="20" width="180" height="70" rx="8" fill="#1e3a5f" stroke="#f59e0b" stroke-width="2.5"/>
+          <text x="590" y="42" text-anchor="middle" fill="#f59e0b" font-size="10" font-weight="bold">4단계 ★</text>
+          <text x="590" y="58" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="bold">postProcessAfter</text>
+          <text x="590" y="74" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="bold">Initialization</text>
+
+          <line x1="680" y1="57" x2="705" y2="57" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <rect x="710" y="30" width="70" height="55" rx="8" fill="#1e293b" stroke="#4ade80" stroke-width="2"/>
+          <text x="745" y="52" text-anchor="middle" fill="#94a3b8" font-size="10">5단계</text>
+          <text x="745" y="70" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="bold">사용</text>
+
+          <!-- Detail breakdown below -->
+          <line x1="590" y1="90" x2="590" y2="115" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+          <rect x="250" y="120" width="500" height="200" rx="10" fill="#0f172a" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,4"/>
+          <text x="500" y="145" text-anchor="middle" fill="#f59e0b" font-size="12" font-weight="bold">AbstractAutoProxyCreator.postProcessAfterInitialization()</text>
+
+          <rect x="280" y="160" width="200" height="36" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+          <text x="380" y="183" text-anchor="middle" fill="#e2e8f0" font-size="11">Advisor(인터셉터) 탐색</text>
+
+          <line x1="480" y1="178" x2="510" y2="178" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <rect x="515" y="160" width="200" height="36" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+          <text x="615" y="183" text-anchor="middle" fill="#e2e8f0" font-size="11">적용 대상 여부 판단</text>
+
+          <line x1="615" y1="196" x2="615" y2="216" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <rect x="430" y="220" width="200" height="36" rx="6" fill="#1e293b" stroke="#60a5fa" stroke-width="1.5"/>
+          <text x="530" y="243" text-anchor="middle" fill="#93c5fd" font-size="11">ProxyFactory.getProxy()</text>
+
+          <line x1="530" y1="256" x2="530" y2="276" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+
+          <rect x="370" y="280" width="320" height="30" rx="6" fill="#1e3a5f" stroke="#4ade80" stroke-width="1.5"/>
+          <text x="530" y="300" text-anchor="middle" fill="#4ade80" font-size="11" font-weight="bold">DefaultAopProxyFactory → JDK or CGLIB 프록시 생성</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ========== 함께 알면 좋은 개념 ========== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">프록시 패턴</span>
+        <span class="related-tag">BeanPostProcessor</span>
+        <span class="related-tag">TransactionInterceptor</span>
+        <span class="related-tag">PlatformTransactionManager</span>
+        <span class="related-tag">ThreadLocal</span>
+        <span class="related-tag">@EnableAspectJAutoProxy</span>
+        <span class="related-tag">Pointcut 표현식</span>
+        <span class="related-tag">AspectJ LTW</span>
+        <span class="related-tag">Hibernate 프록시</span>
+        <span class="related-tag">LAZY 로딩과 프록시</span>
+        <span class="related-tag">self-invocation</span>
+        <span class="related-tag">@Async 내부 동작</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
