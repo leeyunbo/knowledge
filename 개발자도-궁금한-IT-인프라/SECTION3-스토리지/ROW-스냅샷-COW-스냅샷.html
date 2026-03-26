@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROW 스냅샷, COW 스냅샷 — SECTION3 스토리지 · 개발자도 궁금한 IT 인프라</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a { color: var(--text3); text-decoration: none; transition: color 0.2s; }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+      overflow-x: auto;
+    }
+
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+      max-width: 100%;
+      overflow-wrap: break-word;
+      word-break: break-all;
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 1rem 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .table-wrap::-webkit-scrollbar { height: 8px; }
+    .table-wrap::-webkit-scrollbar-track { background: var(--bg3); }
+    .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .table-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    .compare-table {
+      width: 100%;
+      min-width: 500px;
+      border-collapse: collapse;
+    }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    h3 { color: var(--accent2); font-size: 1.1rem; margin: 1.5rem 0 0.75rem; }
+    h3:first-child { margin-top: 0; }
+
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/개발자도-궁금한-IT-인프라/index.html">개발자도 궁금한 IT 인프라</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/개발자도-궁금한-IT-인프라/SECTION3-스토리지/index.html">SECTION3 스토리지</a>
+      <span class="sep">›</span>
+      <span class="current">ROW 스냅샷, COW 스냅샷</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>ROW 스냅샷 vs COW 스냅샷</h1>
+      <p class="meta">개발자도 궁금한 IT 인프라 · SECTION3 스토리지 · 2026-03-26</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <strong>COW(Copy-On-Write)</strong>는 데이터가 변경될 때 원본을 새 위치에 복사한 뒤 덮어쓰는 방식이고, <strong>ROW(Redirect-On-Write)</strong>는 변경된 데이터를 새 위치에 직접 기록하고 포인터만 바꾸는 방식이다. 둘 다 스냅샷의 "특정 시점 데이터 보존"이라는 목표를 달성하지만, 그 경로가 완전히 다르다.
+      </div>
+      <p>스토리지에서 <strong>스냅샷(Snapshot)</strong>이란 특정 시점의 데이터 상태를 빠르게 보존하는 기술이다. 전체 데이터를 물리적으로 복사하면 시간과 공간이 막대하게 소모되므로, 실제로는 "변경이 발생했을 때만" 최소한의 작업을 수행하는 전략을 사용한다. 이 전략이 바로 COW와 ROW이다.</p>
+
+      <h3>COW (Copy-On-Write) 스냅샷</h3>
+      <p>스냅샷 생성 시점에는 아무 데이터도 복사하지 않는다. 이후 <strong>원본 데이터에 쓰기가 발생하면</strong>, 덮어쓰기 전에 원본 블록을 별도의 스냅샷 영역에 복사(Copy)해 둔 뒤, 원래 위치에 새 데이터를 기록한다.</p>
+      <ul>
+        <li><strong>Write 시 3단계</strong>: ① 원본 블록 읽기 → ② 스냅샷 영역에 복사 → ③ 원래 위치에 새 데이터 쓰기</li>
+        <li>스냅샷 생성 자체는 <strong>거의 즉시</strong> 완료 (메타데이터만 기록)</li>
+        <li>쓰기 시 추가 I/O가 발생하므로 <strong>Write Penalty</strong>가 존재</li>
+        <li>원본 데이터의 물리적 위치가 변하지 않아 <strong>읽기 성능은 그대로</strong> 유지</li>
+      </ul>
+
+      <h3>ROW (Redirect-On-Write) 스냅샷</h3>
+      <p>쓰기가 발생하면 원본 위치를 건드리지 않고, <strong>새 데이터를 새로운 위치에 기록</strong>한 뒤 포인터(메타데이터)를 새 위치로 변경(Redirect)한다. 원본 블록은 스냅샷 데이터로 자연스럽게 보존된다.</p>
+      <ul>
+        <li><strong>Write 시 2단계</strong>: ① 새 위치에 데이터 쓰기 → ② 포인터를 새 위치로 업데이트</li>
+        <li>복사 과정이 없으므로 <strong>Write Penalty가 없다</strong></li>
+        <li>데이터가 여러 위치에 흩어지면서 <strong>순차 읽기 성능이 저하</strong>될 수 있음 (단편화)</li>
+        <li>포인터 맵 관리가 복잡해질 수 있으며, 스냅샷 삭제 시 공간 회수가 까다로움</li>
+      </ul>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h3>스냅샷(Snapshot)이란?</h3>
+      <p>특정 시점(Point-in-Time)의 데이터 상태를 보존하는 기술이다. 풀 백업(Full Backup)과 달리 전체 데이터를 물리적으로 복사하지 않기 때문에, 생성 속도가 빠르고 공간 효율이 높다. 스냅샷은 <strong>변경분(delta)만 관리</strong>하는 것이 핵심이다.</p>
+
+      <h3>블록 스토리지 기초</h3>
+      <p>스토리지는 데이터를 일정 크기의 <strong>블록(Block)</strong> 단위로 관리한다. 파일 하나가 여러 블록에 걸쳐 저장되며, 각 블록은 고유한 주소(LBA: Logical Block Address)를 갖는다. 스냅샷은 이 블록 단위로 동작한다.</p>
+
+      <h3>메타데이터와 포인터</h3>
+      <p>스토리지 시스템은 "어떤 데이터가 어디에 있는지"를 <strong>포인터 테이블(메타데이터 맵)</strong>로 관리한다. ROW 방식은 이 포인터를 조작하는 것으로 스냅샷을 구현하며, COW 방식은 원본 위치를 유지하면서 별도 영역에 복사본을 만든다.</p>
+
+      <h3>Write Penalty</h3>
+      <p>쓰기 작업 시 추가로 발생하는 I/O 오버헤드를 의미한다. COW에서는 "읽기 → 복사 → 쓰기"로 총 3번의 I/O가 필요하지만, ROW에서는 "쓰기 → 포인터 변경"으로 2번이면 된다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h3>COW의 Write Amplification 문제</h3>
+      <p>COW 스냅샷이 여러 세대 쌓이면, 하나의 블록 변경에 대해 여러 스냅샷 레벨에서 복사가 연쇄적으로 발생할 수 있다. 이를 <strong>Write Amplification(쓰기 증폭)</strong>이라 하며, 스냅샷 수가 많을수록 쓰기 성능이 급격히 떨어진다. 이 때문에 운영 환경에서는 스냅샷 보유 수를 제한하는 것이 일반적이다.</p>
+
+      <h3>ROW의 단편화(Fragmentation) 문제</h3>
+      <p>ROW는 쓰기마다 새로운 위치에 데이터를 기록하므로, 시간이 지나면 원래 연속이던 데이터가 디스크 전체에 흩어진다. HDD 환경에서는 순차 읽기 성능에 치명적이며, SSD에서도 GC(Garbage Collection) 부담이 증가한다. 주기적인 <strong>공간 재배치(Defragmentation/Compaction)</strong>가 필요하다.</p>
+
+      <h3>실제 스토리지 제품에서의 적용</h3>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>제품/기술</th>
+              <th>방식</th>
+              <th>특징</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>VMware VMFS</td>
+              <td>ROW</td>
+              <td>VM 스냅샷에서 redo log로 변경분 리다이렉트</td>
+            </tr>
+            <tr>
+              <td>NetApp WAFL</td>
+              <td>ROW</td>
+              <td>파일시스템 자체가 ROW 기반, 스냅샷이 네이티브</td>
+            </tr>
+            <tr>
+              <td>LVM Snapshot (Linux)</td>
+              <td>COW</td>
+              <td>별도 COW 영역에 원본 블록 복사 후 덮어쓰기</td>
+            </tr>
+            <tr>
+              <td>ZFS</td>
+              <td>COW (변형)</td>
+              <td>파일시스템 전체가 COW 트랜잭션 모델</td>
+            </tr>
+            <tr>
+              <td>Btrfs</td>
+              <td>COW</td>
+              <td>B-tree 기반 COW, 서브볼륨 스냅샷</td>
+            </tr>
+            <tr>
+              <td>Dell EMC VMAX</td>
+              <td>COW + ROW 혼합</td>
+              <td>TimeFinder 기능에서 용도별 선택 가능</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>스냅샷 삭제와 공간 회수</h3>
+      <p><strong>COW</strong>: 스냅샷 영역에 복사된 블록만 삭제하면 되므로 공간 회수가 비교적 단순하다.</p>
+      <p><strong>ROW</strong>: 삭제할 스냅샷의 블록이 이후 스냅샷에서도 참조되고 있는지 확인해야 하며, 참조 카운트(Reference Count) 관리가 필요하다. 여러 스냅샷이 체인으로 연결되어 있으면 삭제 시 병합(merge) 작업이 필요할 수 있다.</p>
+
+      <h3>언제 어떤 방식을 선택하는가?</h3>
+      <ul>
+        <li><strong>읽기 중심 워크로드</strong> → COW가 유리 (원본 위치 불변, 순차 읽기 보존)</li>
+        <li><strong>쓰기 중심 워크로드</strong> → ROW가 유리 (Write Penalty 없음)</li>
+        <li><strong>스냅샷을 자주 생성/삭제</strong> → COW가 관리 용이</li>
+        <li><strong>스냅샷을 장기 보존</strong> → ROW가 쓰기 성능 저하 없이 유지</li>
+      </ul>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+
+      <h3>COW 스냅샷 동작 흐름</h3>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 780 340" xmlns="http://www.w3.org/2000/svg" font-family="Pretendard, sans-serif">
+          <!-- 배경 -->
+          <rect width="780" height="340" fill="#22263a" rx="8"/>
+
+          <!-- 단계 1: 스냅샷 생성 -->
+          <text x="130" y="30" fill="#a78bfa" font-size="13" font-weight="600" text-anchor="middle">① 스냅샷 생성 (즉시)</text>
+          <rect x="30" y="45" width="200" height="100" fill="#1a1d27" stroke="#2e3250" rx="6"/>
+          <text x="130" y="68" fill="#64748b" font-size="11" text-anchor="middle">원본 볼륨</text>
+          <rect x="50" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="72" y="98" fill="#fff" font-size="11" text-anchor="middle">A</text>
+          <rect x="105" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="127" y="98" fill="#fff" font-size="11" text-anchor="middle">B</text>
+          <rect x="160" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="182" y="98" fill="#fff" font-size="11" text-anchor="middle">C</text>
+          <text x="130" y="135" fill="#34d399" font-size="10" text-anchor="middle">스냅샷 = 메타데이터만 기록</text>
+
+          <!-- 화살표 -->
+          <path d="M240 95 L280 95" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+          <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#64748b"/></marker></defs>
+
+          <!-- 단계 2: 쓰기 발생 -->
+          <text x="420" y="30" fill="#a78bfa" font-size="13" font-weight="600" text-anchor="middle">② 블록 B에 쓰기 발생</text>
+          <rect x="290" y="45" width="260" height="130" fill="#1a1d27" stroke="#2e3250" rx="6"/>
+          <text x="420" y="68" fill="#64748b" font-size="11" text-anchor="middle">원본 볼륨</text>
+          <rect x="310" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="332" y="98" fill="#fff" font-size="11" text-anchor="middle">A</text>
+          <rect x="365" y="78" width="45" height="30" fill="#fbbf24" stroke="#fbbf24" stroke-width="2" rx="4"/>
+          <text x="387" y="98" fill="#0f1117" font-size="11" font-weight="700" text-anchor="middle">B'</text>
+          <rect x="420" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="442" y="98" fill="#fff" font-size="11" text-anchor="middle">C</text>
+
+          <!-- 복사 화살표 -->
+          <path d="M387 108 C387 140, 470 140, 470 160" stroke="#f87171" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowRed)"/>
+          <defs><marker id="arrowRed" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#f87171"/></marker></defs>
+          <text x="460" y="138" fill="#f87171" font-size="10">복사!</text>
+
+          <!-- 스냅샷 영역 -->
+          <rect x="290" y="180" width="260" height="55" fill="#1a1d27" stroke="#f87171" stroke-dasharray="4,3" rx="6"/>
+          <text x="420" y="198" fill="#f87171" font-size="11" text-anchor="middle">스냅샷 예약 영역</text>
+          <rect x="440" y="205" width="45" height="25" fill="#38bdf8" rx="4"/>
+          <text x="462" y="222" fill="#0f1117" font-size="11" font-weight="600" text-anchor="middle">B</text>
+
+          <!-- 단계 3: 결과 -->
+          <text x="660" y="30" fill="#a78bfa" font-size="13" font-weight="600" text-anchor="middle">③ 결과</text>
+          <rect x="580" y="45" width="180" height="120" fill="#1a1d27" stroke="#2e3250" rx="6"/>
+          <text x="670" y="68" fill="#64748b" font-size="11" text-anchor="middle">현재 데이터</text>
+          <text x="670" y="90" fill="#fbbf24" font-size="13" text-anchor="middle">A, B', C</text>
+          <text x="670" y="115" fill="#64748b" font-size="11" text-anchor="middle">스냅샷 데이터</text>
+          <text x="670" y="137" fill="#38bdf8" font-size="13" text-anchor="middle">A, B, C</text>
+
+          <!-- 하단 설명 -->
+          <rect x="30" y="260" width="720" height="65" fill="rgba(124,106,247,0.08)" rx="6"/>
+          <text x="390" y="283" fill="#e2e8f0" font-size="12" text-anchor="middle">COW 핵심: 원본 블록을 먼저 복사해서 보존 → 원래 위치에 새 데이터 덮어쓰기</text>
+          <text x="390" y="305" fill="#f87171" font-size="11" text-anchor="middle">⚠ Write Penalty: Read(원본) + Write(복사) + Write(새 데이터) = I/O 3회</text>
+        </svg>
+      </div>
+
+      <h3>ROW 스냅샷 동작 흐름</h3>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 780 340" xmlns="http://www.w3.org/2000/svg" font-family="Pretendard, sans-serif">
+          <rect width="780" height="340" fill="#22263a" rx="8"/>
+
+          <!-- 단계 1: 스냅샷 생성 -->
+          <text x="130" y="30" fill="#a78bfa" font-size="13" font-weight="600" text-anchor="middle">① 스냅샷 생성 (즉시)</text>
+          <rect x="30" y="45" width="200" height="100" fill="#1a1d27" stroke="#2e3250" rx="6"/>
+          <text x="130" y="68" fill="#64748b" font-size="11" text-anchor="middle">원본 볼륨</text>
+          <rect x="50" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="72" y="98" fill="#fff" font-size="11" text-anchor="middle">A</text>
+          <rect x="105" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="127" y="98" fill="#fff" font-size="11" text-anchor="middle">B</text>
+          <rect x="160" y="78" width="45" height="30" fill="#7c6af7" rx="4"/>
+          <text x="182" y="98" fill="#fff" font-size="11" text-anchor="middle">C</text>
+          <text x="130" y="135" fill="#34d399" font-size="10" text-anchor="middle">스냅샷 = 포인터 테이블 복제</text>
+
+          <!-- 화살표 -->
+          <path d="M240 95 L280 95" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow2)"/>
+          <defs><marker id="arrow2" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#64748b"/></marker></defs>
+
+          <!-- 단계 2: 쓰기 발생 -->
+          <text x="420" y="30" fill="#a78bfa" font-size="13" font-weight="600" text-anchor="middle">② 블록 B에 쓰기 발생</text>
+          <rect x="290" y="45" width="260" height="60" fill="#1a1d27" stroke="#2e3250" rx="6"/>
+          <text x="420" y="68" fill="#64748b" font-size="11" text-anchor="middle">원본 위치 (스냅샷이 보존)</text>
+          <rect x="310" y="75" width="45" height="25" fill="#38bdf8" rx="4"/>
+          <text x="332" y="92" fill="#0f1117" font-size="10" font-weight="600" text-anchor="middle">A</text>
+          <rect x="365" y="75" width="45" height="25" fill="#38bdf8" rx="4"/>
+          <text x="387" y="92" fill="#0f1117" font-size="10" font-weight="600" text-anchor="middle">B</text>
+          <rect x="420" y="75" width="45" height="25" fill="#38bdf8" rx="4"/>
+          <text x="442" y="92" fill="#0f1117" font-size="10" font-weight="600" text-anchor="middle">C</text>
+
+          <!-- 새 위치 -->
+          <rect x="290" y="130" width="260" height="55" fill="#1a1d27" stroke="#34d399" stroke-width="2" rx="6"/>
+          <text x="420" y="150" fill="#34d399" font-size="11" text-anchor="middle">새로운 위치에 기록</text>
+          <rect x="365" y="158" width="45" height="25" fill="#fbbf24" rx="4"/>
+          <text x="387" y="175" fill="#0f1117" font-size="10" font-weight="700" text-anchor="middle">B'</text>
+
+          <!-- Redirect 화살표 -->
+          <text x="510" y="128" fill="#34d399" font-size="10" font-weight="600">Redirect!</text>
+          <path d="M490 135 L490 170 L415 170" stroke="#34d399" stroke-width="2" fill="none" marker-end="url(#arrowGreen)"/>
+          <defs><marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#34d399"/></marker></defs>
+
+          <!-- 포인터 테이블 -->
+          <rect x="290" y="200" width="260" height="55" fill="#1a1d27" stroke="#a78bfa" stroke-dasharray="4,3" rx="6"/>
+          <text x="420" y="218" fill="#a78bfa" font-size="11" text-anchor="middle">포인터 테이블 업데이트</text>
+          <text x="420" y="240" fill="#e2e8f0" font-size="11" text-anchor="middle">B → 새 위치(B')로 포인터 변경</text>
+
+          <!-- 단계 3: 결과 -->
+          <text x="660" y="30" fill="#a78bfa" font-size="13" font-weight="600" text-anchor="middle">③ 결과</text>
+          <rect x="580" y="45" width="180" height="120" fill="#1a1d27" stroke="#2e3250" rx="6"/>
+          <text x="670" y="68" fill="#64748b" font-size="11" text-anchor="middle">현재 데이터</text>
+          <text x="670" y="90" fill="#fbbf24" font-size="13" text-anchor="middle">A, B', C</text>
+          <text x="670" y="115" fill="#64748b" font-size="11" text-anchor="middle">스냅샷 데이터</text>
+          <text x="670" y="137" fill="#38bdf8" font-size="13" text-anchor="middle">A, B, C</text>
+
+          <!-- 하단 설명 -->
+          <rect x="30" y="270" width="720" height="55" fill="rgba(52,211,153,0.08)" rx="6"/>
+          <text x="390" y="293" fill="#e2e8f0" font-size="12" text-anchor="middle">ROW 핵심: 원본은 그대로 두고 → 새 위치에 기록 → 포인터만 변경</text>
+          <text x="390" y="312" fill="#34d399" font-size="11" text-anchor="middle">✓ Write Penalty 없음: Write(새 데이터) + 포인터 업데이트 = I/O 1~2회</text>
+        </svg>
+      </div>
+
+      <h3>COW vs ROW 핵심 비교</h3>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>COW (Copy-On-Write)</th>
+              <th>ROW (Redirect-On-Write)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>쓰기 시 동작</strong></td>
+              <td>원본 복사 → 원래 위치에 덮어쓰기</td>
+              <td>새 위치에 기록 → 포인터 변경</td>
+            </tr>
+            <tr>
+              <td><strong>Write Penalty</strong></td>
+              <td>있음 (I/O 3회)</td>
+              <td>없음 (I/O 1~2회)</td>
+            </tr>
+            <tr>
+              <td><strong>읽기 성능</strong></td>
+              <td>영향 없음 (위치 불변)</td>
+              <td>단편화로 저하 가능</td>
+            </tr>
+            <tr>
+              <td><strong>원본 데이터 위치</strong></td>
+              <td>변하지 않음</td>
+              <td>매 쓰기마다 변경됨</td>
+            </tr>
+            <tr>
+              <td><strong>스냅샷 삭제</strong></td>
+              <td>비교적 단순</td>
+              <td>참조 카운트 관리 필요</td>
+            </tr>
+            <tr>
+              <td><strong>구현 복잡도</strong></td>
+              <td>낮음</td>
+              <td>높음 (포인터 맵 관리)</td>
+            </tr>
+            <tr>
+              <td><strong>공간 효율</strong></td>
+              <td>별도 예약 공간 필요</td>
+              <td>여유 공간에 기록</td>
+            </tr>
+            <tr>
+              <td><strong>적합한 워크로드</strong></td>
+              <td>읽기 중심, 짧은 스냅샷 보존</td>
+              <td>쓰기 중심, 장기 스냅샷 보존</td>
+            </tr>
+            <tr>
+              <td><strong>대표 기술</strong></td>
+              <td>LVM, ZFS, Btrfs</td>
+              <td>NetApp WAFL, VMware</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Thin Provisioning</span>
+        <span class="related-tag">Write Amplification</span>
+        <span class="related-tag">Deduplication</span>
+        <span class="related-tag">RAID</span>
+        <span class="related-tag">LVM (Logical Volume Manager)</span>
+        <span class="related-tag">ZFS</span>
+        <span class="related-tag">Btrfs</span>
+        <span class="related-tag">NetApp WAFL</span>
+        <span class="related-tag">Incremental Backup vs Snapshot</span>
+        <span class="related-tag">Clone vs Snapshot</span>
+        <span class="related-tag">Garbage Collection (SSD)</span>
+        <span class="related-tag">Journal / WAL</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/개발자도-궁금한-IT-인프라/SECTION3-스토리지/index.html" class="nav-link">← SECTION3 스토리지 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>
