@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nginx와 Apache httpd 완벽 비교 — 웹서버 · DevOps 인프라</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/index.html">DevOps 인프라</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/웹서버/index.html">웹서버</a>
+      <span class="sep">›</span>
+      <span class="current">Nginx와 Apache httpd 완벽 비교</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Nginx와 Apache httpd 완벽 비교</h1>
+      <p class="meta">DevOps 인프라 · 웹서버 · 2026-03-26</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        둘 다 C로 작성된 웹서버이며, 정적 파일 서빙과 리버스 프록시가 가능하다. 핵심 차이는 <strong>요청 처리 아키텍처</strong>: Apache는 요청마다 프로세스/스레드를 할당하고, Nginx는 이벤트 루프로 비동기 처리한다.
+      </div>
+      <p>흔한 오해: <strong>Apache httpd ≠ Apache Tomcat</strong>. Tomcat은 Java 서블릿 컨테이너이고, httpd는 C로 만든 범용 웹서버다. 이름만 같은 Apache 재단 소속일 뿐, 완전히 다른 소프트웨어.</p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h2>웹서버가 하는 일</h2>
+      <p>웹서버의 핵심 역할은 두 가지다:</p>
+      <ul>
+        <li><strong>정적 파일 서빙</strong> — HTML, CSS, JS, 이미지 등을 클라이언트에게 전달</li>
+        <li><strong>리버스 프록시</strong> — 클라이언트 요청을 백엔드 애플리케이션(Spring Boot, Django 등)으로 전달하고 응답을 돌려줌</li>
+      </ul>
+
+      <h2>프로세스 기반 vs 이벤트 기반</h2>
+      <ul>
+        <li><strong>프로세스/스레드 기반 (MPM)</strong> — 요청 1개 = 스레드 1개 할당. 직관적이지만, 동시 접속이 많아지면 메모리 사용량이 선형 증가</li>
+        <li><strong>이벤트 기반 (Event Loop)</strong> — 워커 프로세스 1개가 수천 개의 연결을 비동기로 처리. I/O 대기 중에도 다른 요청 처리 가능</li>
+      </ul>
+
+      <h2>C10K 문제</h2>
+      <p>2000년대 초 화두가 된 문제: "서버 하나로 동시 10,000개 연결을 처리할 수 있는가?" Apache의 프로세스 모델로는 어려웠고, 이 문제를 해결하기 위해 Nginx가 2004년에 탄생했다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h2>상세 비교</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>Nginx</th>
+              <th>Apache httpd</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>구현 언어</strong></td>
+              <td>C</td>
+              <td>C</td>
+            </tr>
+            <tr>
+              <td><strong>아키텍처</strong></td>
+              <td>이벤트 기반 (비동기, 논블로킹)</td>
+              <td>MPM (prefork / worker / event)</td>
+            </tr>
+            <tr>
+              <td><strong>동시 접속</strong></td>
+              <td>워커 1개로 수천~수만 연결 처리</td>
+              <td>연결당 스레드/프로세스 → 메모리 비례 증가</td>
+            </tr>
+            <tr>
+              <td><strong>정적 파일 성능</strong></td>
+              <td>매우 빠름 (sendfile, zero-copy)</td>
+              <td>빠름 (Nginx보다 느림)</td>
+            </tr>
+            <tr>
+              <td><strong>메모리 사용</strong></td>
+              <td>적음 (고정적)</td>
+              <td>많음 (동시 접속에 비례)</td>
+            </tr>
+            <tr>
+              <td><strong>설정 방식</strong></td>
+              <td><code>nginx.conf</code> — 간결한 블록 구조</td>
+              <td><code>httpd.conf</code> + <code>.htaccess</code> — 디렉토리별 설정 가능</td>
+            </tr>
+            <tr>
+              <td><strong>.htaccess</strong></td>
+              <td>미지원</td>
+              <td>지원 — 서버 재시작 없이 디렉토리별 설정 변경</td>
+            </tr>
+            <tr>
+              <td><strong>리버스 프록시</strong></td>
+              <td>핵심 설계 목적. 설정 간단</td>
+              <td>mod_proxy 모듈로 지원 (가능하지만 덜 직관적)</td>
+            </tr>
+            <tr>
+              <td><strong>모듈 로딩</strong></td>
+              <td>컴파일 시 포함 (동적 모듈 일부 지원)</td>
+              <td>런타임 동적 로딩 (유연)</td>
+            </tr>
+            <tr>
+              <td><strong>SSL/TLS</strong></td>
+              <td>내장, 설정 간단</td>
+              <td>mod_ssl로 지원</td>
+            </tr>
+            <tr>
+              <td><strong>시장 점유율 (2026)</strong></td>
+              <td>1위</td>
+              <td>2위 (레거시 프로젝트에서 강세)</td>
+            </tr>
+            <tr>
+              <td><strong>대표 사용처</strong></td>
+              <td>리버스 프록시, API 게이트웨이, CDN, 로드밸런서</td>
+              <td>전통적 웹 호스팅, PHP 연동, .htaccess 필요한 환경</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Apache가 더 나은 경우</h2>
+      <ul>
+        <li><strong>.htaccess가 필요할 때</strong> — 공유 호스팅 환경에서 사용자별 설정 분리</li>
+        <li><strong>PHP-FPM / mod_php 레거시</strong> — 기존 PHP 환경과의 호환성</li>
+        <li><strong>동적 모듈 로딩</strong> — 런타임에 모듈을 켜고 끄는 유연성이 필요할 때</li>
+      </ul>
+
+      <h2>Nginx가 더 나은 경우</h2>
+      <ul>
+        <li><strong>리버스 프록시 / 로드밸런서</strong> — 설계 자체가 이 용도</li>
+        <li><strong>정적 파일 서빙</strong> — Vue, React 빌드 산출물 서빙에 최적</li>
+        <li><strong>높은 동시 접속</strong> — 적은 리소스로 대량 연결 처리</li>
+        <li><strong>마이크로서비스 앞단</strong> — API 라우팅, SSL 종단, 캐싱을 한 곳에서</li>
+      </ul>
+
+      <h2>실무 구성 예시: Vue + Spring Boot</h2>
+      <p>Crispy 같은 프로젝트에서 Nginx를 사용하는 전형적인 구성:</p>
+<pre><code><span class="cm"># /etc/nginx/conf.d/crispy.conf</span>
+server {
+    listen 80;
+    server_name crispy.example.com;
+
+    <span class="cm"># Vue 빌드 산출물 (정적 파일)</span>
+    location / {
+        root /home/cdhome/deploy/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;  <span class="cm"># SPA 라우팅</span>
+    }
+
+    <span class="cm"># Backend API 프록시</span>
+    location /api {
+        proxy_pass http://localhost:10099;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}</code></pre>
+      <p><code>try_files $uri $uri/ /index.html</code>이 핵심 — Vue Router의 history mode에서 새로고침 시 404가 나는 문제를 해결한다. Apache에서는 <code>mod_rewrite</code>로 동일하게 설정 가능하지만, Nginx가 훨씬 간결하다.</p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+
+      <h2>요청 처리 아키텍처 비교</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- Apache Side -->
+          <text x="200" y="30" text-anchor="middle" fill="#f87171" font-size="16" font-weight="700">Apache httpd (MPM worker)</text>
+
+          <!-- Incoming requests -->
+          <rect x="20" y="50" width="360" height="35" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="200" y="73" text-anchor="middle" fill="#94a3b8" font-size="12">요청 3개 도착</text>
+
+          <!-- Arrow down -->
+          <line x1="200" y1="85" x2="200" y2="110" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <!-- Thread boxes -->
+          <rect x="30" y="115" width="100" height="80" rx="6" fill="#22263a" stroke="#f87171" stroke-opacity="0.5"/>
+          <text x="80" y="140" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">Thread 1</text>
+          <text x="80" y="158" text-anchor="middle" fill="#94a3b8" font-size="10">요청 A 처리</text>
+          <rect x="45" y="168" width="70" height="16" rx="3" fill="#f87171" fill-opacity="0.15"/>
+          <text x="80" y="180" text-anchor="middle" fill="#f87171" font-size="9">CPU + I/O 대기</text>
+
+          <rect x="150" y="115" width="100" height="80" rx="6" fill="#22263a" stroke="#f87171" stroke-opacity="0.5"/>
+          <text x="200" y="140" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">Thread 2</text>
+          <text x="200" y="158" text-anchor="middle" fill="#94a3b8" font-size="10">요청 B 처리</text>
+          <rect x="165" y="168" width="70" height="16" rx="3" fill="#f87171" fill-opacity="0.15"/>
+          <text x="200" y="180" text-anchor="middle" fill="#f87171" font-size="9">CPU + I/O 대기</text>
+
+          <rect x="270" y="115" width="100" height="80" rx="6" fill="#22263a" stroke="#f87171" stroke-opacity="0.5"/>
+          <text x="320" y="140" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">Thread 3</text>
+          <text x="320" y="158" text-anchor="middle" fill="#94a3b8" font-size="10">요청 C 처리</text>
+          <rect x="285" y="168" width="70" height="16" rx="3" fill="#f87171" fill-opacity="0.15"/>
+          <text x="320" y="180" text-anchor="middle" fill="#f87171" font-size="9">CPU + I/O 대기</text>
+
+          <!-- Memory note -->
+          <rect x="50" y="210" width="280" height="28" rx="6" fill="#f87171" fill-opacity="0.08" stroke="#f87171" stroke-opacity="0.3"/>
+          <text x="190" y="229" text-anchor="middle" fill="#f87171" font-size="11">메모리: 요청 수 x 스레드 메모리 (선형 증가)</text>
+
+          <!-- Nginx Side -->
+          <text x="600" y="30" text-anchor="middle" fill="#34d399" font-size="16" font-weight="700">Nginx (Event Loop)</text>
+
+          <!-- Incoming requests -->
+          <rect x="420" y="50" width="360" height="35" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="600" y="73" text-anchor="middle" fill="#94a3b8" font-size="12">요청 3개 도착</text>
+
+          <!-- Arrow down -->
+          <line x1="600" y1="85" x2="600" y2="110" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <!-- Single worker -->
+          <rect x="450" y="115" width="300" height="130" rx="8" fill="#22263a" stroke="#34d399" stroke-opacity="0.5"/>
+          <text x="600" y="140" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">Worker Process 1 (Event Loop)</text>
+
+          <!-- Event queue -->
+          <rect x="470" y="155" width="260" height="24" rx="4" fill="#34d399" fill-opacity="0.1" stroke="#34d399" stroke-opacity="0.3"/>
+          <text x="490" y="171" fill="#34d399" font-size="10" font-weight="500">A</text>
+          <line x1="510" y1="157" x2="510" y2="177" stroke="#34d399" stroke-opacity="0.3"/>
+          <text x="530" y="171" fill="#34d399" font-size="10" font-weight="500">B</text>
+          <line x1="550" y1="157" x2="550" y2="177" stroke="#34d399" stroke-opacity="0.3"/>
+          <text x="570" y="171" fill="#34d399" font-size="10" font-weight="500">C</text>
+          <line x1="590" y1="157" x2="590" y2="177" stroke="#34d399" stroke-opacity="0.3"/>
+          <text x="660" y="171" fill="#64748b" font-size="10">... 수천 개 가능</text>
+
+          <!-- Processing flow -->
+          <text x="600" y="205" text-anchor="middle" fill="#94a3b8" font-size="10">A 처리 → I/O 대기 → B 처리 → A 완료 → C 처리...</text>
+          <rect x="470" y="215" width="260" height="18" rx="3" fill="#0f1117"/>
+          <rect x="470" y="215" width="60" height="18" rx="3" fill="#34d399" fill-opacity="0.3"/>
+          <rect x="535" y="215" width="40" height="18" rx="3" fill="#38bdf8" fill-opacity="0.3"/>
+          <rect x="580" y="215" width="55" height="18" rx="3" fill="#34d399" fill-opacity="0.3"/>
+          <rect x="640" y="215" width="45" height="18" rx="3" fill="#fbbf24" fill-opacity="0.3"/>
+          <rect x="690" y="215" width="35" height="18" rx="3" fill="#38bdf8" fill-opacity="0.3"/>
+          <text x="500" y="228" text-anchor="middle" fill="#34d399" font-size="8">A</text>
+          <text x="555" y="228" text-anchor="middle" fill="#38bdf8" font-size="8">B</text>
+          <text x="607" y="228" text-anchor="middle" fill="#34d399" font-size="8">A done</text>
+          <text x="662" y="228" text-anchor="middle" fill="#fbbf24" font-size="8">C</text>
+          <text x="707" y="228" text-anchor="middle" fill="#38bdf8" font-size="8">B</text>
+
+          <!-- Memory note -->
+          <rect x="450" y="260" width="300" height="28" rx="6" fill="#34d399" fill-opacity="0.08" stroke="#34d399" stroke-opacity="0.3"/>
+          <text x="600" y="279" text-anchor="middle" fill="#34d399" font-size="11">메모리: 거의 고정 (요청 수와 무관)</text>
+
+          <!-- Bottom comparison -->
+          <rect x="20" y="310" width="760" height="100" rx="10" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="400" y="340" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="600">동시 접속 10,000개일 때</text>
+          <text x="200" y="370" text-anchor="middle" fill="#f87171" font-size="12">Apache: ~10,000 스레드 필요</text>
+          <text x="200" y="390" text-anchor="middle" fill="#f87171" font-size="11">메모리 수 GB, 컨텍스트 스위칭 오버헤드</text>
+          <text x="600" y="370" text-anchor="middle" fill="#34d399" font-size="12">Nginx: 워커 4~8개로 처리</text>
+          <text x="600" y="390" text-anchor="middle" fill="#34d399" font-size="11">메모리 수십 MB, 이벤트 큐로 순회</text>
+
+          <!-- Arrow marker -->
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p>Apache는 요청마다 스레드를 할당하므로 동시 접속이 늘수록 메모리가 선형 증가한다. Nginx는 이벤트 루프에서 I/O 대기 중인 요청을 건너뛰며 처리하므로, 워커 수가 고정되어 있어도 수만 개의 연결을 처리할 수 있다.</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">리버스 프록시</span>
+        <span class="related-tag">로드밸런싱 L4 / L7</span>
+        <span class="related-tag">C10K Problem</span>
+        <span class="related-tag">이벤트 루프</span>
+        <span class="related-tag">epoll / kqueue</span>
+        <span class="related-tag">SSL/TLS 종단</span>
+        <span class="related-tag">SPA 라우팅 (try_files)</span>
+        <span class="related-tag">Apache MPM (prefork / worker / event)</span>
+        <span class="related-tag">.htaccess</span>
+        <span class="related-tag">CDN</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/DevOps-인프라/웹서버/index.html" class="nav-link">← 웹서버 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">bok's wiki →</a>
+    </nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
