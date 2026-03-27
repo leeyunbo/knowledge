@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비동기 I/O의 모든 것 — select부터 DPDK까지</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/네트워크/index.html">네트워크</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/네트워크/IO-이벤트-모델/index.html">IO 이벤트 모델</a>
+      <span class="sep">›</span>
+      <span class="current">비동기 I/O의 모든 것</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>비동기 I/O의 모든 것 — select부터 DPDK까지</h1>
+      <p class="meta">네트워크 · IO 이벤트 모델 · 2026-03-27</p>
+    </header>
+
+    <!-- ====== 핵심 답변 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 요약
+      </div>
+      <div class="highlight-box">
+        비동기 I/O의 핵심은 OS 커널의 <strong>I/O 이벤트 감시 기능</strong>(epoll/kqueue)을 이용해,
+        스레드가 I/O 완료를 기다리지 않고 <strong>"준비되면 알려줘"</strong>라고 등록한 뒤 다른 일을 하는 것이다.
+      </div>
+      <p>동기 모델에서는 스레드 1개 = 커넥션 1개이므로, 동시 접속 10,000개면 스레드 10,000개가 필요하다. 비동기 모델에서는 이벤트루프 스레드 몇 개가 수만 커넥션을 처리한다.</p>
+    </div>
+
+    <!-- ====== 동기 vs 비동기 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        동기(블로킹) vs 비동기(논블로킹)
+      </div>
+
+      <h2>동기 — 기다린다</h2>
+<pre><code>스레드: "카카오야 데이터 줘"
+스레드: zzz... <span class="cm">(sleep 상태, CPU 안 씀, 근데 스레드 하나 점유)</span>
+스레드: "왔다!" → 처리</code></pre>
+
+      <h2>비동기 — 등록하고 넘어간다</h2>
+<pre><code>이벤트루프: "OS야, 이 소켓에 데이터 오면 알려줘" <span class="cm">(epoll/kqueue에 등록)</span>
+이벤트루프: 다른 소켓 처리하러 감
+            ...
+OS: "야 데이터 왔어" <span class="cm">(이벤트 알림)</span>
+이벤트루프: "ㅇㅋ" → 콜백 실행</code></pre>
+
+      <p>OS 스레드한테 넘기는 게 아니라, <strong>OS 커널의 I/O 이벤트 감시 기능</strong>을 쓰는 것이다.</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>OS</th><th>이벤트 감시 시스템 콜</th></tr>
+          <tr><td>Linux</td><td><code>epoll</code></td></tr>
+          <tr><td>macOS / BSD</td><td><code>kqueue</code></td></tr>
+          <tr><td>Windows</td><td><code>IOCP</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ====== select의 한계 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        역사: select의 한계 (1983)
+      </div>
+
+<pre><code><span class="cm">// select (1983년, BSD)</span>
+<span class="ty">fd_set</span> readfds;
+<span class="fn">FD_SET</span>(socket1, &readfds);
+<span class="fn">FD_SET</span>(socket2, &readfds);
+<span class="fn">FD_SET</span>(socket3, &readfds);
+
+<span class="fn">select</span>(maxfd, &readfds, <span class="kw">NULL</span>, <span class="kw">NULL</span>, timeout);
+
+<span class="cm">// 누가 준비됐는지 전부 순회해야 함</span>
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="st">0</span>; i < maxfd; i++) {
+    <span class="kw">if</span> (<span class="fn">FD_ISSET</span>(i, &readfds)) { ... }
+}</code></pre>
+
+      <div class="warn-box">
+        <strong>문제점:</strong>
+        <ul style="margin-top:0.5rem">
+          <li>매 호출마다 감시할 소켓 목록을 커널에 복사</li>
+          <li>결과도 전체를 순회해야 준비된 걸 찾음 → <strong>O(n)</strong></li>
+          <li>소켓 1,024개 제한 (FD_SETSIZE)</li>
+          <li>소켓 10,000개면 매번 10,000개 순회</li>
+        </ul>
+      </div>
+
+      <p>이걸 해결하려고 나온 게 <code>epoll</code>과 <code>kqueue</code>이다.</p>
+    </div>
+
+    <!-- ====== epoll ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        epoll (Linux, 2002)
+      </div>
+
+      <h2>3단계 API</h2>
+<pre><code><span class="cm">// 1. epoll 인스턴스 생성 (커널에 감시 목록 공간 만듦)</span>
+<span class="ty">int</span> epfd = <span class="fn">epoll_create</span>(<span class="st">1</span>);
+
+<span class="cm">// 2. 소켓 등록 (한 번만 하면 됨)</span>
+<span class="kw">struct</span> <span class="ty">epoll_event</span> ev;
+ev.events = EPOLLIN;          <span class="cm">// 읽기 가능할 때 알려줘</span>
+ev.data.fd = client_socket;
+<span class="fn">epoll_ctl</span>(epfd, EPOLL_CTL_ADD, client_socket, &ev);
+
+<span class="cm">// 3. 대기 (준비된 것만 리턴)</span>
+<span class="kw">struct</span> <span class="ty">epoll_event</span> events[MAX_EVENTS];
+<span class="ty">int</span> nready = <span class="fn">epoll_wait</span>(epfd, events, MAX_EVENTS, timeout);
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="st">0</span>; i < nready; i++) {
+    <span class="cm">// 준비된 소켓만 순회 → O(준비된 수)</span>
+    <span class="fn">handle</span>(events[i].data.fd);
+}</code></pre>
+
+      <div class="good-box">
+        <strong>핵심 차이:</strong><br>
+        <code>select</code>: 소켓 10,000개 중 3개 준비 → <strong>10,000개 순회</strong><br>
+        <code>epoll</code>: 소켓 10,000개 중 3개 준비 → <strong>3개만 리턴</strong>
+      </div>
+
+      <h2>두 가지 트리거 모드</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>모드</th><th>동작</th><th>특징</th></tr>
+          <tr><td><strong>Level Triggered</strong> (기본)</td><td>데이터가 있는 동안 계속 알림</td><td>안전하지만 알림이 반복됨</td></tr>
+          <tr><td><strong>Edge Triggered</strong> (EPOLLET)</td><td>상태가 변할 때 딱 한 번만 알림</td><td>더 효율적, 한번에 다 읽어야 함. <strong>Netty가 사용</strong></td></tr>
+        </table>
+      </div>
+
+<pre><code><span class="cm">                데이터 도착
+                    ↓</span>
+Level Triggered:  알림! 알림! 알림! <span class="cm">(읽을 때까지 반복)</span>
+Edge Triggered:   알림!              <span class="cm">(한 번만, 안 읽으면 끝)</span></code></pre>
+    </div>
+
+    <!-- ====== kqueue ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        kqueue (macOS/BSD, 2000)
+      </div>
+
+<pre><code><span class="cm">// 1. kqueue 인스턴스 생성</span>
+<span class="ty">int</span> kq = <span class="fn">kqueue</span>();
+
+<span class="cm">// 2. 이벤트 등록</span>
+<span class="kw">struct</span> <span class="ty">kevent</span> change;
+<span class="fn">EV_SET</span>(&change, client_socket, EVFILT_READ, EV_ADD, <span class="st">0</span>, <span class="st">0</span>, <span class="kw">NULL</span>);
+
+<span class="cm">// 3. 대기 (준비된 것만 리턴)</span>
+<span class="kw">struct</span> <span class="ty">kevent</span> events[MAX_EVENTS];
+<span class="ty">int</span> nready = <span class="fn">kevent</span>(kq, &change, <span class="st">1</span>, events, MAX_EVENTS, timeout);
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="st">0</span>; i < nready; i++) {
+    <span class="fn">handle</span>(events[i].ident);
+}</code></pre>
+
+      <p>epoll과 거의 같은 개념이지만 차이가 있다:</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th></th><th>epoll (Linux)</th><th>kqueue (macOS/BSD)</th></tr>
+          <tr><td><strong>API</strong></td><td>등록/대기 별도 함수<br>(<code>epoll_ctl</code> / <code>epoll_wait</code>)</td><td>하나의 함수로 등록+대기 동시<br>(<code>kevent</code>)</td></tr>
+          <tr><td><strong>감시 대상</strong></td><td>소켓(fd)만</td><td>소켓, 파일, 프로세스, 시그널, 타이머 전부</td></tr>
+          <tr><td><strong>필터</strong></td><td>EPOLLIN, EPOLLOUT 정도</td><td>EVFILT_READ, WRITE, PROC, TIMER...</td></tr>
+          <tr><td><strong>범용성</strong></td><td>소켓에 특화</td><td>더 범용적</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ====== Netty 이벤트루프 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        실제 동작 흐름 (Netty 이벤트루프)
+      </div>
+
+      <p>Netty가 하는 일은 이 epoll 루프를 감싸서 Java에서 쓰기 편하게 만든 것이다.</p>
+
+<pre><code><span class="cm">// 이벤트루프가 하는 일 (스레드 1개)</span>
+<span class="kw">while</span> (<span class="st">true</span>) {
+    events = <span class="fn">epoll_wait</span>();     <span class="cm">// 커널에게 "준비된 거 있어?"</span>
+
+    <span class="cm">// 10,000 커넥션 중 5개만 데이터 왔으면 → 5개만 리턴</span>
+    <span class="kw">for</span> (event : events) {
+        <span class="kw">if</span> (READ 이벤트)  → 데이터 읽고 → 핸들러 체인 실행
+        <span class="kw">if</span> (WRITE 이벤트) → 버퍼에 있던 데이터 전송
+    }
+}</code></pre>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" style="max-width:700px">
+          <!-- 서버 시작 -->
+          <rect x="20" y="10" width="200" height="40" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="120" y="35" text-anchor="middle" fill="#a78bfa" font-size="13" font-weight="600">1. 서버 시작</text>
+          <text x="120" y="65" text-anchor="middle" fill="#94a3b8" font-size="11">epoll_create() → 인스턴스 생성</text>
+
+          <!-- 클라이언트 접속 -->
+          <rect x="250" y="10" width="200" height="40" rx="8" fill="#22263a" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="350" y="35" text-anchor="middle" fill="#38bdf8" font-size="13" font-weight="600">2. 클라이언트 접속</text>
+          <text x="350" y="65" text-anchor="middle" fill="#94a3b8" font-size="11">accept() → epoll_ctl(ADD)</text>
+
+          <!-- 이벤트루프 -->
+          <rect x="50" y="100" width="600" height="160" rx="12" fill="none" stroke="#34d399" stroke-width="1.5" stroke-dasharray="6,4"/>
+          <text x="350" y="125" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">3. 이벤트루프 (스레드 1개가 무한 반복)</text>
+
+          <rect x="80" y="145" width="240" height="45" rx="8" fill="#22263a" stroke="#fbbf24" stroke-width="1"/>
+          <text x="200" y="172" text-anchor="middle" fill="#fbbf24" font-size="12">epoll_wait() → 준비된 것만 리턴</text>
+
+          <text x="350" y="172" fill="#64748b" font-size="18">→</text>
+
+          <rect x="380" y="145" width="240" height="45" rx="8" fill="#22263a" stroke="#a78bfa" stroke-width="1"/>
+          <text x="500" y="172" text-anchor="middle" fill="#a78bfa" font-size="12">콜백 실행 (READ/WRITE)</text>
+
+          <text x="350" y="225" text-anchor="middle" fill="#64748b" font-size="11">10,000 커넥션 중 5개만 준비 → 5개만 처리 → 다시 wait</text>
+
+          <!-- 종료 -->
+          <rect x="480" y="280" width="200" height="35" rx="8" fill="#22263a" stroke="#f87171" stroke-width="1"/>
+          <text x="580" y="302" text-anchor="middle" fill="#f87171" font-size="12">4. 종료: epoll_ctl(DEL)</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ====== io_uring ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        io_uring (Linux 5.1, 2019)
+      </div>
+
+      <p>epoll도 매 I/O 작업마다 시스템 콜이 필요하다. io_uring은 <strong>유저-커널 공유 링 버퍼</strong>로 이 오버헤드를 제거했다.</p>
+
+      <h2>epoll의 문제</h2>
+<pre><code>유저 공간                    커널 공간
+─────────                   ─────────
+<span class="fn">epoll_wait</span>() ──시스템콜──→  준비된 소켓 확인
+             ←──결과 복사──
+<span class="fn">read</span>()       ──시스템콜──→  데이터 읽기
+             ←──데이터 복사──
+<span class="fn">write</span>()      ──시스템콜──→  데이터 쓰기
+             ←──결과 복사──
+
+<span class="cm">매번 시스템 콜 = 유저↔커널 컨텍스트 스위칭 비용</span></code></pre>
+
+      <h2>io_uring의 해결</h2>
+<pre><code>유저 공간과 커널이 <span class="kw">공유하는 링 버퍼 2개</span>를 만듦
+
+[<span class="ty">Submission Queue (SQ)</span>]  유저 → 커널 (요청)
+[<span class="ty">Completion Queue (CQ)</span>]  커널 → 유저 (결과)
+
+유저 공간                    커널 공간
+─────────                   ─────────
+SQ에 작업 넣기 ──────────→  <span class="cm">(공유 메모리, 시스템콜 없음)</span>
+  <span class="st">"소켓A 읽어줘"</span>
+  <span class="st">"소켓B에 써줘"</span>
+  <span class="st">"파일C 열어줘"</span>
+
+<span class="fn">io_uring_enter</span>() ─1번만──→  <span class="st">"SQ에 있는 거 처리해줘"</span>
+
+CQ에서 결과 읽기 ←────────  <span class="cm">(공유 메모리, 시스템콜 없음)</span>
+  <span class="st">"소켓A 데이터 여기"</span>
+  <span class="st">"소켓B 쓰기 완료"</span>
+  <span class="st">"파일C 열기 완료"</span></code></pre>
+
+      <div class="good-box">
+        <code>epoll</code>: 작업 1개 = 시스템콜 1번<br>
+        <code>io_uring</code>: 작업 100개 = <strong>시스템콜 1번</strong> (또는 폴링 모드에서 0번)
+      </div>
+
+      <p><strong>핵심:</strong></p>
+      <ul>
+        <li><strong>배치 처리</strong> — 여러 I/O 요청을 한번에 제출</li>
+        <li><strong>Zero-copy</strong> — 링 버퍼가 공유 메모리라 복사 없음</li>
+        <li><strong>시스템콜 최소화</strong> — 폴링 모드에서는 시스템콜 0번도 가능</li>
+      </ul>
+    </div>
+
+    <!-- ====== DPDK ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        DPDK — 커널을 아예 우회
+      </div>
+
+      <p>DPDK(Data Plane Development Kit)는 더 급진적이다. <strong>커널 네트워크 스택을 완전히 우회</strong>한다.</p>
+
+      <h2>일반적인 패킷 흐름</h2>
+<pre><code>NIC(랜카드) → <span class="kw">커널 네트워크 스택</span> → 소켓 → 유저 애플리케이션
+              ├ 인터럽트 처리
+              ├ 프로토콜 파싱 (TCP/IP)
+              ├ 방화벽 (iptables)
+              ├ 버퍼 복사
+              └ 컨텍스트 스위칭
+
+              <span class="cm">패킷당 수 μs 소요</span></code></pre>
+
+      <h2>DPDK</h2>
+<pre><code>NIC(랜카드) → <span class="kw">유저 애플리케이션</span> <span class="cm">(커널 완전 우회)</span>
+              ├ NIC 드라이버를 유저 공간에서 직접 제어
+              ├ 패킷을 유저 메모리에 직접 DMA
+              ├ CPU 코어를 전용으로 할당 (poll 모드)
+              └ 인터럽트 없음, 컨텍스트 스위칭 없음
+
+              <span class="st">패킷당 ~0.1μs (100배 빠름)</span></code></pre>
+
+      <div class="warn-box">
+        <strong>대가:</strong>
+        <ul style="margin-top:0.5rem">
+          <li>CPU 코어를 100% 점유 (poll loop)</li>
+          <li>커널 네트워크 스택 못 씀 (TCP/IP 직접 구현)</li>
+          <li>해당 NIC는 OS에서 안 보임 (ping도 안 됨)</li>
+          <li>일반 소켓 API(connect, read, write) 못 씀</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ====== 전체 비교 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        전체 추상화 스택
+      </div>
+
+<pre><code>추상화 수준 높음
+  ↑  <span class="kw">WebFlux</span>      <span class="cm">(Spring 웹 프레임워크)</span>
+  │  <span class="kw">Netty</span>        <span class="cm">(Java 네트워크 프레임워크 — epoll을 Java로 감쌈)</span>
+  │  <span class="ty">epoll/kqueue</span> <span class="cm">(커널 이벤트 감시)</span>
+  │  <span class="ty">io_uring</span>     <span class="cm">(커널 배치 I/O)</span>
+  ↓  <span class="ty">DPDK</span>         <span class="cm">(커널 우회)</span>
+추상화 수준 낮음, 성능 높음</code></pre>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th></th><th>select</th><th>epoll/kqueue</th><th>io_uring</th><th>DPDK</th></tr>
+          <tr><td><strong>등장</strong></td><td>1983</td><td>2000/2002</td><td>2019</td><td>2010s</td></tr>
+          <tr><td><strong>복잡도</strong></td><td>O(n)</td><td>O(준비된 수)</td><td>O(준비된 수)</td><td>-</td></tr>
+          <tr><td><strong>시스템콜</strong></td><td>매번</td><td>매번</td><td>배치로 최소화</td><td>없음</td></tr>
+          <tr><td><strong>커널 경유</strong></td><td>O</td><td>O</td><td>O</td><td><strong>X</strong></td></tr>
+          <tr><td><strong>TCP/IP</strong></td><td>커널 제공</td><td>커널 제공</td><td>커널 제공</td><td>직접 구현</td></tr>
+          <tr><td><strong>난이도</strong></td><td>낮음</td><td>보통</td><td>높음</td><td>매우 높음</td></tr>
+          <tr><td><strong>사용처</strong></td><td>레거시</td><td>일반 서버</td><td>고성능 DB</td><td>통신장비, 금융 HFT</td></tr>
+        </table>
+      </div>
+
+      <p><strong>실제 사용 사례:</strong></p>
+      <ul>
+        <li><code>io_uring</code> — RocksDB, ScyllaDB, PostgreSQL 검토 중</li>
+        <li><code>DPDK</code> — 통신사 라우터, 금융 초저지연 트레이딩, 클라우드 가상 스위치 (OVS-DPDK)</li>
+      </ul>
+    </div>
+
+    <!-- ====== 언제 비동기가 필요한가 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        언제 비동기(WebFlux/Netty)가 필요한가?
+      </div>
+
+      <div class="highlight-box">
+        핵심 기준: <strong>"동시에 열려있는 커넥션이 스레드 수로 감당 안 될 만큼 많은가?"</strong>
+      </div>
+
+      <h2>비동기가 빛나는 경우</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>서비스</th><th>이유</th></tr>
+          <tr><td>API Gateway</td><td>사용자 수만 명의 요청을 받아서 뒤로 라우팅. 자기는 넘기기만.</td></tr>
+          <tr><td>채팅/알림 서버</td><td>WebSocket 수만 커넥션 유지. 대부분 idle.</td></tr>
+          <tr><td>스트리밍 서비스</td><td>SSE로 수만 클라이언트에 실시간 피드.</td></tr>
+          <tr><td>BFF</td><td>여러 마이크로서비스 호출 후 조합. I/O 대기가 대부분.</td></tr>
+        </table>
+      </div>
+      <p><strong>공통점:</strong> CPU 연산은 거의 없고, I/O 대기가 대부분이며, 동시 접속 수가 매우 많음.</p>
+
+      <h2>비동기가 과한 경우</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>서비스</th><th>이유</th></tr>
+          <tr><td>내부 워커 (Consumer → 외부 API)</td><td>동시 커넥션 수가 적고 제어 가능. 스레드 100~200개로 충분.</td></tr>
+          <tr><td>배치 서버</td><td>순차 처리가 주. 동시성 필요 없음.</td></tr>
+          <tr><td>CPU 집약 서비스</td><td>I/O가 아니라 연산이 병목. 비동기가 도움 안 됨.</td></tr>
+        </table>
+      </div>
+
+      <div class="good-box">
+        브라우저든 앱이든 IoT든 서버든, <strong>상대가 누구냐</strong>가 아니라 <strong>동시에 몇 개가 붙어있느냐</strong>가 기준이다.
+      </div>
+    </div>
+
+    <!-- ====== Netty vs WebFlux ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        Netty vs WebFlux
+      </div>
+
+      <p>Netty는 <strong>네트워크 프레임워크</strong>이고, WebFlux는 <strong>웹 애플리케이션 프레임워크</strong>이다.</p>
+
+      <p>Netty만 쓰면 HTTP 파싱, URL 라우팅, JSON 직렬화, 인증, 예외 처리를 전부 직접 구현해야 한다. WebFlux는 그걸 Spring 방식으로 제공한다.</p>
+
+<pre><code><span class="cm">// Netty 직접 사용 — 전부 수동</span>
+ServerBootstrap b = <span class="kw">new</span> ServerBootstrap();
+b.group(bossGroup, workerGroup)
+ .childHandler(<span class="kw">new</span> ChannelInitializer&lt;SocketChannel&gt;() {
+     <span class="kw">protected void</span> <span class="fn">initChannel</span>(SocketChannel ch) {
+         ch.pipeline().addLast(<span class="kw">new</span> HttpRequestDecoder());
+         ch.pipeline().addLast(<span class="kw">new</span> MyHandler()); <span class="cm">// 직접 구현</span>
+     }
+ });
+
+<span class="cm">// WebFlux — Spring이 다 해줌</span>
+<span class="an">@GetMapping</span>(<span class="st">"/users/{id}"</span>)
+<span class="kw">public</span> Mono&lt;User&gt; <span class="fn">getUser</span>(<span class="an">@PathVariable</span> String id) {
+    <span class="kw">return</span> userRepository.findById(id);
+}</code></pre>
+
+      <div class="highlight-box">
+        <strong>관계:</strong><br>
+        Tomcat = 네트워크 엔진 → Spring MVC = 웹 프레임워크<br>
+        Netty = 네트워크 엔진 → WebFlux = 웹 프레임워크
+      </div>
+    </div>
+
+    <!-- ====== C10K → C10M ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        C10K → C10M 문제
+      </div>
+<pre><code><span class="kw">C10K</span> (1999년 문제): 동시 접속 10,000개를 어떻게 처리?
+→ select/poll은 O(n)이라 느림
+→ <span class="st">epoll/kqueue로 해결 → O(준비된 수)</span>
+
+<span class="kw">C10M</span> (현재 목표): 동시 접속 10,000,000개
+→ epoll도 커널-유저 공간 복사 비용 있음
+→ <span class="st">io_uring, DPDK 등으로 해결 중</span></code></pre>
+    </div>
+
+    <!-- ====== 연관 개념 ====== -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Reactor Pattern</span>
+        <span class="related-tag">Proactor Pattern</span>
+        <span class="related-tag">Event Loop</span>
+        <span class="related-tag">Non-blocking I/O</span>
+        <span class="related-tag">Multiplexing</span>
+        <span class="related-tag">DMA (Direct Memory Access)</span>
+        <span class="related-tag">Zero-copy</span>
+        <span class="related-tag">Kernel Bypass</span>
+        <span class="related-tag">Spring Cloud Gateway</span>
+        <span class="related-tag">Connection Pooling</span>
+        <span class="related-tag">TIME_WAIT</span>
+        <span class="related-tag">Back-pressure</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/네트워크/IO-이벤트-모델/index.html" class="nav-link">← IO 이벤트 모델 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
