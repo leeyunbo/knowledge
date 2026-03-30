@@ -2,787 +2,901 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>bok's wiki</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #0a0c10; --bg2: #12151c; --bg3: #1a1e2a;
-      --border: #252a3a; --border-hover: #3a4060;
-      --accent: #7c6af7; --accent2: #a78bfa; --accent3: #38bdf8;
-      --text: #e2e8f0; --text2: #94a3b8; --text3: #5a6380;
-      --green: #34d399; --yellow: #fbbf24; --red: #f87171;
-      --radius: 16px;
-      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 15px;
-      line-height: 1.6;
-      min-height: 100vh;
-    }
-
-    .container { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
-
-    /* ── HEADER ── */
-    .hero { text-align: center; margin-bottom: 2.5rem; }
-    .hero h1 {
-      font-size: 2.8rem; font-weight: 800; letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #fff 0%, var(--accent2) 50%, var(--accent3) 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .hero p { color: var(--text3); font-size: 0.95rem; margin-top: 0.4rem; }
-    .hero .stats {
-      display: flex; justify-content: center; gap: 2rem; margin-top: 1.25rem;
-    }
-    .hero .stat {
-      display: flex; flex-direction: column; align-items: center;
-    }
-    .hero .stat-num {
-      font-size: 1.5rem; font-weight: 700; color: var(--accent2);
-    }
-    .hero .stat-label { font-size: 0.7rem; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; }
-
-    /* ── SEARCH ── */
-    .search-wrap { margin-bottom: 2.5rem; position: relative; }
-    .search-input {
-      width: 100%; padding: 0.85rem 1.25rem 0.85rem 3rem;
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
-      color: var(--text); font-size: 0.9rem; outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235a6380' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: 1rem center;
-    }
-    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,106,247,0.15); }
-    .search-input::placeholder { color: var(--text3); }
-
-    /* ── CARD GRID ── */
-    .card-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1rem;
-    }
-
-    /* ── CATEGORY CARD ── */
-    .cat-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      transition: all 0.25s ease;
-      cursor: pointer;
-    }
-    .cat-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
-    .cat-card.active { border-color: var(--accent); grid-column: 1 / -1; }
-
-    .cat-top {
-      padding: 1.25rem 1.25rem 1rem;
-      display: flex; align-items: flex-start; gap: 0.9rem;
-    }
-
-    .cat-icon {
-      width: 44px; height: 44px; border-radius: 12px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.25rem; flex-shrink: 0;
-    }
-    .cat-icon.java { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); }
-    .cat-icon.spring { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
-    .cat-icon.arch { background: linear-gradient(135deg, var(--accent) 0%, #6d28d9 100%); }
-    .cat-icon.db { background: linear-gradient(135deg, #06b6d4 0%, #0284c7 100%); }
-    .cat-icon.infra { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
-    .cat-icon.git { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-    .cat-icon.net { background: linear-gradient(135deg, var(--accent3) 0%, #0369a1 100%); }
-    .cat-icon.quote { background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); }
-
-    .cat-info { flex: 1; min-width: 0; }
-    .cat-title { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 0.2rem; }
-    .cat-sub { font-size: 0.75rem; color: var(--text3); }
-
-    .cat-badge {
-      background: rgba(124,106,247,0.12); border: 1px solid rgba(124,106,247,0.25);
-      color: var(--accent2); border-radius: 20px;
-      padding: 0.15rem 0.55rem; font-size: 0.7rem; font-weight: 600;
-      flex-shrink: 0; margin-top: 0.2rem;
-    }
-
-    .cat-preview {
-      padding: 0 1.25rem 0.75rem; display: flex; flex-wrap: wrap; gap: 0.35rem;
-    }
-    .preview-tag {
-      background: var(--bg3); border-radius: 6px;
-      padding: 0.2rem 0.5rem; font-size: 0.68rem; color: var(--text3);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;
-    }
-
-    /* ── EXPANDED CONTENT ── */
-    .cat-body {
-      display: none; border-top: 1px solid var(--border);
-      padding: 1rem 1.25rem 1.25rem;
-    }
-    .cat-card.active .cat-body { display: block; }
-
-    .chapter-section { margin-bottom: 1rem; }
-    .chapter-section:last-child { margin-bottom: 0; }
-    .ch-label {
-      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
-      letter-spacing: 0.08em; color: var(--text3); margin-bottom: 0.5rem;
-      padding-left: 0.25rem;
-    }
-
-    .memo-list { display: flex; flex-direction: column; gap: 0.35rem; }
-    .memo-link {
-      display: flex; align-items: center; gap: 0.75rem;
-      padding: 0.6rem 0.75rem; border-radius: 10px;
-      text-decoration: none; color: var(--text);
-      transition: background 0.15s;
-    }
-    .memo-link:hover { background: var(--bg3); }
-    .memo-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--accent); flex-shrink: 0; opacity: 0.6;
-    }
-    .memo-link:hover .memo-dot { opacity: 1; }
-    .memo-title { font-size: 0.88rem; font-weight: 400; flex: 1; }
-    .memo-date { font-size: 0.7rem; color: var(--text3); flex-shrink: 0; }
-    .memo-link .arrow { color: var(--text3); font-size: 0.75rem; opacity: 0; transition: opacity 0.15s; }
-    .memo-link:hover .arrow { opacity: 1; }
-
-    /* ── SEARCH RESULTS ── */
-    .search-results {
-      display: none; flex-direction: column; gap: 0.35rem;
-    }
-    .search-results.active { display: flex; }
-    .card-grid.searching { display: none; }
-    .no-results { text-align: center; color: var(--text3); padding: 3rem 0; display: none; }
-
-    /* ── RESPONSIVE ── */
-    @media (max-width: 640px) {
-      .container { padding: 2rem 1rem 4rem; }
-      .card-grid { grid-template-columns: 1fr; }
-      .cat-card.active { grid-column: 1; }
-      .hero h1 { font-size: 2rem; }
-      .preview-tag { max-width: 140px; }
-    }
-  </style>
+  <link rel="stylesheet" href="/knowledge/style.css">
 </head>
 <body>
   <div class="container">
-    <header class="hero">
+    <header class="site-header">
       <h1>bok's wiki</h1>
       <p>아 이게 그거였구나</p>
-      <div class="stats">
-        <div class="stat"><span class="stat-num">45</span><span class="stat-label">Memos</span></div>
-        <div class="stat"><span class="stat-num">12</span><span class="stat-label">Topics</span></div>
-      </div>
     </header>
 
     <div class="search-wrap">
       <input type="text" class="search-input" placeholder="개념 검색..." id="searchInput" autocomplete="off">
     </div>
 
-    <!-- Search Results -->
-    <div class="search-results" id="searchResults"></div>
-    <div class="no-results" id="noResults">검색 결과가 없어요</div>
-
-    <div class="card-grid" id="cardGrid">
-
-      <!-- ═══ Java ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon java">&#9749;</div>
-          <div class="cat-info">
-            <div class="cat-title">Java</div>
-            <div class="cat-sub">동시성 / 제네릭 / JVM</div>
+    <div id="bookGroups">
+      <!-- 시스템 설계 -->
+      <div class="book-group" data-book="시스템-설계">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🏗️</span>
+            <span class="book-title">시스템 설계</span>
+            <span class="book-count">2개 목차</span>
           </div>
-          <span class="cat-badge">3</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">CompletableFuture</span>
-          <span class="preview-tag">제네릭</span>
-          <span class="preview-tag">JVM 튜닝</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">CompletableFuture</div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">메시지 신뢰성</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="Java-동시성/CompletableFuture/병렬처럼-보이지만-직렬로-동작하는-이유-OS-스케줄링.html" class="memo-link" data-title="CompletableFuture 병렬처럼 보이지만 직렬로 동작하는 이유 OS 스케줄링 스레드 ForkJoinPool">
-                <span class="memo-dot"></span>
-                <span class="memo-title">병렬처럼 보이지만 직렬로 동작하는 이유: OS 스케줄링</span>
-                <span class="memo-date">03.15</span>
-                <span class="arrow">&#8250;</span>
+              <a href="시스템-설계/메시지-신뢰성/Outbox-패턴-완벽-이해.html" class="memo-item" data-title="Outbox 패턴 완벽 이해 분산 트랜잭션 At-least-once Elasticsearch DB 신뢰성 Dead Letter Queue DLQ">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Outbox 패턴 완벽 이해</div>
+                  <div class="meta">메시지 신뢰성 · 2026-03-17</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
-          <div class="chapter-section">
-            <div class="ch-label">제네릭</div>
-            <div class="memo-list">
-              <a href="자바-프로그래밍/제네릭/제네릭을-자바에서-사용하는-이유.html" class="memo-link" data-title="제네릭을 자바에서 사용하는 이유 타입 안정성 Type Safety 캐스팅 컴파일 타임">
-                <span class="memo-dot"></span>
-                <span class="memo-title">제네릭을 자바에서 사용하는 이유</span>
-                <span class="memo-date">03.17</span>
-                <span class="arrow">&#8250;</span>
-              </a>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">동시성·데이터 설계</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
             </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">JVM 성능 튜닝</div>
             <div class="memo-list">
-              <a href="자바-프로그래밍/JVM-성능-튜닝/JVM-커스터마이징으로-성능-개선하는-실무-방법.html" class="memo-link" data-title="JVM 커스터마이징 성능 개선 실무 GC 튜닝 힙 메모리 G1GC ZGC Parallel">
-                <span class="memo-dot"></span>
-                <span class="memo-title">JVM 커스터마이징으로 성능 개선하는 실무 방법</span>
-                <span class="memo-date">03.17</span>
-                <span class="arrow">&#8250;</span>
+              <a href="시스템-설계/동시성-데이터-설계/unreadCount-설계-결함-분석.html" class="memo-item" data-title="unreadCount 설계 결함 lastReadMessageId 동적 계산 동시성 race condition 파생 데이터">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">unreadCount 설계 결함 분석과 lastReadMessageId 기반 동적 계산으로의 전환</div>
+                  <div class="meta">동시성·데이터 설계 · 2026-03-18</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ═══ Spring ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon spring">&#9752;</div>
-          <div class="cat-info">
-            <div class="cat-title">Spring</div>
-            <div class="cat-sub">IoC / AOP / Boot / Servlet</div>
+      <!-- Clean Architecture -->
+      <div class="book-group" data-book="clean-architecture">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>📘</span>
+            <span class="book-title">Clean Architecture</span>
+            <span class="book-count">4개 챕터</span>
           </div>
-          <span class="cat-badge">4</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">DispatcherServlet</span>
-          <span class="preview-tag">AOP 프록시</span>
-          <span class="preview-tag">자동 설정</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">서블릿과 DispatcherServlet</div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Chapter 19</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="Spring-내부-동작/서블릿과-DispatcherServlet/HTTP-요청이-컨트롤러에-도달하기까지.html" class="memo-link" data-title="HTTP 요청 컨트롤러 Tomcat Servlet DispatcherServlet HandlerMapping">
-                <span class="memo-dot"></span>
-                <span class="memo-title">HTTP 요청이 컨트롤러에 도달하기까지</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
+              <a href="clean-architecture/chapter-19/공통-폐쇄-원칙-CCP.html" class="memo-item" data-title="공통 폐쇄 원칙 CCP Common Closure Principle">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">공통 폐쇄 원칙 (CCP) — Common Closure Principle</div>
+                  <div class="meta">Chapter 19 · 2026-03-12</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
-          <div class="chapter-section">
-            <div class="ch-label">IoC 컨테이너와 빈 라이프사이클</div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Chapter 20</span>
+                <span class="chapter-count">2개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="Spring-내부-동작/IoC-컨테이너와-빈-라이프사이클/스프링-IoC-컨테이너와-빈-생명주기-완벽-이해.html" class="memo-link" data-title="Spring IoC DI BeanFactory ApplicationContext Bean Lifecycle">
-                <span class="memo-dot"></span>
-                <span class="memo-title">스프링 IoC 컨테이너와 빈 생명주기 완벽 이해</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
+              <a href="clean-architecture/chapter-20/Clean-Architecture-엔티티는-JPA-Entity가-아니다.html" class="memo-item" data-title="Clean Architecture 엔티티 Entity JPA @Entity 도메인 객체 차이 인프라">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Clean Architecture의 Entity는 JPA @Entity가 아니다</div>
+                  <div class="meta">Chapter 20 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="clean-architecture/chapter-20/엔티티를-요청-응답-모델로-쓰면-떠돌이-데이터와-조건문이-폭발한다.html" class="memo-item" data-title="엔티티 요청 응답 모델 떠돌이 데이터 조건문 DTO 분리 CreateOrderRequest">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">엔티티를 요청/응답 모델로 쓰면 떠돌이 데이터와 조건문이 폭발한다</div>
+                  <div class="meta">Chapter 20 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
-          <div class="chapter-section">
-            <div class="ch-label">AOP와 프록시</div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">22장 클린 아키텍처</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="Spring-내부-동작/AOP와-프록시/스프링-AOP와-프록시-내부-동작-원리.html" class="memo-link" data-title="Spring AOP 프록시 JDK Dynamic Proxy CGLIB @Transactional self-invocation">
-                <span class="memo-dot"></span>
-                <span class="memo-title">스프링 AOP와 프록시 내부 동작 원리</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
+              <a href="Clean Architecture/22장 클린 아키텍처/Presenter에서-유스케이스-인터페이스를-의존하는-이유.html" class="memo-item" data-title="Presenter 유스케이스 인터페이스 의존 Output Boundary DIP 의존성 역전 제어 흐름">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Presenter에서 유스케이스 인터페이스를 의존하는 이유</div>
+                  <div class="meta">22장 클린 아키텍처 · 2026-03-22</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
-          <div class="chapter-section">
-            <div class="ch-label">Spring Boot 자동 설정</div>
-            <div class="memo-list">
-              <a href="Spring-내부-동작/Spring-Boot-자동-설정/SpringBoot-자동-설정의-내부-동작-원리.html" class="memo-link" data-title="Spring Boot AutoConfiguration @EnableAutoConfiguration @Conditional">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Spring Boot 자동 설정의 내부 동작 원리</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
-              </a>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Chapter 24 부분적 경계</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ 아키텍처 & 설계 ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon arch">&#9670;</div>
-          <div class="cat-info">
-            <div class="cat-title">아키텍처 & 설계</div>
-            <div class="cat-sub">Clean Architecture / 설계 패턴 / 시스템</div>
-          </div>
-          <span class="cat-badge">10</span>
-        </div>
-        <div class="cat-preview">
-          <span class="preview-tag">CCP</span>
-          <span class="preview-tag">Outbox</span>
-          <span class="preview-tag">멱등성</span>
-          <span class="preview-tag">전략 vs 파사드</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">Clean Architecture</div>
             <div class="memo-list">
-              <a href="clean-architecture/chapter-19/공통-폐쇄-원칙-CCP.html" class="memo-link" data-title="공통 폐쇄 원칙 CCP Common Closure Principle">
-                <span class="memo-dot"></span>
-                <span class="memo-title">공통 폐쇄 원칙 (CCP)</span>
-                <span class="memo-date">03.12</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="clean-architecture/chapter-20/Clean-Architecture-엔티티는-JPA-Entity가-아니다.html" class="memo-link" data-title="Clean Architecture 엔티티 Entity JPA @Entity 도메인 객체 차이 인프라">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Clean Architecture의 Entity는 JPA @Entity가 아니다</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="clean-architecture/chapter-20/엔티티를-요청-응답-모델로-쓰면-떠돌이-데이터와-조건문이-폭발한다.html" class="memo-link" data-title="엔티티 요청 응답 모델 떠돌이 데이터 조건문 DTO 분리">
-                <span class="memo-dot"></span>
-                <span class="memo-title">엔티티를 요청/응답 모델로 쓰면 떠돌이 데이터와 조건문이 폭발</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="Clean Architecture/22장 클린 아키텍처/Presenter에서-유스케이스-인터페이스를-의존하는-이유.html" class="memo-link" data-title="Presenter 유스케이스 인터페이스 의존 Output Boundary DIP">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Presenter에서 유스케이스 인터페이스를 의존하는 이유</span>
-                <span class="memo-date">03.22</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="clean-architecture/chapter-24-부분적-경계/전략패턴-vs-파사드패턴.html" class="memo-link" data-title="전략 패턴 Strategy 파사드 Facade 부분적 경계">
-                <span class="memo-dot"></span>
-                <span class="memo-title">전략 패턴 vs 파사드 패턴 — 부분적 경계에서의 역할</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-            </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">시스템 설계</div>
-            <div class="memo-list">
-              <a href="시스템-설계/메시지-신뢰성/Outbox-패턴-완벽-이해.html" class="memo-link" data-title="Outbox 패턴 분산 트랜잭션 At-least-once">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Outbox 패턴 완벽 이해</span>
-                <span class="memo-date">03.17</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="시스템-설계/동시성-데이터-설계/unreadCount-설계-결함-분석.html" class="memo-link" data-title="unreadCount 설계 결함 lastReadMessageId 동적 계산 동시성">
-                <span class="memo-dot"></span>
-                <span class="memo-title">unreadCount 설계 결함 분석</span>
-                <span class="memo-date">03.18</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-            </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">설계 스터디</div>
-            <div class="memo-list">
-              <a href="설계-스터디/JPA-실전-패턴/LAZY-로딩과-프록시-그리고-self-invocation.html" class="memo-link" data-title="LAZY 로딩 프록시 self-invocation JPA 지연 로딩">
-                <span class="memo-dot"></span>
-                <span class="memo-title">LAZY 로딩과 프록시, 그리고 self-invocation</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="설계-스터디/락과-동시성-제어/비관적-락과-IN_PROGRESS-패턴.html" class="memo-link" data-title="비관적 락 Pessimistic Lock IN_PROGRESS 패턴 동시성 제어">
-                <span class="memo-dot"></span>
-                <span class="memo-title">비관적 락과 IN_PROGRESS 패턴</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="설계-스터디/결제-시스템-설계/멱등성-상태머신-Outbox-장애복구.html" class="memo-link" data-title="멱등성 Idempotency 상태 머신 Outbox 패턴 장애 복구 결제">
-                <span class="memo-dot"></span>
-                <span class="memo-title">멱등성, 상태 머신, Outbox, 장애 복구</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
+              <a href="clean-architecture/chapter-24-부분적-경계/전략패턴-vs-파사드패턴.html" class="memo-item" data-title="전략 패턴 Strategy 파사드 Facade 부분적 경계 Partial Boundary 의존성 역전 DIP 일차원 경계 추이적 의존성">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">전략 패턴 vs 파사드 패턴 — 부분적 경계에서의 역할</div>
+                  <div class="meta">Chapter 24 부분적 경계 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ═══ RealMySQL ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon db">&#128172;</div>
-          <div class="cat-info">
-            <div class="cat-title">RealMySQL 8.0</div>
-            <div class="cat-sub">아키텍처 / 인덱스 최적화</div>
+      <!-- Java 동시성 -->
+      <div class="book-group" data-book="java-동시성">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>☕</span>
+            <span class="book-title">Java 동시성</span>
+            <span class="book-count">1개 챕터</span>
           </div>
-          <span class="cat-badge">10</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">ICP</span>
-          <span class="preview-tag">해시 조인</span>
-          <span class="preview-tag">Buffer Pool</span>
-          <span class="preview-tag">스킵 스캔</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">Chapter 4 아키텍처</div>
-            <div class="memo-list">
-              <a href="RealMySQL8.0/Chapter4-아키텍처/MySQL-데이터-버퍼와-캐시-동작-원리.html" class="memo-link" data-title="MySQL 데이터 버퍼 캐시 Buffer Pool InnoDB 메모리 LRU">
-                <span class="memo-dot"></span>
-                <span class="memo-title">MySQL 데이터 버퍼와 캐시 동작 원리</span>
-                <span class="memo-date">03.19</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/Chapter4-아키텍처/글로벌-메모리-영역과-로컬-메모리-영역.html" class="memo-link" data-title="글로벌 메모리 로컬 메모리 Thread Session InnoDB Buffer Pool">
-                <span class="memo-dot"></span>
-                <span class="memo-title">글로벌 메모리 영역과 로컬 메모리 영역</span>
-                <span class="memo-date">03.19</span>
-                <span class="arrow">&#8250;</span>
-              </a>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">CompletableFuture</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
             </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">인덱스 최적화</div>
             <div class="memo-list">
-              <a href="RealMySQL8.0/인덱스-최적화/인덱스-컨디션-푸시다운-ICP-전략이-뭐야.html" class="memo-link" data-title="인덱스 컨디션 푸시다운 ICP Index Condition Pushdown">
-                <span class="memo-dot"></span>
-                <span class="memo-title">인덱스 컨디션 푸시다운(ICP)</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/루스-인덱스-스캔이-뭐고-어떻게-동작하는지.html" class="memo-link" data-title="루스 인덱스 스캔 Loose Index Scan GROUP BY">
-                <span class="memo-dot"></span>
-                <span class="memo-title">루스 인덱스 스캔 동작 원리</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/인덱스-스킵-스캔이랑-루스-인덱스-스캔이랑-다른게-뭐야.html" class="memo-link" data-title="인덱스 스킵 스캔 Skip Scan 루스 인덱스 스캔 차이점">
-                <span class="memo-dot"></span>
-                <span class="memo-title">인덱스 스킵 스캔 vs 루스 인덱스 스캔</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/카테시안-조인-블록-네스티드-루프-조인-해시-조인이-뭐야.html" class="memo-link" data-title="카테시안 조인 블록 네스티드 루프 해시 조인 Hash Join">
-                <span class="memo-dot"></span>
-                <span class="memo-title">카테시안 / 블록 네스티드 루프 / 해시 조인</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/Using-join-buffer에-대한-상세한-설명.html" class="memo-link" data-title="Using join buffer 블록 네스티드 루프 BNL">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Using join buffer 상세 설명</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/Using-sort_union-vs-Using-union.html" class="memo-link" data-title="Using sort_union Using union Index Merge OR">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Using sort_union vs Using union</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/Duplicate-weed-전략이-뭐야.html" class="memo-link" data-title="Duplicate-weed 전략 세미조인 서브쿼리 최적화">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Duplicate-weed 전략</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="RealMySQL8.0/인덱스-최적화/스토리지-엔진에서-걸러지지-않고-MySQL-엔진에서-걸러지는건-무슨-경우야.html" class="memo-link" data-title="스토리지 엔진 MySQL 엔진 필터링 Using where InnoDB">
-                <span class="memo-dot"></span>
-                <span class="memo-title">스토리지 엔진 vs MySQL 엔진 필터링</span>
-                <span class="memo-date">03.16</span>
-                <span class="arrow">&#8250;</span>
+              <a href="Java-동시성/CompletableFuture/병렬처럼-보이지만-직렬로-동작하는-이유-OS-스케줄링.html" class="memo-item" data-title="CompletableFuture 병렬처럼 보이지만 직렬로 동작하는 이유 OS 스케줄링 스레드 ForkJoinPool">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">CompletableFuture가 병렬처럼 보이지만 직렬로 동작하는 이유: OS 스케줄링</div>
+                  <div class="meta">CompletableFuture · 2026-03-15</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ═══ 인프라 & DevOps ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon infra">&#9881;</div>
-          <div class="cat-info">
-            <div class="cat-title">인프라 & DevOps</div>
-            <div class="cat-sub">Docker / ES / Jenkins / 보안 / 메인프레임</div>
+      <!-- 자바 프로그래밍 -->
+      <div class="book-group" data-book="자바-프로그래밍">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>☕</span>
+            <span class="book-title">자바 프로그래밍</span>
+            <span class="book-count">2개 목차</span>
           </div>
-          <span class="cat-badge">14</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">Elasticsearch</span>
-          <span class="preview-tag">Jenkins</span>
-          <span class="preview-tag">Nginx</span>
-          <span class="preview-tag">Kafka</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">Elasticsearch</div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">제네릭</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="DevOps-인프라/Elasticsearch/ES-핵심-개념-정리.html" class="memo-link" data-title="ES Elasticsearch 핵심 개념 인덱스 샤드 세그먼트 역인덱스">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Elasticsearch 핵심 개념 정리</span>
-                <span class="memo-date">03.25</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/Elasticsearch/Elasticsearch-상세-구조.html" class="memo-link" data-title="Elasticsearch 상세 구조 클러스터 노드 샤드 Lucene">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Elasticsearch 상세 구조</span>
-                <span class="memo-date">03.23</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/Elasticsearch/ES-인덱스와-Grafana-Loki-비교.html" class="memo-link" data-title="ES 인덱스 Grafana Loki 비교 역색인">
-                <span class="memo-dot"></span>
-                <span class="memo-title">ES 인덱스와 Grafana Loki 비교</span>
-                <span class="memo-date">03.23</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/Elasticsearch/파일-디스크립터와-mmap-완벽-이해.html" class="memo-link" data-title="파일 디스크립터 FD mmap memory-mapped IO 페이지캐시">
-                <span class="memo-dot"></span>
-                <span class="memo-title">파일 디스크립터(FD)와 mmap 완벽 이해</span>
-                <span class="memo-date">03.26</span>
-                <span class="arrow">&#8250;</span>
+              <a href="자바-프로그래밍/제네릭/제네릭을-자바에서-사용하는-이유.html" class="memo-item" data-title="제네릭을 자바에서 사용하는 이유 타입 안정성 Type Safety 캐스팅 컴파일 타임">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">제네릭을 자바에서 사용하는 이유</div>
+                  <div class="meta">제네릭 · 2026-03-17</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
-          <div class="chapter-section">
-            <div class="ch-label">Jenkins CI/CD</div>
-            <div class="memo-list">
-              <a href="DevOps-인프라/Jenkins-CI-CD/Docker-기반-Jenkins-구성.html" class="memo-link" data-title="Docker Jenkins 구성 Socket 이미지 볼륨">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Docker 기반 Jenkins 구성</span>
-                <span class="memo-date">03.22</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/Jenkins-CI-CD/Jenkins-파이프라인-설계와-설정.html" class="memo-link" data-title="Jenkins 파이프라인 Poll SCM Cron 빌드 옵션">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Jenkins 파이프라인 설계와 설정</span>
-                <span class="memo-date">03.22</span>
-                <span class="arrow">&#8250;</span>
-              </a>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">JVM 성능 튜닝</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
             </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">네트워크</div>
             <div class="memo-list">
-              <a href="DevOps-인프라/네트워크-기초/OSI-7계층-실무-예시로-완벽-이해.html" class="memo-link" data-title="OSI 7계층 네트워크 L4 L7 로드밸런서 TCP IP">
-                <span class="memo-dot"></span>
-                <span class="memo-title">OSI 7계층 - 실무 예시로 완벽 이해</span>
-                <span class="memo-date">03.17</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/네트워크-기초/로드밸런싱-L2-L4-L7-완벽-이해.html" class="memo-link" data-title="로드밸런싱 L2 L4 L7 NLB ALB Nginx DSR NAT">
-                <span class="memo-dot"></span>
-                <span class="memo-title">로드밸런싱 L2, L4, L7 완벽 이해</span>
-                <span class="memo-date">03.21</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-            </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">Docker / 웹서버 / 보안 / 메시지 브로커</div>
-            <div class="memo-list">
-              <a href="DevOps-인프라/Docker-네트워크/Mac-Docker-네트워크-host와-host.docker.internal.html" class="memo-link" data-title="Mac Docker network host host.docker.internal">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Mac Docker --network host와 host.docker.internal</span>
-                <span class="memo-date">03.22</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/웹서버/Nginx와-Apache-httpd-완벽-비교.html" class="memo-link" data-title="Nginx Apache httpd 웹서버 비교 이벤트루프">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Nginx와 Apache httpd 완벽 비교</span>
-                <span class="memo-date">03.26</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/보안-솔루션/IPS-침입-방지-시스템-완벽-이해.html" class="memo-link" data-title="IPS 침입 방지 시스템 IDS 네트워크 방화벽 WAF">
-                <span class="memo-dot"></span>
-                <span class="memo-title">IPS (침입 방지 시스템) 완벽 이해</span>
-                <span class="memo-date">03.17</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="DevOps-인프라/메시지-브로커/Kafka-vs-RabbitMQ-비교와-선택-기준.html" class="memo-link" data-title="Kafka RabbitMQ 메시지 브로커 비교 선택">
-                <span class="memo-dot"></span>
-                <span class="memo-title">Kafka vs RabbitMQ 비교와 선택 기준</span>
-                <span class="memo-date">03.26</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-            </div>
-          </div>
-          <div class="chapter-section">
-            <div class="ch-label">개발자도 궁금한 IT 인프라</div>
-            <div class="memo-list">
-              <a href="개발자도-궁금한-IT-인프라/SECTION2-메인프레임/메인프레임이-안정적인-이유.html" class="memo-link" data-title="메인프레임 안정적 이유 Unix CPU 큐잉 채널">
-                <span class="memo-dot"></span>
-                <span class="memo-title">메인프레임이 안정적인 이유</span>
-                <span class="memo-date">03.23</span>
-                <span class="arrow">&#8250;</span>
-              </a>
-              <a href="개발자도-궁금한-IT-인프라/SECTION3-스토리지/ROW-스냅샷-COW-스냅샷.html" class="memo-link" data-title="ROW 스냅샷 COW 스냅샷 Copy-On-Write Redirect-On-Write">
-                <span class="memo-dot"></span>
-                <span class="memo-title">ROW 스냅샷 vs COW 스냅샷</span>
-                <span class="memo-date">03.26</span>
-                <span class="arrow">&#8250;</span>
+              <a href="자바-프로그래밍/JVM-성능-튜닝/JVM-커스터마이징으로-성능-개선하는-실무-방법.html" class="memo-item" data-title="JVM 커스터마이징 성능 개선 실무 GC 튜닝 힙 메모리 G1GC ZGC Parallel">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">JVM 커스터마이징으로 성능 개선하는 실무 방법</div>
+                  <div class="meta">JVM 성능 튜닝 · 2026-03-17</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ═══ 네트워크 ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon net">&#127760;</div>
-          <div class="cat-info">
-            <div class="cat-title">네트워크</div>
-            <div class="cat-sub">HTTP / Keep-Alive / IO 이벤트 모델</div>
+      <!-- DevOps 인프라 -->
+      <div class="book-group" data-book="devops-인프라">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🚀</span>
+            <span class="book-title">DevOps 인프라</span>
+            <span class="book-count">6개 목차</span>
           </div>
-          <span class="cat-badge">2</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">Keep-Alive</span>
-          <span class="preview-tag">커넥션 풀링</span>
-          <span class="preview-tag">epoll</span>
-          <span class="preview-tag">io_uring</span>
-          <span class="preview-tag">DPDK</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">HTTP</div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Jenkins CI/CD</span>
+                <span class="chapter-count">2개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="네트워크/HTTP/HTTP-Keep-Alive와-커넥션-풀링.html" class="memo-link" data-title="HTTP Keep-Alive 커넥션 풀링 RestTemplate SimpleClientHttpRequestFactory TIME_WAIT TCP 소켓 재사용">
-                <span class="memo-dot"></span>
-                <span class="memo-title">HTTP Keep-Alive와 커넥션 풀링</span>
-                <span class="memo-date">03.27</span>
-                <span class="arrow">&#8250;</span>
+              <a href="DevOps-인프라/Jenkins-CI-CD/Docker-기반-Jenkins-구성.html" class="memo-item" data-title="Docker Jenkins 구성 Docker Socket 마운트 커스텀 이미지 볼륨 CI/CD docker-compose 분리">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Docker 기반 Jenkins 구성 — Socket, 이미지, 볼륨</div>
+                  <div class="meta">Jenkins CI/CD · 2026-03-22</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="DevOps-인프라/Jenkins-CI-CD/Jenkins-파이프라인-설계와-설정.html" class="memo-item" data-title="Jenkins 파이프라인 Poll SCM Cron H Hash 빌드 옵션 concurrent builds Abort Webhook 트리거">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Jenkins 파이프라인 — Poll SCM, Cron, 빌드 옵션 총정리</div>
+                  <div class="meta">Jenkins CI/CD · 2026-03-22</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
-          <div class="chapter-section">
-            <div class="ch-label">IO 이벤트 모델</div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Docker 네트워크</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="네트워크/IO-이벤트-모델/비동기-IO의-모든것-select부터-DPDK까지.html" class="memo-link" data-title="비동기 IO epoll kqueue io_uring DPDK select Netty WebFlux 이벤트루프 논블로킹 C10K">
-                <span class="memo-dot"></span>
-                <span class="memo-title">비동기 I/O의 모든 것 — select부터 DPDK까지</span>
-                <span class="memo-date">03.27</span>
-                <span class="arrow">&#8250;</span>
+              <a href="DevOps-인프라/Docker-네트워크/Mac-Docker-네트워크-host와-host.docker.internal.html" class="memo-item" data-title="Mac Docker network host host.docker.internal 포트매핑 VM localhost 컨테이너 네트워크">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Mac Docker에서 --network host가 안 되는 이유와 host.docker.internal</div>
+                  <div class="meta">Docker 네트워크 · 2026-03-22</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">네트워크 기초</span>
+                <span class="chapter-count">2개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="DevOps-인프라/네트워크-기초/OSI-7계층-실무-예시로-완벽-이해.html" class="memo-item" data-title="OSI 7계층 네트워크 L4 L7 로드밸런서 TCP IP 캡슐화 프로토콜 Application Transport Network Data Link Physical">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">OSI 7계층 - 실무 예시로 완벽 이해하기</div>
+                  <div class="meta">네트워크 기초 · 2026-03-17</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="DevOps-인프라/네트워크-기초/로드밸런싱-L2-L4-L7-완벽-이해.html" class="memo-item" data-title="로드밸런싱 Load Balancing L2 L4 L7 MAC IP Port HTTP NLB ALB Nginx DSR NAT 트래픽 분산 헬스체크">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">로드밸런싱 — L2, L4, L7 완벽 이해</div>
+                  <div class="meta">네트워크 기초 · 2026-03-21</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">보안 솔루션</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="DevOps-인프라/보안-솔루션/IPS-침입-방지-시스템-완벽-이해.html" class="memo-item" data-title="IPS 침입 방지 시스템 Intrusion Prevention System IDS 보안 네트워크 공격 차단 인라인 방화벽 WAF">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">IPS (침입 방지 시스템) 완벽 이해</div>
+                  <div class="meta">보안 솔루션 · 2026-03-17</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Elasticsearch</span>
+                <span class="chapter-count">4개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="DevOps-인프라/Elasticsearch/ES-핵심-개념-정리.html" class="memo-item" data-title="ES Elasticsearch 핵심 개념 인덱스 샤드 세그먼트 역인덱스 Inverted Index 필드타입 keyword ILM 용량계산 레플리카">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Elasticsearch 핵심 개념 정리</div>
+                  <div class="meta">Elasticsearch · 2025-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="DevOps-인프라/Elasticsearch/ES-인덱스와-Grafana-Loki-비교.html" class="memo-item" data-title="ES Elasticsearch 인덱스 Index Grafana Loki 비교 역색인 Inverted Index 라벨 청크 Full-text 로그">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">ES의 인덱스와 Grafana Loki 비교</div>
+                  <div class="meta">Elasticsearch · 2026-03-23</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="DevOps-인프라/Elasticsearch/Elasticsearch-상세-구조.html" class="memo-item" data-title="Elasticsearch 상세 구조 클러스터 노드 샤드 세그먼트 역색인 Inverted Index Lucene Shard Segment NRT Translog Analyzer BM25 Mapping">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Elasticsearch 상세 구조</div>
+                  <div class="meta">Elasticsearch · 2026-03-23</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="DevOps-인프라/Elasticsearch/파일-디스크립터와-mmap-완벽-이해.html" class="memo-item" data-title="파일 디스크립터 FD mmap memory-mapped IO 페이지캐시 Page Cache Lucene 세그먼트 ulimit JVM Heap Off-Heap ES Elasticsearch">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">파일 디스크립터(FD)와 mmap 완벽 이해</div>
+                  <div class="meta">Elasticsearch · 2026-03-26</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">웹서버</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="DevOps-인프라/웹서버/Nginx와-Apache-httpd-완벽-비교.html" class="memo-item" data-title="Nginx Apache httpd 웹서버 비교 이벤트루프 MPM 프로세스 스레드 리버스프록시 정적파일 C10K htaccess SSL">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Nginx와 Apache httpd 완벽 비교</div>
+                  <div class="meta">웹서버 · 2026-03-26</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">메시지 브로커</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="DevOps-인프라/메시지-브로커/Kafka-vs-RabbitMQ-비교와-선택-기준.html" class="memo-item" data-title="Kafka RabbitMQ 메시지 브로커 비교 선택 이벤트 스트리밍 AMQP">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Kafka vs RabbitMQ 비교와 선택 기준</div>
+                  <div class="meta">메시지 브로커 · 2026-03-26</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ═══ Git ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon git">&#8621;</div>
-          <div class="cat-info">
-            <div class="cat-title">Git</div>
-            <div class="cat-sub">기본 명령어</div>
+      <!-- RealMySQL8.0 -->
+      <div class="book-group" data-book="realmysql8.0">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🐬</span>
+            <span class="book-title">RealMySQL8.0</span>
+            <span class="book-count">2개 목차</span>
           </div>
-          <span class="cat-badge">2</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">cherry-pick</span>
-          <span class="preview-tag">stash</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
-            <div class="ch-label">기본 명령어</div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">인덱스 최적화</span>
+                <span class="chapter-count">8개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="Git/기본-명령어/cherry-pick이-정확히-무엇인가.html" class="memo-link" data-title="git cherry-pick 체리픽 커밋 선택 브랜치 복사 핫픽스">
-                <span class="memo-dot"></span>
-                <span class="memo-title">git cherry-pick이란 무엇인가?</span>
-                <span class="memo-date">03.19</span>
-                <span class="arrow">&#8250;</span>
+              <a href="RealMySQL8.0/인덱스-최적화/Duplicate-weed-전략이-뭐야.html" class="memo-item" data-title="Duplicate-weed 전략 세미조인 서브쿼리 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Duplicate-weed 전략이 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
-              <a href="Git/기본-명령어/git-stash-완벽-정리.html" class="memo-link" data-title="git stash 임시 저장 pop apply drop 워킹 디렉토리">
-                <span class="memo-dot"></span>
-                <span class="memo-title">git stash 완벽 정리</span>
-                <span class="memo-date">03.23</span>
-                <span class="arrow">&#8250;</span>
+              <a href="RealMySQL8.0/인덱스-최적화/인덱스-컨디션-푸시다운-ICP-전략이-뭐야.html" class="memo-item" data-title="인덱스 컨디션 푸시다운 ICP Index Condition Pushdown 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">인덱스 컨디션 푸시다운(ICP) 전략이 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/루스-인덱스-스캔이-뭐고-어떻게-동작하는지.html" class="memo-item" data-title="루스 인덱스 스캔 Loose Index Scan GROUP BY MIN MAX 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">루스 인덱스 스캔이 뭐고, 어떻게 동작하는지</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/인덱스-스킵-스캔이랑-루스-인덱스-스캔이랑-다른게-뭐야.html" class="memo-item" data-title="인덱스 스킵 스캔 Skip Scan 루스 인덱스 스캔 차이점 비교">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">인덱스 스킵 스캔이랑, 루스 인덱스 스캔이랑 다른게 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/Using-join-buffer에-대한-상세한-설명.html" class="memo-item" data-title="Using join buffer 블록 네스티드 루프 조인 Block Nested Loop BNL">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Using join buffer에 대한 상세한 설명</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/카테시안-조인-블록-네스티드-루프-조인-해시-조인이-뭐야.html" class="memo-item" data-title="카테시안 조인 Cartesian Join 블록 네스티드 루프 해시 조인 Hash Join">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">카테시안 조인, 블록 네스티드 루프 조인, 해시 조인이 뭐야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/Using-sort_union-vs-Using-union.html" class="memo-item" data-title="Using sort_union Using union Index Merge OR 최적화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Using sort_union vs Using union</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/인덱스-최적화/스토리지-엔진에서-걸러지지-않고-MySQL-엔진에서-걸러지는건-무슨-경우야.html" class="memo-item" data-title="스토리지 엔진 MySQL 엔진 필터링 Using where InnoDB">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">스토리지 엔진에서 걸러지지 않고, MySQL 엔진에서 걸러지는건 무슨 경우야?</div>
+                  <div class="meta">인덱스 최적화 · 2026-03-16</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Chapter4 아키텍처</span>
+                <span class="chapter-count">2개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="RealMySQL8.0/Chapter4-아키텍처/MySQL-데이터-버퍼와-캐시-동작-원리.html" class="memo-item" data-title="MySQL 데이터 버퍼 캐시 Buffer Pool InnoDB 메모리 LRU Dirty Page Change Buffer Adaptive Hash Index">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">MySQL 데이터 버퍼와 캐시는 어떤 데이터를 쌓아두고 어떻게 활용하는가?</div>
+                  <div class="meta">Chapter4 아키텍처 · 2026-03-19</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="RealMySQL8.0/Chapter4-아키텍처/글로벌-메모리-영역과-로컬-메모리-영역.html" class="memo-item" data-title="글로벌 메모리 로컬 메모리 Global Memory Local Memory Thread Session 스레드 커넥션 InnoDB Buffer Pool Sort Buffer Join Buffer">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">MySQL의 글로벌 메모리 영역과 로컬 메모리 영역</div>
+                  <div class="meta">Chapter4 아키텍처 · 2026-03-19</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ═══ 명문구 ═══ -->
-      <div class="cat-card" onclick="toggleCard(this)">
-        <div class="cat-top">
-          <div class="cat-icon quote">&#10024;</div>
-          <div class="cat-info">
-            <div class="cat-title">명문구</div>
-            <div class="cat-sub">읽다가 마음에 남은 문장들</div>
+      <!-- Git -->
+      <div class="book-group" data-book="git">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🔀</span>
+            <span class="book-title">Git</span>
+            <span class="book-count">1개 목차</span>
           </div>
-          <span class="cat-badge">1</span>
+          <span class="book-toggle">▾</span>
         </div>
-        <div class="cat-preview">
-          <span class="preview-tag">컬렉션</span>
-        </div>
-        <div class="cat-body">
-          <div class="chapter-section">
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">기본 명령어</span>
+                <span class="chapter-count">2개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
             <div class="memo-list">
-              <a href="명문구/index.html" class="memo-link" data-title="명문구 인용구 문구 모음 컬렉션">
-                <span class="memo-dot"></span>
-                <span class="memo-title">명문구 컬렉션 보기</span>
-                <span class="memo-date"></span>
-                <span class="arrow">&#8250;</span>
+              <a href="Git/기본-명령어/cherry-pick이-정확히-무엇인가.html" class="memo-item" data-title="git cherry-pick 체리픽 커밋 선택 브랜치 복사 핫픽스 hotfix merge rebase">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">git cherry-pick이란 무엇인가?</div>
+                  <div class="meta">기본 명령어 · 2026-03-19</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="Git/기본-명령어/git-stash-완벽-정리.html" class="memo-item" data-title="git stash 임시 저장 pop apply drop 워킹 디렉토리 브랜치 전환">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">git stash 완벽 정리</div>
+                  <div class="meta">기본 명령어 · 2026-03-23</div>
+                </div>
+                <span class="arrow">›</span>
               </a>
             </div>
           </div>
         </div>
       </div>
-
     </div>
+
+      <!-- 개발자도 궁금한 IT 인프라 -->
+      <div class="book-group" data-book="개발자도-궁금한-IT-인프라">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🖥️</span>
+            <span class="book-title">개발자도 궁금한 IT 인프라</span>
+            <span class="book-count">2개 챕터</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">SECTION2 메인프레임</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="개발자도-궁금한-IT-인프라/SECTION2-메인프레임/메인프레임이-안정적인-이유.html" class="memo-item" data-title="메인프레임 안정적 이유 Unix CPU 큐잉 채널 서브시스템 Channel Subsystem I/O Scale Up">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">메인프레임이 안정적인 이유 — Unix와 뭐가 다른가?</div>
+                  <div class="meta">SECTION2 메인프레임 · 2026-03-23</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">SECTION3 스토리지</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="개발자도-궁금한-IT-인프라/SECTION3-스토리지/ROW-스냅샷-COW-스냅샷.html" class="memo-item" data-title="ROW 스냅샷 COW 스냅샷 Copy-On-Write Redirect-On-Write 스토리지 Snapshot Write Penalty 단편화">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">ROW 스냅샷 vs COW 스냅샷</div>
+                  <div class="meta">SECTION3 스토리지 · 2026-03-26</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 명문구 -->
+      <div class="book-group" data-book="명문구">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>✨</span>
+            <span class="book-title">명문구</span>
+            <span class="book-count">읽다가 마음에 남은 문장들</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="memo-list">
+              <a href="명문구/index.html" class="memo-item" data-title="명문구 인용구 문구 모음 컬렉션">
+                <span class="icon">✨</span>
+                <div class="content">
+                  <div class="title">명문구 컬렉션 보기</div>
+                  <div class="meta">1개 문구</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 설계 스터디 -->
+      <div class="book-group" data-book="설계-스터디">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🎯</span>
+            <span class="book-title">설계 스터디</span>
+            <span class="book-count">3개 목차</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">JPA 실전 패턴</span>
+                <span class="chapter-count">2개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="설계-스터디/JPA-실전-패턴/JPA-양방향-매핑-언제-쓰고-언제-피하는가.html" class="memo-item" data-title="JPA 양방향 매핑 mappedBy JoinColumn 단방향 관계의 주인 OneToOne OneToMany">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">JPA 양방향 매핑 — 언제 쓰고 언제 피하는가</div>
+                  <div class="meta">JPA 실전 패턴 · 2026-03-30</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+              <a href="설계-스터디/JPA-실전-패턴/LAZY-로딩과-프록시-그리고-self-invocation.html" class="memo-item" data-title="LAZY 로딩 프록시 self-invocation JPA 지연 로딩 프록시 객체 트랜잭션 AOP">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">LAZY 로딩과 프록시, 그리고 self-invocation</div>
+                  <div class="meta">JPA 실전 패턴 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">락과 동시성 제어</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="설계-스터디/락과-동시성-제어/비관적-락과-IN_PROGRESS-패턴.html" class="memo-item" data-title="비관적 락 Pessimistic Lock IN_PROGRESS 패턴 동시성 제어 SELECT FOR UPDATE 분산 락">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">비관적 락과 IN_PROGRESS 패턴</div>
+                  <div class="meta">락과 동시성 제어 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">결제 시스템 설계</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="설계-스터디/결제-시스템-설계/멱등성-상태머신-Outbox-장애복구.html" class="memo-item" data-title="멱등성 Idempotency 상태 머신 State Machine Outbox 패턴 장애 복구 결제 시스템 설계">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">멱등성, 상태 머신, Outbox, 장애 복구</div>
+                  <div class="meta">결제 시스템 설계 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Spring 내부 동작 -->
+      <div class="book-group" data-book="spring-내부-동작">
+        <div class="book-header" onclick="toggleGroup(this)">
+          <div class="book-header-left">
+            <span>🌱</span>
+            <span class="book-title">Spring 내부 동작</span>
+            <span class="book-count">4개 목차</span>
+          </div>
+          <span class="book-toggle">▾</span>
+        </div>
+        <div class="chapter-list">
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">서블릿과 DispatcherServlet</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="Spring-내부-동작/서블릿과-DispatcherServlet/HTTP-요청이-컨트롤러에-도달하기까지.html" class="memo-item" data-title="HTTP 요청 컨트롤러 Tomcat Servlet DispatcherServlet HandlerMapping HandlerAdapter Filter Interceptor ArgumentResolver ReturnValueHandler Coyote Catalina NIO WebApplicationContext">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">HTTP 요청이 컨트롤러에 도달하기까지</div>
+                  <div class="meta">서블릿과 DispatcherServlet · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">IoC 컨테이너와 빈 라이프사이클</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="Spring-내부-동작/IoC-컨테이너와-빈-라이프사이클/스프링-IoC-컨테이너와-빈-생명주기-완벽-이해.html" class="memo-item" data-title="Spring IoC DI BeanFactory ApplicationContext Bean Lifecycle BeanPostProcessor BeanFactoryPostProcessor ComponentScan Autowired 순환 참조 3단계 캐시 Singleton Prototype Scope">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">스프링 IoC 컨테이너와 빈 생명주기 완벽 이해</div>
+                  <div class="meta">IoC 컨테이너와 빈 라이프사이클 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">AOP와 프록시</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="Spring-내부-동작/AOP와-프록시/스프링-AOP와-프록시-내부-동작-원리.html" class="memo-item" data-title="Spring AOP 프록시 JDK Dynamic Proxy CGLIB InvocationHandler MethodInterceptor @Transactional self-invocation AspectJ BeanPostProcessor AbstractAutoProxyCreator Pointcut Advice Weaving">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">스프링 AOP와 프록시 내부 동작 원리</div>
+                  <div class="meta">AOP와 프록시 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+          <div class="chapter-group">
+            <div class="chapter-header" onclick="toggleChapter(this)">
+              <div class="chapter-header-left">
+                <span>📂</span>
+                <span class="chapter-title">Spring Boot 자동 설정</span>
+                <span class="chapter-count">1개 메모</span>
+              </div>
+              <span class="chapter-toggle">▾</span>
+            </div>
+            <div class="memo-list">
+              <a href="Spring-내부-동작/Spring-Boot-자동-설정/SpringBoot-자동-설정의-내부-동작-원리.html" class="memo-item" data-title="Spring Boot AutoConfiguration SpringApplication @EnableAutoConfiguration @Conditional 자동 설정 내장 톰캣 Embedded Tomcat ConfigurationProperties starter spring.factories">
+                <span class="icon">💡</span>
+                <div class="content">
+                  <div class="title">Spring Boot 자동 설정의 내부 동작 원리</div>
+                  <div class="meta">Spring Boot 자동 설정 · 2026-03-25</div>
+                </div>
+                <span class="arrow">›</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="no-results" id="noResults">검색 결과가 없어요 🥲</div>
   </div>
 
   <script>
-    function toggleCard(card) {
-      // memo-link 클릭이면 카드 토글하지 않음
-      if (event.target.closest('.memo-link')) return;
-      const wasActive = card.classList.contains('active');
-      // 다른 카드 닫기
-      document.querySelectorAll('.cat-card.active').forEach(c => c.classList.remove('active'));
-      if (!wasActive) card.classList.add('active');
+    function toggleGroup(header) {
+      header.parentElement.classList.toggle('collapsed');
     }
 
-    // 검색
-    const searchInput = document.getElementById('searchInput');
-    const searchResults = document.getElementById('searchResults');
-    const cardGrid = document.getElementById('cardGrid');
-    const noResults = document.getElementById('noResults');
+    function toggleChapter(header) {
+      header.parentElement.classList.toggle('collapsed');
+    }
 
-    // 모든 메모 링크 수집
-    const allMemos = [];
-    document.querySelectorAll('.memo-link').forEach(link => {
-      allMemos.push({
-        title: link.querySelector('.memo-title').textContent,
-        date: link.querySelector('.memo-date').textContent,
-        href: link.getAttribute('href'),
-        searchData: (link.dataset.title || '').toLowerCase() + ' ' + link.querySelector('.memo-title').textContent.toLowerCase()
-      });
-    });
+    const searchInput = document.getElementById('searchInput');
+    const noResults = document.getElementById('noResults');
 
     searchInput.addEventListener('input', () => {
       const q = searchInput.value.trim().toLowerCase();
-      if (!q) {
-        searchResults.classList.remove('active');
-        searchResults.innerHTML = '';
-        cardGrid.classList.remove('searching');
-        noResults.style.display = 'none';
-        return;
+      let anyVisible = false;
+
+      document.querySelectorAll('.memo-item').forEach(item => {
+        const title = item.dataset.title.toLowerCase();
+        const match = !q || title.includes(q);
+        item.classList.toggle('hidden', !match);
+        if (match) anyVisible = true;
+      });
+
+      // 검색 중엔 모든 그룹과 목차 펼치기
+      if (q) {
+        document.querySelectorAll('.book-group').forEach(g => g.classList.remove('collapsed'));
+        document.querySelectorAll('.chapter-group').forEach(c => c.classList.remove('collapsed'));
       }
 
-      cardGrid.classList.add('searching');
-      const matches = allMemos.filter(m => m.searchData.includes(q));
-
-      if (matches.length === 0) {
-        searchResults.classList.remove('active');
-        searchResults.innerHTML = '';
-        noResults.style.display = 'block';
-        return;
-      }
-
-      noResults.style.display = 'none';
-      searchResults.classList.add('active');
-      searchResults.innerHTML = matches.map(m =>
-        '<a href="' + m.href + '" class="memo-link" style="padding:0.7rem 1rem;border-radius:10px;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:0.75rem;transition:background 0.15s;background:var(--bg2);border:1px solid var(--border);margin-bottom:0.25rem;">' +
-        '<span class="memo-dot" style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;"></span>' +
-        '<span style="flex:1;font-size:0.88rem;">' + m.title + '</span>' +
-        '<span style="font-size:0.7rem;color:var(--text3);">' + m.date + '</span>' +
-        '<span style="color:var(--text3);font-size:0.75rem;">&#8250;</span>' +
-        '</a>'
-      ).join('');
+      noResults.style.display = anyVisible || !q ? 'none' : 'block';
     });
   </script>
 </body>
