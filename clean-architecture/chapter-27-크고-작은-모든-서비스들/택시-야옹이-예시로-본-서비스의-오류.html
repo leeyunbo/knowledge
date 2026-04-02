@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>택시/야옹이 예시로 본 서비스의 오류 — Chapter 27 크고 작은 모든 서비스들 · Clean Architecture</title>
+  <link rel="stylesheet" href="/knowledge/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="breadcrumb"></nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>택시/야옹이 예시로 본 서비스의 오류</h1>
+      <p class="meta">Clean Architecture · Chapter 27 크고 작은 모든 서비스들 · 2026-04-02</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        서비스를 나누면 아키텍처가 보호된다는 건 착각이다. 택시 시스템에 "야옹이 배달" 기능을 추가하면 <strong>모든 서비스가 동시에 변경</strong>된다. 컴포넌트 아키텍처를 서비스 내부에 적용하면 <strong>배포 범위는 여전히 전체지만, "기존 코드 수정"이 "새 코드 추가"로 바뀐다</strong> — 이것이 밥 아저씨가 말하는 진짜 보호다.
+      </div>
+      <p>27장의 핵심 메시지는 <strong>"서비스가 횡단 관심사를 막지 못하니까, 서비스에 기대지 말고 컴포넌트 설계를 제대로 해라"</strong>다. 서비스는 배포 메커니즘일 뿐이고, 아키텍처 보호는 다른 레벨의 일이다.</p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h2>1. 서비스에 대한 흔한 착각 두 가지</h2>
+      <p>밥 아저씨는 서비스에 대한 두 가지 오해를 먼저 꼬집는다:</p>
+      <ul>
+        <li><strong>"서비스를 분리하면 결합이 분리된다"</strong> — 서비스 간에 공유 데이터나 공유 로직이 있으면 여전히 결합되어 있다. 네트워크를 사이에 둔다고 결합이 사라지는 게 아니다.</li>
+        <li><strong>"서비스를 분리하면 독립 개발/배포가 가능하다"</strong> — 여러 서비스가 같은 요구사항 변경에 영향받으면 함께 수정·함께 배포해야 한다. 독립 배포는 환상이 된다.</li>
+      </ul>
+
+      <h2>2. 횡단 관심사(Cross-Cutting Concern)</h2>
+      <p>기능이 여러 서비스를 <strong>가로질러(cross-cut)</strong> 영향을 미치는 것. 서비스를 아무리 잘게 쪼개도 횡단 관심사 앞에서는 모든 서비스가 동시에 변경된다. 이것이 택시/야옹이 예시의 핵심이다.</p>
+
+      <h2>3. "수정"과 "추가"는 다르다</h2>
+      <p>같은 "4개 서비스 전부 건드리기"라도 그 방식이 완전히 다르다:</p>
+      <ul>
+        <li><strong>수정(modify)</strong> — 기존 코드를 열어서 if-else를 끼워넣는다. 기존 로직이 깨질 위험이 있고, 전체 회귀 테스트가 필요하다.</li>
+        <li><strong>추가(extend)</strong> — 새 파일(플러그인)을 추가한다. 기존 코드는 건드리지 않으므로 기존 로직이 깨지지 않고, 새 코드만 테스트하면 된다.</li>
+      </ul>
+      <p>이 차이가 OCP(개방-폐쇄 원칙)의 핵심이며, 27장이 컴포넌트 아키텍처로 해결하려는 문제다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h2>택시 통합 시스템 — 초기 설계</h2>
+      <p>도시의 택시 업체들을 통합하는 시스템을 마이크로서비스로 설계한다:</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>서비스</th><th>역할</th></tr>
+          <tr><td><strong>TaxiUI</strong></td><td>고객이 택시를 요청하는 모바일 앱</td></tr>
+          <tr><td><strong>TaxiFinder</strong></td><td>가까운 택시 후보를 찾아서 필터링</td></tr>
+          <tr><td><strong>TaxiSelector</strong></td><td>비용·시간 등 조건에 맞는 택시를 최종 선택</td></tr>
+          <tr><td><strong>TaxiDispatcher</strong></td><td>선택된 택시에 배차 명령 전달</td></tr>
+        </table>
+      </div>
+
+      <p>여기까지만 보면 깔끔하다. 각 서비스가 하나의 역할을 담당하고, 독립적으로 개발·배포할 수 있을 것 같다.</p>
+
+      <h2>"야옹이 배달" 기능 추가 — 문제 폭발</h2>
+      <p>회사가 새 사업을 시작한다: <strong>"야옹이 배달(Kitten)"</strong> — 고양이를 고객에게 배달하는 서비스. 택시와 동일한 인프라를 재활용하되, 야옹이를 운반할 수 있는 차량만 필터링해야 한다.</p>
+
+      <div class="warn-box">
+        <strong>결과</strong>: 이 단 하나의 요구사항이 <strong>모든 서비스의 기존 코드를 수정</strong>하게 만든다.
+      </div>
+
+      <ul>
+        <li><strong>TaxiUI</strong> → 기존 UI 코드에 야옹이 배달 옵션 if-else 추가</li>
+        <li><strong>TaxiFinder</strong> → 기존 필터 로직에 야옹이 조건 if-else 추가</li>
+        <li><strong>TaxiSelector</strong> → 기존 비용 계산에 야옹이 분기 추가</li>
+        <li><strong>TaxiDispatcher</strong> → 기존 배차 로직에 야옹이 명령 분기 추가</li>
+      </ul>
+
+      <p><strong>"야옹이"라는 횡단 관심사가 모든 서비스를 관통</strong>한다. 서비스를 나눴지만 독립 배포는 불가능하다 — 4개를 동시에 수정하고 동시에 배포해야 한다.</p>
+
+      <h2>밥 아저씨의 해결책: 컴포넌트 아키텍처를 서비스 안에 넣어라</h2>
+      <p>해결은 서비스를 더 쪼개는 것이 아니라, <strong>각 서비스 내부에 컴포넌트 아키텍처를 적용</strong>하는 것이다.</p>
+
+      <p>예를 들어 <code>TaxiFinder</code> 서비스 안에:</p>
+      <pre><code><span class="cm">// 추상 컴포넌트 (서비스 내부)</span>
+<span class="kw">public interface</span> <span class="ty">VehicleFinder</span> {
+    <span class="ty">List</span>&lt;<span class="ty">Vehicle</span>&gt; <span class="fn">findNearby</span>(<span class="ty">Location</span> loc, <span class="ty">Criteria</span> c);
+}
+
+<span class="cm">// 택시용 플러그인</span>
+<span class="kw">public class</span> <span class="ty">TaxiVehicleFinder</span> <span class="kw">implements</span> <span class="ty">VehicleFinder</span> { ... }
+
+<span class="cm">// 야옹이용 플러그인 — 기존 코드 수정 없이 추가!</span>
+<span class="kw">public class</span> <span class="ty">KittenVehicleFinder</span> <span class="kw">implements</span> <span class="ty">VehicleFinder</span> { ... }</code></pre>
+
+      <h2>그래서 뭐가 해결된 건데?</h2>
+      <p>여기서 흔히 드는 의문: <strong>"결국 4개 서비스 전부 배포하는 건 마찬가지 아닌가?"</strong></p>
+      <p><strong>맞다. 배포 범위는 해결 안 됐다.</strong> 밥 아저씨가 해결하려는 건 "배포 독립성"이 아니라 <strong>"변경 안전성"</strong>이다.</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th></th><th>컴포넌트 없음</th><th>컴포넌트 있음</th></tr>
+          <tr><td><strong>배포 범위</strong></td><td>4개 서비스 전부</td><td>4개 서비스 전부</td></tr>
+          <tr><td><strong>변경 방식</strong></td><td>기존 코드에 if-else 추가 (<strong>수정</strong>)</td><td>새 플러그인 파일 추가 (<strong>확장</strong>)</td></tr>
+          <tr><td><strong>기존 코드 위험</strong></td><td>기존 택시 로직이 깨질 수 있음</td><td>기존 택시 로직 안 건드림</td></tr>
+          <tr><td><strong>테스트 범위</strong></td><td>전체 회귀 테스트 필요</td><td>새 플러그인만 테스트</td></tr>
+          <tr><td><strong>OCP</strong></td><td>위반</td><td>만족</td></tr>
+        </table>
+      </div>
+
+      <div class="highlight-box">
+        <strong>배포 범위는 같지만, 변경의 위험도가 완전히 다르다.</strong> "4개 서비스를 배포한다"는 사실은 같아도, "기존 코드를 열어서 수정한다" vs "새 파일을 추가한다"는 근본적으로 다른 행위다.
+      </div>
+
+      <h2>27장의 진짜 결론</h2>
+
+      <div class="warn-box">
+        서비스는 횡단 관심사를 막지 못한다. 서비스에 의존하지 말고, <strong>서비스 내부에 컴포넌트 설계를 제대로 해라</strong>. 서비스는 배포 메커니즘일 뿐이고, 아키텍처 보호는 컴포넌트 레벨에서 일어난다.
+      </div>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>착각</th><th>현실</th></tr>
+          <tr><td>서비스 = 아키텍처 경계</td><td>서비스는 <strong>배포 경계</strong>일 뿐. 아키텍처 경계는 컴포넌트가 만든다</td></tr>
+          <tr><td>서비스를 나누면 결합이 줄어든다</td><td>횡단 관심사 앞에서 모든 서비스가 함께 변경된다</td></tr>
+          <tr><td>서비스를 더 쪼개면 해결된다</td><td>쪼개기가 아니라 서비스 <strong>내부에 OCP를 적용</strong>해야 한다</td></tr>
+          <tr><td>컴포넌트 설계가 배포 독립성을 준다</td><td>배포 범위는 못 줄인다. 대신 <strong>변경 안전성</strong>(수정→추가)을 준다</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+
+      <h2>컴포넌트 없이: 기존 코드 수정 (위험)</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 750 170" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <text x="375" y="20" text-anchor="middle" fill="#f87171" font-size="12" font-weight="700">"야옹이 배달" → 모든 서비스의 기존 코드를 열어서 if-else 추가</text>
+
+          <rect x="30" y="45" width="150" height="70" rx="10" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="105" y="72" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">TaxiUI</text>
+          <text x="105" y="95" text-anchor="middle" fill="#f87171" font-size="9">기존 코드 수정</text>
+
+          <rect x="210" y="45" width="150" height="70" rx="10" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="285" y="72" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">TaxiFinder</text>
+          <text x="285" y="95" text-anchor="middle" fill="#f87171" font-size="9">기존 코드 수정</text>
+
+          <rect x="390" y="45" width="150" height="70" rx="10" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="465" y="72" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">TaxiSelector</text>
+          <text x="465" y="95" text-anchor="middle" fill="#f87171" font-size="9">기존 코드 수정</text>
+
+          <rect x="570" y="45" width="150" height="70" rx="10" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="645" y="72" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">TaxiDispatcher</text>
+          <text x="645" y="95" text-anchor="middle" fill="#f87171" font-size="9">기존 코드 수정</text>
+
+          <line x1="20" y1="80" x2="730" y2="80" stroke="#f87171" stroke-width="2" stroke-dasharray="8,4" opacity="0.4"/>
+          <text x="375" y="145" text-anchor="middle" fill="#f87171" font-size="11" font-weight="500">배포 4개 + 기존 택시 로직 깨질 위험 + 전체 회귀 테스트</text>
+          <text x="375" y="163" text-anchor="middle" fill="#64748b" font-size="10">→ OCP 위반</text>
+        </svg>
+      </div>
+
+      <h2>컴포넌트 적용: 새 플러그인 추가 (안전)</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 750 260" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <text x="375" y="20" text-anchor="middle" fill="#34d399" font-size="12" font-weight="700">"야옹이 배달" → 모든 서비스에 새 플러그인 파일 추가</text>
+
+          <!-- Service box -->
+          <rect x="50" y="40" width="650" height="175" rx="12" fill="rgba(124,106,247,0.04)" stroke="#7c6af7" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="375" y="60" text-anchor="middle" fill="#64748b" font-size="10">각 서비스 내부 구조 (예: TaxiFinder)</text>
+
+          <!-- Interface -->
+          <rect x="280" y="75" width="190" height="40" rx="8" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="375" y="90" text-anchor="middle" fill="#38bdf8" font-size="10">&lt;&lt;interface&gt;&gt;</text>
+          <text x="375" y="106" text-anchor="middle" fill="#38bdf8" font-size="12" font-weight="600">VehicleFinder</text>
+
+          <!-- Taxi plugin -->
+          <rect x="90" y="145" width="150" height="40" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+          <text x="165" y="163" text-anchor="middle" fill="#34d399" font-size="11" font-weight="500">TaxiVehicleFinder</text>
+          <text x="165" y="178" text-anchor="middle" fill="#64748b" font-size="8">기존 — 수정 없음</text>
+
+          <!-- Kitten plugin -->
+          <rect x="300" y="145" width="160" height="40" rx="8" fill="#1a1d27" stroke="#fbbf24" stroke-width="2"/>
+          <text x="380" y="163" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">KittenVehicleFinder</text>
+          <text x="380" y="178" text-anchor="middle" fill="#fbbf24" font-size="8">NEW — 새로 추가</text>
+
+          <!-- Future plugin -->
+          <rect x="520" y="145" width="150" height="40" rx="8" fill="#1a1d27" stroke="#64748b" stroke-width="1" stroke-dasharray="4,2"/>
+          <text x="595" y="163" text-anchor="middle" fill="#64748b" font-size="11">PizzaVehicleFinder</text>
+          <text x="595" y="178" text-anchor="middle" fill="#64748b" font-size="8">미래 — 또 추가만 하면 됨</text>
+
+          <!-- Arrows (implements) -->
+          <line x1="165" y1="145" x2="330" y2="115" stroke="#34d399" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrowImpl)"/>
+          <line x1="380" y1="145" x2="375" y2="115" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrowImpl2)"/>
+          <line x1="595" y1="145" x2="420" y2="115" stroke="#64748b" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrowImpl3)"/>
+
+          <text x="375" y="230" text-anchor="middle" fill="#34d399" font-size="11" font-weight="500">배포 4개 (동일) + 기존 코드 안 건드림 + 새 코드만 테스트</text>
+          <text x="375" y="248" text-anchor="middle" fill="#34d399" font-size="10">→ OCP 만족. 배포 범위는 같지만 변경 위험도가 근본적으로 다르다</text>
+
+          <defs>
+            <marker id="arrowImpl" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+              <polygon points="8 0, 0 3, 8 6" fill="none" stroke="#34d399" stroke-width="1"/>
+            </marker>
+            <marker id="arrowImpl2" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+              <polygon points="8 0, 0 3, 8 6" fill="none" stroke="#fbbf24" stroke-width="1"/>
+            </marker>
+            <marker id="arrowImpl3" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+              <polygon points="8 0, 0 3, 8 6" fill="none" stroke="#64748b" stroke-width="1"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p><strong>위와 아래 모두 4개 서비스를 배포한다.</strong> 하지만 위는 기존 코드를 <strong>수정</strong>하고, 아래는 새 코드를 <strong>추가</strong>한다. 이 차이가 아키텍처 보호의 본질이다.</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">횡단 관심사 (Cross-Cutting Concern)</span>
+        <span class="related-tag">개방-폐쇄 원칙 (OCP)</span>
+        <span class="related-tag">의존성 역전 원칙 (DIP)</span>
+        <span class="related-tag">마이크로서비스 vs 모놀리스</span>
+        <span class="related-tag">부분적 경계 (Ch.24)</span>
+        <span class="related-tag">컴포넌트 결합 원칙</span>
+        <span class="related-tag">전략 패턴 (플러그인)</span>
+        <span class="related-tag">배포 독립성 vs 변경 안전성</span>
+      </div>
+    </div>
+
+    <!-- nav.js가 URL 경로 기반으로 자동 생성 -->
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/knowledge/nav.js"></script>
+</body>
+</html>
