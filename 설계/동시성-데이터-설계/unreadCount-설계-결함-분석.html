@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>unreadCount 설계 결함 분석과 lastReadMessageId 기반 동적 계산으로의 전환 — 동시성·데이터 설계 · realtime-chat 아키텍처</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/시스템-설계/index.html">시스템 설계</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/시스템-설계/동시성-데이터-설계/index.html">동시성·데이터 설계</a>
+      <span class="sep">›</span>
+      <span class="current">unreadCount 설계 결함</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 설계 결정 기록</div>
+      <h1>unreadCount 설계 결함 분석과<br>lastReadMessageId 기반 동적 계산으로의 전환</h1>
+      <p class="meta">시스템 설계 · 동시성·데이터 설계 · 2026-03-18</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 인사이트
+      </div>
+      <div class="highlight-box">
+        "안 읽은 수"는 메시지의 속성이 아니라 <strong>읽는 시점에 계산되는 관계의 속성</strong>이다.<br>
+        메시지에 저장하면 동시성 문제가 필연적으로 발생한다.
+      </div>
+      <p>
+        채팅 시스템에서 "몇 명이 이 메시지를 아직 안 읽었는가"를 <code>Message.unreadCount</code>에 저장하는 방식은
+        직관적으로 보이지만, 두 가지 근본적인 결함을 내포한다.
+        첫째는 전송 시점의 멤버 수가 stale할 수 있고, 둘째는 읽음 처리 시 UPDATE 쿼리가 레이스 컨디션에 노출된다.
+      </p>
+      <p>
+        올바른 접근은 unreadCount를 저장하지 않고, 조회 시점에 <code>lastReadMessageId</code> 기반으로
+        동적으로 계산하는 것이다. 쓰기 비용 없이 항상 정확한 값을 얻을 수 있다.
+      </p>
+    </div>
+
+    <!-- 배경 개념: 구 설계의 문제 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        구 설계의 두 가지 결함
+      </div>
+
+      <h3>결함 1 — 전송 시점 memberCount가 stale</h3>
+      <div class="danger-box">
+        <code>Message.create(chatRoom, sender, content, <strong>members.size()</strong>)</code><br>
+        → <code>unreadCount = members.size() - 1</code>
+      </div>
+      <p>
+        메시지를 저장하는 순간의 활성 멤버 수를 기준으로 unreadCount를 초기화한다.
+        그런데 메시지 저장 직전에 누군가가 채팅방을 나갔거나, 직후에 누군가가 들어왔다면?
+        unreadCount는 영원히 부정확한 값을 가진다.
+      </p>
+
+      <h3>결함 2 — decrementUnreadCountAfter 레이스 컨디션</h3>
+      <pre><code>-- 읽음 처리 시 실행되던 쿼리
+UPDATE messages
+SET unread_count = unread_count - 1
+WHERE chat_room_id = ? AND id > ? AND unread_count > 0</code></pre>
+      <p>
+        두 사용자가 거의 동시에 읽음 처리를 하면 둘 다 <code>unread_count - 1</code>을 실행한다.
+        데이터베이스 수준에서 <code>unread_count = unread_count - 1</code>은 원자적이지만,
+        이 UPDATE 자체는 <strong>논리적으로 두 번 차감</strong>된다.
+        하지만 더 심각한 문제는 <strong>채팅방 퇴장(leave)</strong>이다.
+      </p>
+      <div class="danger-box">
+        시나리오: unreadCount = 2, 동시에 1명이 채팅방 퇴장<br>
+        → 퇴장 처리는 미래의 메시지에만 적용됨<br>
+        → 이미 저장된 메시지의 unreadCount는 2로 영원히 남음<br>
+        → 실제론 1명만 안 읽었는데 UI에는 2 표시
+      </div>
+      <p>
+        결국 unreadCount를 메시지에 저장하는 한, join/leave 동시성을 완벽히 처리할 방법이 없다.
+        이는 설계 자체의 문제다.
+      </p>
+    </div>
+
+    <!-- 해결책 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        새 설계: lastReadMessageId 기반 동적 계산
+      </div>
+
+      <h3>핵심 아이디어</h3>
+      <p>
+        각 <code>ChatRoomUser</code>는 <code>lastReadMessageId</code>를 가진다.
+        "이 사용자가 마지막으로 읽은 메시지 ID". 읽음 처리 시 이 값만 갱신한다.
+      </p>
+      <p>
+        그러면 "메시지 X의 unreadCount"는 다음 쿼리로 정확히 계산된다:
+      </p>
+      <pre><code>SELECT COUNT(*)
+FROM chat_room_users cru
+WHERE cru.chat_room_id = :chatRoomId
+  AND cru.status = 'ACTIVE'
+  AND cru.last_read_message_id &lt; :messageId</code></pre>
+      <p>
+        즉, <strong>"현재 활성 멤버 중 이 메시지를 아직 안 읽은 사람 수"</strong>.
+        항상 현재 시점의 정확한 값이다.
+      </p>
+
+      <h3>배치 최적화 — N+1 방지</h3>
+      <p>
+        메시지 목록을 조회할 때 메시지마다 쿼리를 날리면 N+1 문제가 발생한다.
+        단일 JOIN GROUP BY 쿼리로 전체를 한 번에 처리한다:
+      </p>
+      <pre><code>SELECT m.id, COUNT(cru)
+FROM Message m
+LEFT JOIN ChatRoomUser cru
+    ON cru.chatRoom.id = m.chatRoom.id
+    AND cru.status = 'ACTIVE'
+    AND cru.lastReadMessageId &lt; m.id
+WHERE m.id IN :messageIds
+GROUP BY m.id</code></pre>
+      <p>결과는 <code>Map&lt;messageId, unreadCount&gt;</code>로 변환해 메시지 목록에 매핑한다.</p>
+
+      <h3>WebSocket 실시간 전송 시 unreadCount</h3>
+      <p>
+        메시지를 전송하는 순간에는 DB 조회 없이 <code>members.size() - 1</code>을 사용한다.
+        이 시점의 <code>members</code>는 방금 조회한 현재 활성 멤버 목록이므로 정확하다.
+        (발신자 본인은 unread 아니므로 -1)
+      </p>
+
+      <h3>무엇이 사라졌나</h3>
+      <div class="success-box">
+        ✅ <code>Message.unreadCount</code> 필드 삭제<br>
+        ✅ <code>MessageRepository.decrementUnreadCountAfter()</code> 삭제<br>
+        ✅ readMessages 시 UPDATE 쿼리 없음 → lastReadMessageId 갱신만<br>
+        ✅ 동시성 버그 원천 제거
+      </div>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화 — 구 설계 vs 새 설계
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 760 520" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="12">
+          <!-- 배경 분할 -->
+          <rect x="10" y="10" width="360" height="500" rx="10" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <rect x="390" y="10" width="360" height="500" rx="10" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+
+          <!-- 제목 -->
+          <text x="190" y="38" text-anchor="middle" fill="#f87171" font-size="13" font-weight="bold">구 설계 (저장 방식)</text>
+          <text x="570" y="38" text-anchor="middle" fill="#34d399" font-size="13" font-weight="bold">새 설계 (동적 계산)</text>
+
+          <!-- 구 설계: Message 엔티티 -->
+          <rect x="60" y="55" width="260" height="80" rx="8" fill="#22263a" stroke="#2e3250"/>
+          <text x="190" y="75" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="bold">Message</text>
+          <text x="80" y="97" fill="#94a3b8" font-size="10">id, content, senderId</text>
+          <text x="80" y="113" fill="#f87171" font-size="10">unreadCount: Int  ← 문제의 필드</text>
+          <text x="80" y="129" fill="#64748b" font-size="10">createdAt</text>
+
+          <!-- 화살표: 전송 시 -->
+          <line x1="190" y1="135" x2="190" y2="165" stroke="#64748b" stroke-dasharray="4"/>
+          <text x="200" y="158" fill="#64748b" font-size="9">members.size()-1</text>
+
+          <!-- 구 설계: 읽음 처리 -->
+          <rect x="50" y="170" width="280" height="90" rx="8" fill="#22263a" stroke="#f87171" stroke-opacity="0.5"/>
+          <text x="190" y="190" text-anchor="middle" fill="#f87171" font-size="11" font-weight="bold">readMessages() — 문제 발생</text>
+          <text x="65" y="212" fill="#94a3b8" font-size="9">1. 최신 messageId 조회</text>
+          <text x="65" y="228" fill="#94a3b8" font-size="9">2. lastReadMessageId 갱신</text>
+          <text x="65" y="244" fill="#f87171" font-size="9">3. UPDATE unread_count = unread_count - 1</text>
+          <text x="65" y="256" fill="#f87171" font-size="9">   → 동시 실행 시 이중 차감!</text>
+
+          <!-- 구 설계: 퇴장 문제 -->
+          <rect x="50" y="280" width="280" height="80" rx="8" fill="#22263a" stroke="#f87171" stroke-opacity="0.3"/>
+          <text x="190" y="300" text-anchor="middle" fill="#f87171" font-size="11" font-weight="bold">leaveRoom() — 또 다른 문제</text>
+          <text x="65" y="322" fill="#94a3b8" font-size="9">퇴장한 사용자의 과거 unreadCount는</text>
+          <text x="65" y="338" fill="#f87171" font-size="9">영원히 잘못된 값으로 남음</text>
+          <text x="65" y="354" fill="#64748b" font-size="9">(이미 저장된 숫자를 어떻게 정정할 것인가?)</text>
+
+          <!-- 구 설계: 결론 -->
+          <rect x="60" y="380" width="260" height="50" rx="8" fill="rgba(248,113,113,0.1)" stroke="#f87171" stroke-opacity="0.4"/>
+          <text x="190" y="402" text-anchor="middle" fill="#f87171" font-size="10">설계 자체가 잘못됨</text>
+          <text x="190" y="418" text-anchor="middle" fill="#64748b" font-size="9">memberCount는 메시지가 아닌 채팅방의 관심사</text>
+
+          <!-- 새 설계: ChatRoomUser -->
+          <rect x="440" y="55" width="260" height="80" rx="8" fill="#22263a" stroke="#2e3250"/>
+          <text x="570" y="75" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="bold">ChatRoomUser</text>
+          <text x="460" y="97" fill="#94a3b8" font-size="10">userId, chatRoomId, status</text>
+          <text x="460" y="113" fill="#34d399" font-size="10">lastReadMessageId: Long  ← 이것만</text>
+          <text x="460" y="129" fill="#64748b" font-size="10">joinedAt</text>
+
+          <!-- 새 설계: Message -->
+          <rect x="440" y="160" width="260" height="65" rx="8" fill="#22263a" stroke="#2e3250"/>
+          <text x="570" y="180" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="bold">Message</text>
+          <text x="460" y="200" fill="#94a3b8" font-size="10">id, content, senderId</text>
+          <text x="460" y="216" fill="#34d399" font-size="10">unreadCount 없음 ✓</text>
+
+          <!-- 새 설계: 읽음 처리 -->
+          <rect x="430" y="250" width="280" height="75" rx="8" fill="#22263a" stroke="#34d399" stroke-opacity="0.5"/>
+          <text x="570" y="270" text-anchor="middle" fill="#34d399" font-size="11" font-weight="bold">readMessages() — 단순</text>
+          <text x="445" y="292" fill="#94a3b8" font-size="9">1. 최신 messageId 조회</text>
+          <text x="445" y="308" fill="#34d399" font-size="9">2. lastReadMessageId 갱신만 (UPDATE 1건)</text>
+
+          <!-- 새 설계: 배치 쿼리 -->
+          <rect x="430" y="350" width="280" height="95" rx="8" fill="#22263a" stroke="#34d399" stroke-opacity="0.3"/>
+          <text x="570" y="370" text-anchor="middle" fill="#34d399" font-size="11" font-weight="bold">unreadCount 조회 — 배치</text>
+          <text x="445" y="392" fill="#94a3b8" font-size="9">SELECT m.id, COUNT(cru)</text>
+          <text x="445" y="406" fill="#94a3b8" font-size="9">FROM messages m</text>
+          <text x="445" y="420" fill="#94a3b8" font-size="9">JOIN chat_room_users cru</text>
+          <text x="445" y="434" fill="#34d399" font-size="9">  WHERE cru.last_read &lt; m.id</text>
+
+          <!-- 새 설계: 결론 -->
+          <rect x="440" y="465" width="260" height="35" rx="8" fill="rgba(52,211,153,0.1)" stroke="#34d399" stroke-opacity="0.4"/>
+          <text x="570" y="485" text-anchor="middle" fill="#34d399" font-size="10">항상 정확 · 동시성 문제 없음 · O(1) 쿼리</text>
+        </svg>
+      </div>
+      <p>
+        구 설계(왼쪽)는 unreadCount를 메시지에 직접 저장하고 읽음 처리마다 감소시키는 방식으로,
+        동시성과 퇴장 이벤트에 취약하다. 새 설계(오른쪽)는 <code>lastReadMessageId</code>만 관리하고
+        unreadCount는 JOIN 쿼리로 동적 계산해 근본 문제를 해결한다.
+      </p>
+    </div>
+
+    <!-- 비교 테이블 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        두 방식 비교
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>항목</th>
+            <th>구 설계 (저장)</th>
+            <th>새 설계 (동적 계산)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>정확성</td>
+            <td class="badge-bad">stale 가능, 퇴장 시 부정확</td>
+            <td class="badge-good">항상 현재 시점 정확</td>
+          </tr>
+          <tr>
+            <td>동시성</td>
+            <td class="badge-bad">decrement 레이스 컨디션</td>
+            <td class="badge-good">읽기만 하므로 문제 없음</td>
+          </tr>
+          <tr>
+            <td>읽음 처리 쓰기</td>
+            <td class="badge-bad">N개 메시지 UPDATE</td>
+            <td class="badge-good">단일 행 UPDATE (lastReadMessageId)</td>
+          </tr>
+          <tr>
+            <td>목록 조회 읽기</td>
+            <td class="badge-good">SELECT만 (unreadCount 이미 있음)</td>
+            <td>JOIN GROUP BY 1회 추가</td>
+          </tr>
+          <tr>
+            <td>퇴장 처리</td>
+            <td class="badge-bad">과거 메시지 보정 불가</td>
+            <td class="badge-good">status='INACTIVE' 처리로 자동 반영</td>
+          </tr>
+          <tr>
+            <td>구현 복잡도</td>
+            <td class="badge-bad">decrement 로직, 예외 처리 필요</td>
+            <td class="badge-good">단순 (lastReadMessageId 갱신만)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 — 왜 이 실수가 흔한가
+      </div>
+      <p>
+        unreadCount를 메시지에 저장하는 설계는 처음에는 매력적으로 보인다.
+        "조회할 때 그냥 꺼내면 되니까 빠르겠지"라는 직관이다.
+        하지만 이는 <strong>파생 데이터(derived data)를 원천 데이터로 잘못 취급</strong>하는 패턴이다.
+      </p>
+      <p>
+        unreadCount는 메시지 자체의 속성이 아니라, 메시지와 사용자 간의 관계에서 파생되는 값이다.
+        파생 데이터를 저장하면 원천 데이터가 변경될 때마다 동기화 문제가 생긴다.
+        이는 캐시 무효화 문제와 본질적으로 같다.
+      </p>
+      <div class="highlight-box">
+        <strong>설계 원칙:</strong> 파생 데이터는 저장하지 말고 계산하라.<br>
+        단, 계산 비용이 허용할 수 없을 정도로 크다면 캐싱을 고려하되,
+        그 경우에도 <em>캐시임을 명시</em>하고 무효화 전략을 세워야 한다.
+      </div>
+      <p>
+        이 경우 JOIN GROUP BY 쿼리 1회 추가는 충분히 허용 가능한 비용이다.
+        메시지 목록 조회 자체가 이미 DB 쿼리를 포함하므로, 쿼리 1개 추가는 큰 부담이 아니다.
+        성능이 실제 문제가 된다면 Redis에 캐싱하는 방식을 고려하면 된다.
+      </p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">TOCTOU Race Condition</span>
+        <span class="related-tag">Derived Data vs Source of Truth</span>
+        <span class="related-tag">Optimistic Locking</span>
+        <span class="related-tag">Cursor-based Pagination</span>
+        <span class="related-tag">lastReadMessageId 패턴</span>
+        <span class="related-tag">N+1 문제와 배치 쿼리</span>
+        <span class="related-tag">Denormalization Trade-off</span>
+        <span class="related-tag">Read vs Write 최적화</span>
+        <span class="related-tag">캐시 무효화 전략</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/시스템-설계/동시성-데이터-설계/index.html" class="nav-link">← 동시성·데이터 설계 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

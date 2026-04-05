@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Using join buffer에 대한 상세한 설명 — 인덱스-최적화 · RealMySQL8.0</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/index.html">RealMySQL8.0</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html">인덱스-최적화</a>
+      <span class="sep">›</span>
+      <span class="current">Using join buffer</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Using join buffer에 대한 상세한 설명</h1>
+      <p class="meta">RealMySQL8.0 · 인덱스-최적화 · 2026-03-16</p>
+    </header>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        join buffer는 조인 시 인덱스를 사용할 수 없을 때 드라이빙 테이블의 레코드를 메모리에 캐싱하여 조인 성능을 개선하는 메모리 영역입니다.
+      </div>
+      <p><code>Using join buffer</code>는 <code>EXPLAIN</code> 출력의 <code>Extra</code> 컬럼에 표시되는 메시지로, MySQL이 조인 처리 시 <strong>조인 버퍼(Join Buffer)</strong>를 사용한다는 의미입니다.</p>
+      <p>조인 버퍼는 드라이빙 테이블(첫 번째 테이블)의 레코드를 메모리에 임시로 저장하여, 드리븐 테이블(두 번째 테이블)과의 조인 시 디스크 I/O를 줄이는 최적화 기법입니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      
+      <p><strong>드라이빙 테이블 vs 드리븐 테이블</strong></p>
+      <ul>
+        <li><strong>드라이빙 테이블</strong>: 조인 시 먼저 읽는 테이블 (Outer table)</li>
+        <li><strong>드리븐 테이블</strong>: 드라이빙 테이블의 각 레코드마다 매칭되는 레코드를 찾는 테이블 (Inner table)</li>
+      </ul>
+      <pre><code>SELECT * FROM A JOIN B ON A.id = B.a_id;
+-- A가 드라이빙 테이블이면, B가 드리븐 테이블</code></pre>
+
+      <p><strong>조인 처리 방식</strong></p>
+      <ul>
+        <li><strong>Nested Loop Join</strong>: 드라이빙 테이블의 각 행마다 드리븐 테이블을 스캔</li>
+        <li><strong>Block Nested Loop</strong>: 드라이빙 테이블 여러 행을 버퍼에 저장 후 드리븐 테이블 스캔 (조인 버퍼 사용)</li>
+        <li><strong>Hash Join (8.0.18+)</strong>: 해시 테이블을 사용한 조인</li>
+      </ul>
+
+      <p><strong>join_buffer_size 시스템 변수</strong></p>
+      <p>조인 버퍼의 크기를 설정하는 변수로, 기본값은 256KB입니다.</p>
+      <pre><code>-- 조인 버퍼 크기 확인
+SHOW VARIABLES LIKE 'join_buffer_size';
+
+-- 세션별로 조정 가능
+SET SESSION join_buffer_size = 1048576; -- 1MB</code></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>조인 버퍼가 사용되는 경우</strong></p>
+      <ul>
+        <li>드리븐 테이블에 <strong>적절한 인덱스가 없을 때</strong></li>
+        <li>조인 조건이 인덱스를 사용할 수 없을 때</li>
+        <li>드리븐 테이블의 풀 테이블 스캔이 필요할 때</li>
+      </ul>
+
+      <p><strong>조인 버퍼 없이 (인덱스 사용)</strong></p>
+      <pre><code>-- employees.dept_id에 인덱스 있음
+SELECT * FROM departments d
+JOIN employees e ON d.id = e.dept_id;
+
+-- 실행 과정:
+-- 1. departments 테이블 스캔 (드라이빙)
+-- 2. 각 department마다 employees의 인덱스로 빠르게 찾기</code></pre>
+
+      <p><strong>조인 버퍼 사용 (인덱스 없음)</strong></p>
+      <pre><code>-- employees.name에 인덱스 없음
+SELECT * FROM departments d
+JOIN employees e ON d.manager_name = e.name;
+
+-- 실행 과정:
+-- 1. departments 레코드들을 조인 버퍼에 저장
+-- 2. employees 테이블을 한 번 스캔하면서
+-- 3. 버퍼의 모든 레코드와 비교 (메모리 내 연산)</code></pre>
+
+      <p><strong>조인 버퍼의 종류 (MySQL 8.0+)</strong></p>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>버퍼 타입</th>
+            <th>EXPLAIN 표시</th>
+            <th>특징</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Block Nested Loop</strong></td>
+            <td>Using join buffer (Block Nested Loop)</td>
+            <td>블록 단위로 버퍼 사용</td>
+          </tr>
+          <tr>
+            <td><strong>Hash Join</strong></td>
+            <td>Using join buffer (hash join)</td>
+            <td>해시 테이블로 조인 (8.0.18+)</td>
+          </tr>
+          <tr>
+            <td><strong>Batched Key Access</strong></td>
+            <td>Using join buffer (Batched Key Access)</td>
+            <td>인덱스 룩업 배치 처리</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>성능 영향</strong></p>
+      <ul>
+        <li><strong>긍정적</strong>: 드리븐 테이블 스캔 횟수 감소</li>
+        <li><strong>부정적</strong>: 버퍼 크기가 작으면 여러 번 나눠서 처리 (멀티 패스)</li>
+        <li><strong>해결책</strong>: 드리븐 테이블에 적절한 인덱스 추가가 근본 해결</li>
+      </ul>
+
+      <p><strong>조인 버퍼 크기 계산</strong></p>
+      <pre><code>-- 드라이빙 테이블 레코드 수 * 각 레코드의 조인 컬럼 크기
+-- 예: 1,000 레코드 * 100 바이트 = 100KB
+
+-- 버퍼가 부족하면 멀티 패스 발생
+-- EXPLAIN에서 rows_examined_per_scan으로 확인 가능</code></pre>
+
+      <p><strong>실행 계획 예시</strong></p>
+      <pre><code>EXPLAIN SELECT * FROM orders o
+JOIN customers c ON o.customer_name = c.name;
+
+-- id | table | type | Extra
+-- 1  | o     | ALL  | NULL
+-- 1  | c     | ALL  | Using where; Using join buffer (hash join)</code></pre>
+      <p>이 경우 <code>customer_name</code>과 <code>name</code>에 인덱스가 없어 해시 조인이 사용되었습니다.</p>
+
+      <p><strong>최적화 전략</strong></p>
+      <ol>
+        <li><strong>최선</strong>: 드리븐 테이블의 조인 컬럼에 인덱스 추가</li>
+        <li><strong>차선</strong>: join_buffer_size 증가 (하지만 근본 해결은 아님)</li>
+        <li><strong>쿼리 재작성</strong>: 조인 순서 변경, 서브쿼리 활용 등</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 380" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#a78bfa" />
+            </marker>
+          </defs>
+
+          <!-- 인덱스 사용 (왼쪽) -->
+          <text x="150" y="25" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">인덱스 사용 (빠름)</text>
+          
+          <rect x="50" y="50" width="200" height="50" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="150" y="72" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">드라이빙 테이블</text>
+          <text x="150" y="88" text-anchor="middle" fill="#94a3b8" font-size="9">departments (10 rows)</text>
+
+          <line x1="150" y1="100" x2="150" y2="130" stroke="#34d399" stroke-width="2" marker-end="url(#arr2)"/>
+          <text x="170" y="118" fill="#34d399" font-size="8">각 row마다</text>
+
+          <rect x="50" y="130" width="200" height="60" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="150" y="152" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">드리븐 테이블 (인덱스)</text>
+          <text x="150" y="168" text-anchor="middle" fill="#94a3b8" font-size="9">employees.dept_id 인덱스</text>
+          <text x="150" y="182" text-anchor="middle" fill="#34d399" font-size="9">→ 빠른 조회 (10번)</text>
+
+          <rect x="50" y="210" width="200" height="40" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1"/>
+          <text x="150" y="233" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">총 10번 인덱스 룩업</text>
+
+          <!-- 조인 버퍼 사용 (오른쪽) -->
+          <text x="530" y="25" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">조인 버퍼 사용 (느림)</text>
+          
+          <rect x="430" y="50" width="200" height="50" rx="8" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="530" y="72" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">드라이빙 테이블</text>
+          <text x="530" y="88" text-anchor="middle" fill="#94a3b8" font-size="9">departments (10 rows)</text>
+
+          <line x1="530" y1="100" x2="530" y2="130" stroke="#fbbf24" stroke-width="2" marker-end="url(#arr2)"/>
+          <text x="550" y="118" fill="#fbbf24" font-size="8">버퍼에 저장</text>
+
+          <rect x="430" y="130" width="200" height="50" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="530" y="152" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">조인 버퍼 (메모리)</text>
+          <text x="530" y="168" text-anchor="middle" fill="#94a3b8" font-size="9">10 rows 캐싱</text>
+
+          <line x1="530" y1="180" x2="530" y2="210" stroke="#fbbf24" stroke-width="2" marker-end="url(#arr2)"/>
+
+          <rect x="430" y="210" width="200" height="60" rx="8" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="530" y="232" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">드리븐 테이블 (인덱스X)</text>
+          <text x="530" y="248" text-anchor="middle" fill="#94a3b8" font-size="9">employees 풀 스캔</text>
+          <text x="530" y="262" text-anchor="middle" fill="#f87171" font-size="9">→ 전체 비교 (1회 스캔)</text>
+
+          <rect x="430" y="290" width="200" height="40" rx="8" fill="#1a1d27" stroke="#fbbf24" stroke-width="1"/>
+          <text x="530" y="313" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">1번 풀 스캔 + 메모리 비교</text>
+
+          <!-- 비교 -->
+          <rect x="50" y="350" width="600" height="25" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="350" y="367" text-anchor="middle" fill="#94a3b8" font-size="9">인덱스 사용이 훨씬 빠르지만, 인덱스 없으면 조인 버퍼가 풀 스캔 반복을 막아줌</text>
+        </svg>
+      </div>
+      <p style="margin-top: 1rem;">조인 버퍼는 인덱스가 없을 때 드리븐 테이블의 반복 스캔을 줄여주지만, 인덱스 사용만큼 빠르지는 않습니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Nested Loop Join</span>
+        <span class="related-tag">Hash Join</span>
+        <span class="related-tag">Block Nested Loop</span>
+        <span class="related-tag">드라이빙 테이블</span>
+        <span class="related-tag">드리븐 테이블</span>
+        <span class="related-tag">join_buffer_size</span>
+        <span class="related-tag">EXPLAIN</span>
+        <span class="related-tag">조인 최적화</span>
+        <span class="related-tag">인덱스 설계</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html" class="nav-link">← 인덱스-최적화 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

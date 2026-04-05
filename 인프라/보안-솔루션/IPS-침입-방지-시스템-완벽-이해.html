@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPS (침입 방지 시스템) 완벽 이해 — 보안 솔루션 · DevOps 인프라</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/index.html">DevOps 인프라</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/DevOps-인프라/보안-솔루션/index.html">보안 솔루션</a>
+      <span class="sep">›</span>
+      <span class="current">IPS 완벽 이해</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>IPS (Intrusion Prevention System) 침입 방지 시스템</h1>
+      <p class="meta">DevOps 인프라 · 보안 솔루션 · 2026-03-17</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        IPS는 네트워크 트래픽을 실시간으로 감시하여 <strong>침입을 탐지하고 자동으로 차단</strong>하는 보안 장비입니다. IDS와 달리 단순 알림을 넘어 <strong>능동적으로 공격을 차단</strong>합니다.
+      </div>
+      <p>
+        <strong>IPS (Intrusion Prevention System)</strong>는 네트워크 또는 호스트 레벨에서 악의적인 트래픽과 공격 패턴을 실시간으로 분석하고, 위협이 감지되면 즉시 차단하는 보안 시스템입니다.
+      </p>
+      <p>
+        IPS는 네트워크 경로의 <strong>인라인(Inline)</strong>에 위치하여 모든 트래픽이 IPS를 거쳐 가도록 구성됩니다. 이를 통해 의심스러운 패킷을 탐지하는 즉시 차단할 수 있습니다.
+      </p>
+      <p>
+        업무 환경에서 자주 등장하는 이유는 방화벽만으로는 막을 수 없는 <strong>애플리케이션 레벨 공격</strong>(SQL Injection, XSS, 제로데이 취약점 등)을 방어하기 위해서입니다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <p><strong>1. IDS (Intrusion Detection System) - 침입 탐지 시스템</strong></p>
+      <p>
+        IPS를 이해하려면 먼저 IDS를 알아야 합니다. IDS는 침입을 <strong>탐지만</strong> 하고 관리자에게 알림을 보냅니다. 실제 차단은 관리자가 수동으로 처리해야 합니다.
+      </p>
+
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>IDS</th>
+            <th>IPS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>역할</strong></td>
+            <td>탐지 + 알림</td>
+            <td>탐지 + 자동 차단</td>
+          </tr>
+          <tr>
+            <td><strong>네트워크 위치</strong></td>
+            <td>Out-of-band (패시브)</td>
+            <td>Inline (액티브)</td>
+          </tr>
+          <tr>
+            <td><strong>트래픽 흐름</strong></td>
+            <td>미러링된 복사본 분석</td>
+            <td>모든 트래픽이 통과</td>
+          </tr>
+          <tr>
+            <td><strong>응답 속도</strong></td>
+            <td>사후 대응</td>
+            <td>실시간 차단</td>
+          </tr>
+          <tr>
+            <td><strong>오탐 영향</strong></td>
+            <td>낮음 (알림만)</td>
+            <td>높음 (정상 트래픽 차단 가능)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>2. 방화벽 (Firewall)</strong></p>
+      <p>
+        방화벽은 IP, 포트, 프로토콜 기반으로 트래픽을 차단합니다. 하지만 <strong>정상적인 HTTP 요청 안에 숨어있는 SQL Injection</strong> 같은 공격은 탐지하지 못합니다. IPS는 이런 애플리케이션 레벨 공격을 방어합니다.
+      </p>
+
+      <p><strong>3. 시그니처 vs 이상 탐지</strong></p>
+      <ul>
+        <li><strong>시그니처 기반</strong>: 알려진 공격 패턴(시그니처)을 데이터베이스에 등록하고 매칭</li>
+        <li><strong>이상 탐지 기반</strong>: 정상 트래픽 패턴을 학습하고, 벗어난 행위를 탐지 (AI/ML 활용)</li>
+      </ul>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>IPS의 동작 원리</strong></p>
+      <ol>
+        <li><strong>트래픽 캡처</strong>: 네트워크 인라인에서 모든 패킷을 캡처</li>
+        <li><strong>프로토콜 디코딩</strong>: HTTP, SMTP, FTP 등 프로토콜별로 패킷 해석</li>
+        <li><strong>패턴 매칭</strong>: 시그니처 DB와 비교하여 공격 여부 판단</li>
+        <li><strong>행위 분석</strong>: 비정상적인 트래픽 패턴 탐지 (예: 짧은 시간 내 대량 요청)</li>
+        <li><strong>차단 결정</strong>: 위협도에 따라 DROP, RESET, BLOCK 수행</li>
+        <li><strong>로깅 및 알림</strong>: SIEM 시스템에 로그 전송 및 관리자 알림</li>
+      </ol>
+
+      <p><strong>IPS의 주요 탐지 기법</strong></p>
+      <ul>
+        <li><strong>패턴 매칭</strong>: SQL Injection, XSS, Command Injection 등의 공격 문자열 탐지</li>
+        <li><strong>프로토콜 이상 탐지</strong>: RFC 표준을 위반하는 패킷 차단</li>
+        <li><strong>레이트 제한</strong>: 동일 IP에서 초당 요청 수 제한 (DDoS 방어)</li>
+        <li><strong>지리적 차단</strong>: 특정 국가 IP 대역 차단</li>
+        <li><strong>평판 기반 차단</strong>: 알려진 악성 IP 블랙리스트 활용</li>
+      </ul>
+
+      <p><strong>실제 업무에서의 활용</strong></p>
+      <p>
+        카카오 API 서버처럼 외부에 노출된 서비스는 IPS를 통해 다음과 같은 공격을 방어합니다:
+      </p>
+      <ul>
+        <li><strong>API 남용 공격</strong>: 비정상적으로 많은 API 호출 차단</li>
+        <li><strong>Bot 트래픽</strong>: 자동화된 크롤러나 스크래퍼 차단</li>
+        <li><strong>취약점 스캐닝</strong>: Nikto, Nessus 같은 스캐너 탐지 및 차단</li>
+        <li><strong>제로데이 공격</strong>: 행위 기반 분석으로 알려지지 않은 공격 방어</li>
+      </ul>
+
+      <p><strong>IPS 운영의 핵심 과제</strong></p>
+      <p>
+        IPS는 강력하지만 <strong>오탐(False Positive)</strong>이 발생하면 정상 서비스가 차단됩니다. 따라서:
+      </p>
+      <ul>
+        <li>초기에는 <code>Monitor Mode</code>로 운영하며 오탐률 조정</li>
+        <li>화이트리스트를 통해 신뢰할 수 있는 IP/도메인 예외 처리</li>
+        <li>시그니처를 지속적으로 업데이트 (보안 업체에서 제공)</li>
+        <li>SIEM과 연동하여 전체 보안 이벤트 상관 분석</li>
+      </ul>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg width="700" height="400" viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg">
+          <!-- 배경 -->
+          <rect width="700" height="400" fill="#1a1d27"/>
+
+          <!-- 인터넷 클라우드 -->
+          <ellipse cx="100" cy="200" rx="60" ry="40" fill="none" stroke="#7c6af7" stroke-width="2" stroke-dasharray="5,5"/>
+          <text x="100" y="205" fill="#a78bfa" font-size="14" text-anchor="middle" font-weight="bold">Internet</text>
+
+          <!-- 방화벽 -->
+          <rect x="200" y="170" width="80" height="60" rx="8" fill="#22263a" stroke="#f87171" stroke-width="2"/>
+          <text x="240" y="195" fill="#f87171" font-size="12" text-anchor="middle" font-weight="bold">Firewall</text>
+          <text x="240" y="210" fill="#94a3b8" font-size="10" text-anchor="middle">L3/L4 차단</text>
+
+          <!-- IPS -->
+          <rect x="320" y="170" width="80" height="60" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="360" y="195" fill="#34d399" font-size="12" text-anchor="middle" font-weight="bold">IPS</text>
+          <text x="360" y="210" fill="#94a3b8" font-size="10" text-anchor="middle">L7 분석</text>
+
+          <!-- 내부 서버 -->
+          <rect x="440" y="170" width="80" height="60" rx="8" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="480" y="195" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">Web Server</text>
+          <text x="480" y="210" fill="#94a3b8" font-size="10" text-anchor="middle">API Server</text>
+
+          <!-- IDS (패시브) -->
+          <rect x="320" y="280" width="80" height="60" rx="8" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="360" y="305" fill="#fbbf24" font-size="12" text-anchor="middle" font-weight="bold">IDS</text>
+          <text x="360" y="320" fill="#94a3b8" font-size="10" text-anchor="middle">모니터링</text>
+
+          <!-- 트래픽 흐름 (인라인) -->
+          <line x1="160" y1="200" x2="200" y2="200" stroke="#7c6af7" stroke-width="2" marker-end="url(#arrowhead)"/>
+          <line x1="280" y1="200" x2="320" y2="200" stroke="#7c6af7" stroke-width="2" marker-end="url(#arrowhead)"/>
+          <line x1="400" y1="200" x2="440" y2="200" stroke="#7c6af7" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+          <!-- 미러링 트래픽 (IDS) -->
+          <line x1="360" y1="230" x2="360" y2="280" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead-yellow)"/>
+          <text x="380" y="255" fill="#fbbf24" font-size="10">미러링</text>
+
+          <!-- 공격 패킷 예시 -->
+          <g transform="translate(20, 50)">
+            <rect x="0" y="0" width="160" height="80" rx="6" fill="#22263a" stroke="#f87171" stroke-width="1.5"/>
+            <text x="80" y="20" fill="#f87171" font-size="11" text-anchor="middle" font-weight="bold">🚨 공격 패킷</text>
+            <text x="10" y="40" fill="#94a3b8" font-size="9">GET /api?id=1' OR '1'='1</text>
+            <text x="10" y="55" fill="#94a3b8" font-size="9">User-Agent: Nikto/2.1.6</text>
+            <text x="10" y="70" fill="#f87171" font-size="9" font-weight="bold">→ IPS가 차단!</text>
+          </g>
+
+          <!-- 정상 패킷 예시 -->
+          <g transform="translate(520, 50)">
+            <rect x="0" y="0" width="160" height="80" rx="6" fill="#22263a" stroke="#34d399" stroke-width="1.5"/>
+            <text x="80" y="20" fill="#34d399" font-size="11" text-anchor="middle" font-weight="bold">✅ 정상 패킷</text>
+            <text x="10" y="40" fill="#94a3b8" font-size="9">GET /api/users/123</text>
+            <text x="10" y="55" fill="#94a3b8" font-size="9">Authorization: Bearer ...</text>
+            <text x="10" y="70" fill="#34d399" font-size="9" font-weight="bold">→ 통과</text>
+          </g>
+
+          <!-- 레이블 -->
+          <text x="350" y="30" fill="#a78bfa" font-size="13" text-anchor="middle" font-weight="bold">IPS: Inline 구성 (모든 트래픽 통과)</text>
+          <text x="350" y="380" fill="#fbbf24" font-size="13" text-anchor="middle" font-weight="bold">IDS: Out-of-band 구성 (복사본만 분석)</text>
+
+          <!-- 화살표 정의 -->
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#7c6af7"/>
+            </marker>
+            <marker id="arrowhead-yellow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#fbbf24"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p>
+        <strong>다이어그램 해석:</strong>
+      </p>
+      <ul>
+        <li><strong>IPS (녹색)</strong>는 트래픽 경로에 인라인으로 위치하여 모든 패킷을 검사하고 차단</li>
+        <li><strong>IDS (노란색)</strong>는 미러링된 트래픽만 수동으로 분석 (탐지만, 차단 불가)</li>
+        <li>방화벽은 IP/Port 레벨에서 차단, IPS는 HTTP 요청 내용까지 분석</li>
+        <li>SQL Injection 같은 애플리케이션 공격은 IPS가 실시간으로 차단</li>
+      </ul>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">WAF (Web Application Firewall)</span>
+        <span class="related-tag">NGFW (Next-Generation Firewall)</span>
+        <span class="related-tag">SIEM (Security Information & Event Management)</span>
+        <span class="related-tag">DDoS 방어</span>
+        <span class="related-tag">Snort / Suricata</span>
+        <span class="related-tag">IDPS (Intrusion Detection & Prevention System)</span>
+        <span class="related-tag">Inline vs Tap Mode</span>
+        <span class="related-tag">Zero Trust Architecture</span>
+        <span class="related-tag">Network Segmentation</span>
+        <span class="related-tag">Threat Intelligence</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/DevOps-인프라/보안-솔루션/index.html" class="nav-link">← 보안 솔루션 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

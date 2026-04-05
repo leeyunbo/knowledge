@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP Keep-Alive와 커넥션 풀링 — HTTP · 네트워크</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/네트워크/index.html">네트워크</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/네트워크/HTTP/index.html">HTTP</a>
+      <span class="sep">›</span>
+      <span class="current">Keep-Alive와 커넥션 풀링</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>HTTP Keep-Alive와 커넥션 풀링</h1>
+      <p class="meta">네트워크 · HTTP · 2026-03-27</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        HTTP Keep-Alive는 <strong>TCP 연결을 끊지 않고 유지</strong>하는 기능이고, 커넥션 풀링은 <strong>유지된 연결을 재사용할 수 있도록 보관</strong>하는 구조입니다. Keep-Alive만으로는 부족하고, 풀이 있어야 실제로 연결이 재사용됩니다.
+      </div>
+      <p>
+        HTTP는 Request/Response 모델이지만, HTTP/1.1부터 <strong>Keep-Alive가 기본</strong>으로 활성화됩니다. 이는 응답 후에도 TCP 연결을 닫지 않겠다는 의미입니다.
+      </p>
+      <p>
+        그러나 Java의 <code>SimpleClientHttpRequestFactory</code>처럼 커넥션 풀이 없는 클라이언트는 응답을 받은 뒤 연결 객체에 대한 참조가 사라져 <strong>GC가 소켓을 닫아버립니다</strong>. 서버가 Keep-Alive를 허용해도 클라이언트가 연결을 보관하지 않으면 매번 새로운 TCP 연결을 생성하게 됩니다.
+      </p>
+      <p>
+        커넥션 풀은 이 문제를 해결합니다. 사용한 연결을 풀에 반환(return)하고, 다음 요청 시 풀에서 빌려(borrow) 재사용합니다. 이를 통해 <strong>TCP 3-way handshake 비용을 제거</strong>하고, <strong>TIME_WAIT 소켓 폭증을 방지</strong>합니다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-concept">▧</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h2>HTTP/1.0 vs HTTP/1.1 Keep-Alive</h2>
+      <table class="info-table">
+        <thead>
+          <tr><th>구분</th><th>HTTP/1.0</th><th>HTTP/1.1</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>기본 동작</strong></td>
+            <td>요청마다 연결 생성/종료</td>
+            <td>Keep-Alive가 기본 (연결 유지)</td>
+          </tr>
+          <tr>
+            <td><strong>Keep-Alive 사용</strong></td>
+            <td>명시적으로 <code>Connection: Keep-Alive</code> 헤더 필요</td>
+            <td>기본 활성화, 끊으려면 <code>Connection: close</code></td>
+          </tr>
+          <tr>
+            <td><strong>연결 종료 시점</strong></td>
+            <td>응답 전송 후 즉시 FIN</td>
+            <td>일정 시간 idle 후 또는 명시적 close</td>
+          </tr>
+          <tr>
+            <td><strong>성능</strong></td>
+            <td>매번 3-way handshake 발생</td>
+            <td>연결 재사용으로 handshake 생략 가능</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>TCP 3-Way Handshake</h2>
+      <p>
+        TCP 연결을 수립하려면 클라이언트-서버 간 <strong>SYN → SYN+ACK → ACK</strong> 3단계 패킷 교환이 필요합니다. 네트워크 왕복 시간(RTT)이 1ms라면, 매 요청마다 약 1.5ms의 연결 수립 비용이 추가됩니다. 2000 TPS에서는 초당 3,000ms에 달하는 누적 지연이 발생합니다.
+      </p>
+
+      <h2>Ephemeral Port (임시 포트)</h2>
+      <p>
+        클라이언트가 TCP 연결을 생성할 때 OS는 <strong>49152~65535 범위</strong>의 임시 포트를 할당합니다. 사용 가능한 포트는 약 <strong>16,000개</strong>입니다. 소켓이 닫혀도 TIME_WAIT 상태에서 포트를 점유하므로, 대량 연결 생성 시 포트가 고갈될 수 있습니다.
+      </p>
+
+      <h2>TIME_WAIT 상태</h2>
+      <p>
+        TCP 연결을 <strong>먼저 끊는 쪽(active close)</strong>은 소켓이 즉시 사라지지 않고 <strong>TIME_WAIT 상태로 60초간 유지</strong>됩니다. 이는 네트워크에 남아있을 수 있는 지연 패킷이 새 연결에 영향을 주는 것을 방지하기 위한 TCP 설계입니다.
+      </p>
+    </div>
+
+    <!-- 더 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">▽</div>
+        더 깊이 파고들기
+      </div>
+
+      <h2>SimpleClientHttpRequestFactory는 왜 연결을 재사용하지 못하는가?</h2>
+      <p>
+        Spring의 기본 <code>RestTemplate</code>은 <code>SimpleClientHttpRequestFactory</code>를 사용합니다. 이 팩토리는 내부적으로 <code>java.net.HttpURLConnection</code>을 사용하며, <strong>커넥션 풀이 없습니다</strong>.
+      </p>
+      <p>
+        요청-응답이 끝나면 <code>HttpURLConnection</code> 객체에 대한 참조가 메서드 스코프를 벗어나 사라집니다. 참조가 없어진 객체는 GC 대상이 되고, GC가 이 객체를 수거하면서 <strong>내부 소켓의 <code>close()</code>가 호출</strong>됩니다. 서버가 Keep-Alive를 허용하더라도 클라이언트 측에서 소켓을 닫아버리는 것입니다.
+      </p>
+
+      <h2>커넥션 풀링은 어떻게 동작하는가?</h2>
+      <p>
+        Apache HttpClient의 <code>PoolingHttpClientConnectionManager</code>는 다음과 같이 동작합니다:
+      </p>
+      <ol>
+        <li><strong>Borrow</strong>: 요청 시 풀에서 유휴 연결을 꺼냄 (없으면 새로 생성)</li>
+        <li><strong>Execute</strong>: 빌린 연결로 HTTP 요청/응답 수행</li>
+        <li><strong>Return</strong>: 응답이 끝나면 연결을 풀에 반환 (닫지 않음)</li>
+        <li><strong>Reuse</strong>: 다음 요청이 같은 호스트라면 반환된 연결을 재사용</li>
+      </ol>
+      <p>
+        풀은 연결 객체에 대한 <strong>강한 참조(strong reference)</strong>를 유지하므로 GC 대상이 되지 않습니다. 소켓은 살아있고, Keep-Alive 덕분에 서버도 연결을 유지하고 있으므로 즉시 재사용할 수 있습니다.
+      </p>
+
+      <h2>2000 TPS에서의 TIME_WAIT 문제</h2>
+      <p>
+        커넥션 풀 없이 2000 TPS로 외부 API를 호출하면 다음과 같은 상황이 발생합니다:
+      </p>
+      <div class="highlight-box" style="background: rgba(248, 113, 113, 0.08); border-left-color: var(--red);">
+        <strong>초당 2,000개 소켓 생성</strong><br>
+        × TIME_WAIT 유지 시간 60초<br>
+        = <strong>최대 120,000개 TIME_WAIT 소켓</strong><br><br>
+        사용 가능한 Ephemeral Port: ~16,000개<br>
+        → <strong>포트 고갈 → <code>java.net.BindException: Address already in use</code></strong>
+      </div>
+      <p>
+        커넥션 풀을 사용하면 소켓 수가 풀 크기(예: <code>maxTotal=200</code>)로 제한됩니다. 200개의 소켓을 재사용하므로 TIME_WAIT 자체가 거의 발생하지 않습니다.
+      </p>
+
+      <h2>PoolingHttpClientConnectionManager 설정 예시</h2>
+      <pre><code>@Bean
+public RestTemplate restTemplate() {
+    PoolingHttpClientConnectionManager cm =
+        new PoolingHttpClientConnectionManager();
+    cm.setMaxTotal(200);              // 전체 최대 커넥션 수
+    cm.setDefaultMaxPerRoute(50);     // 호스트당 최대 커넥션 수
+
+    CloseableHttpClient httpClient = HttpClients.custom()
+        .setConnectionManager(cm)
+        .setKeepAliveStrategy((response, context) -> 30_000) // 30초
+        .build();
+
+    HttpComponentsClientHttpRequestFactory factory =
+        new HttpComponentsClientHttpRequestFactory(httpClient);
+    factory.setConnectTimeout(3_000);
+    factory.setReadTimeout(5_000);
+
+    return new RestTemplate(factory);
+}</code></pre>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">▽</div>
+        시각화
+      </div>
+
+      <h2>풀 없이 (SimpleClientHttpRequestFactory)</h2>
+      <svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:800px; margin: 1rem 0;">
+        <defs>
+          <marker id="arrow1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#7c6af7"/>
+          </marker>
+          <marker id="arrow-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#f87171"/>
+          </marker>
+        </defs>
+
+        <rect width="800" height="340" rx="12" fill="#0f1117"/>
+
+        <!-- Client -->
+        <rect x="30" y="20" width="140" height="40" rx="8" fill="#1a1d27" stroke="#2e3250" stroke-width="1.5"/>
+        <text x="100" y="45" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">RestTemplate</text>
+
+        <!-- Server -->
+        <rect x="630" y="20" width="140" height="40" rx="8" fill="#1a1d27" stroke="#2e3250" stroke-width="1.5"/>
+        <text x="700" y="45" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">카카오 API 서버</text>
+
+        <!-- Request 1 -->
+        <text x="30" y="95" fill="#94a3b8" font-size="11">요청 1</text>
+        <rect x="80" y="80" width="120" height="26" rx="6" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+        <text x="140" y="97" text-anchor="middle" fill="#a78bfa" font-size="11">new Socket()</text>
+        <line x1="200" y1="93" x2="620" y2="93" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow1)" stroke-dasharray="6,3"/>
+        <text x="400" y="87" text-anchor="middle" fill="#7c6af7" font-size="10">3-way handshake + 요청/응답</text>
+        <rect x="630" y="80" width="120" height="26" rx="6" fill="rgba(248,113,113,0.1)" stroke="#f87171" stroke-width="1"/>
+        <text x="690" y="97" text-anchor="middle" fill="#f87171" font-size="11">close → FIN</text>
+
+        <!-- TIME_WAIT -->
+        <rect x="80" y="112" width="120" height="20" rx="4" fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="140" y="126" text-anchor="middle" fill="#f87171" font-size="10">TIME_WAIT 60s</text>
+
+        <!-- Request 2 -->
+        <text x="30" y="165" fill="#94a3b8" font-size="11">요청 2</text>
+        <rect x="80" y="150" width="120" height="26" rx="6" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+        <text x="140" y="167" text-anchor="middle" fill="#a78bfa" font-size="11">new Socket()</text>
+        <line x1="200" y1="163" x2="620" y2="163" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow1)" stroke-dasharray="6,3"/>
+        <text x="400" y="157" text-anchor="middle" fill="#7c6af7" font-size="10">3-way handshake + 요청/응답</text>
+        <rect x="630" y="150" width="120" height="26" rx="6" fill="rgba(248,113,113,0.1)" stroke="#f87171" stroke-width="1"/>
+        <text x="690" y="167" text-anchor="middle" fill="#f87171" font-size="11">close → FIN</text>
+
+        <!-- TIME_WAIT 2 -->
+        <rect x="80" y="182" width="120" height="20" rx="4" fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="140" y="196" text-anchor="middle" fill="#f87171" font-size="10">TIME_WAIT 60s</text>
+
+        <!-- Request 3 -->
+        <text x="30" y="235" fill="#94a3b8" font-size="11">요청 3</text>
+        <rect x="80" y="220" width="120" height="26" rx="6" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+        <text x="140" y="237" text-anchor="middle" fill="#a78bfa" font-size="11">new Socket()</text>
+        <line x1="200" y1="233" x2="620" y2="233" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow1)" stroke-dasharray="6,3"/>
+        <text x="400" y="227" text-anchor="middle" fill="#7c6af7" font-size="10">3-way handshake + 요청/응답</text>
+        <rect x="630" y="220" width="120" height="26" rx="6" fill="rgba(248,113,113,0.1)" stroke="#f87171" stroke-width="1"/>
+        <text x="690" y="237" text-anchor="middle" fill="#f87171" font-size="11">close → FIN</text>
+
+        <!-- TIME_WAIT 3 -->
+        <rect x="80" y="252" width="120" height="20" rx="4" fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="140" y="266" text-anchor="middle" fill="#f87171" font-size="10">TIME_WAIT 60s</text>
+
+        <!-- Summary -->
+        <rect x="30" y="290" width="740" height="36" rx="8" fill="rgba(248,113,113,0.08)" stroke="#f87171" stroke-width="1"/>
+        <text x="400" y="313" text-anchor="middle" fill="#f87171" font-size="12" font-weight="600">매 요청마다 새 소켓 → 3-way handshake 반복 → TIME_WAIT 누적 → 포트 고갈</text>
+      </svg>
+
+      <h2>풀 사용 (PoolingHttpClientConnectionManager)</h2>
+      <svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:800px; margin: 1rem 0;">
+        <defs>
+          <marker id="arrow2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#34d399"/>
+          </marker>
+          <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#7c6af7"/>
+          </marker>
+        </defs>
+
+        <rect width="800" height="340" rx="12" fill="#0f1117"/>
+
+        <!-- Client -->
+        <rect x="30" y="20" width="140" height="40" rx="8" fill="#1a1d27" stroke="#2e3250" stroke-width="1.5"/>
+        <text x="100" y="45" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">RestTemplate</text>
+
+        <!-- Pool -->
+        <rect x="220" y="15" width="160" height="50" rx="8" fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="300" y="35" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">Connection Pool</text>
+        <text x="300" y="52" text-anchor="middle" fill="#94a3b8" font-size="10">borrow / return</text>
+
+        <!-- Server -->
+        <rect x="630" y="20" width="140" height="40" rx="8" fill="#1a1d27" stroke="#2e3250" stroke-width="1.5"/>
+        <text x="700" y="45" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">카카오 API 서버</text>
+
+        <!-- Initial connection -->
+        <text x="30" y="100" fill="#94a3b8" font-size="11">최초 1회</text>
+        <rect x="220" y="85" width="160" height="26" rx="6" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="1"/>
+        <text x="300" y="102" text-anchor="middle" fill="#34d399" font-size="11">new Socket()</text>
+        <line x1="380" y1="98" x2="620" y2="98" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow2)" stroke-dasharray="6,3"/>
+        <text x="500" y="92" text-anchor="middle" fill="#34d399" font-size="10">3-way handshake (1회만)</text>
+
+        <!-- Keep-Alive indicator -->
+        <rect x="630" y="85" width="120" height="26" rx="6" fill="rgba(52,211,153,0.1)" stroke="#34d399" stroke-width="1"/>
+        <text x="690" y="102" text-anchor="middle" fill="#34d399" font-size="11">Keep-Alive</text>
+
+        <!-- Request 1 -->
+        <text x="30" y="155" fill="#94a3b8" font-size="11">요청 1</text>
+        <line x1="170" y1="148" x2="215" y2="148" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+        <text x="192" y="142" text-anchor="middle" fill="#a78bfa" font-size="9">borrow</text>
+        <line x1="380" y1="148" x2="620" y2="148" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow2)"/>
+        <text x="500" y="142" text-anchor="middle" fill="#34d399" font-size="10">요청/응답 (기존 소켓 사용)</text>
+        <line x1="215" y1="158" x2="170" y2="158" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+        <text x="192" y="172" text-anchor="middle" fill="#a78bfa" font-size="9">return</text>
+
+        <!-- Request 2 -->
+        <text x="30" y="210" fill="#94a3b8" font-size="11">요청 2</text>
+        <line x1="170" y1="203" x2="215" y2="203" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+        <text x="192" y="197" text-anchor="middle" fill="#a78bfa" font-size="9">borrow</text>
+        <line x1="380" y1="203" x2="620" y2="203" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow2)"/>
+        <text x="500" y="197" text-anchor="middle" fill="#34d399" font-size="10">요청/응답 (같은 소켓 재사용)</text>
+        <line x1="215" y1="213" x2="170" y2="213" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+        <text x="192" y="227" text-anchor="middle" fill="#a78bfa" font-size="9">return</text>
+
+        <!-- Request 3 -->
+        <text x="30" y="265" fill="#94a3b8" font-size="11">요청 3</text>
+        <line x1="170" y1="258" x2="215" y2="258" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+        <text x="192" y="252" text-anchor="middle" fill="#a78bfa" font-size="9">borrow</text>
+        <line x1="380" y1="258" x2="620" y2="258" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow2)"/>
+        <text x="500" y="252" text-anchor="middle" fill="#34d399" font-size="10">요청/응답 (같은 소켓 재사용)</text>
+        <line x1="215" y1="268" x2="170" y2="268" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+        <text x="192" y="282" text-anchor="middle" fill="#a78bfa" font-size="9">return</text>
+
+        <!-- Summary -->
+        <rect x="30" y="295" width="740" height="36" rx="8" fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1"/>
+        <text x="400" y="318" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">소켓 1개로 N번 요청 → handshake 0회 → TIME_WAIT 없음 → 포트 안전</text>
+      </svg>
+    </div>
+
+    <!-- 함께 알면 좋은 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">TCP 3-Way Handshake</span>
+        <span class="related-tag">Ephemeral Port (임시 포트)</span>
+        <span class="related-tag">TIME_WAIT</span>
+        <span class="related-tag">Apache HttpClient</span>
+        <span class="related-tag">PoolingHttpClientConnectionManager</span>
+        <span class="related-tag">HttpComponentsClientHttpRequestFactory</span>
+        <span class="related-tag">SimpleClientHttpRequestFactory</span>
+        <span class="related-tag">Connection: Keep-Alive 헤더</span>
+        <span class="related-tag">SO_LINGER / SO_REUSEADDR</span>
+        <span class="related-tag">Netty Channel Pool</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/네트워크/HTTP/index.html" class="nav-link">&larr; HTTP 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">전체 목록 &rarr;</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

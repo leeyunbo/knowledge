@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CompletableFuture가 병렬처럼 보이지만 직렬로 동작하는 이유 — CompletableFuture · Java 동시성</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/Java-동시성/index.html">Java 동시성</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/Java-동시성/CompletableFuture/index.html">CompletableFuture</a>
+      <span class="sep">›</span>
+      <span class="current">병렬처럼 보이지만 직렬로 동작하는 이유</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 트러블슈팅 분석</div>
+      <h1>CompletableFuture가 병렬처럼 보이지만 직렬로 동작하는 이유: OS 스케줄링</h1>
+      <p class="meta">Java 동시성 · CompletableFuture · 2026-03-15</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Java의 CompletableFuture는 논리적으로 병렬이지만, 실제 CPU 점유는 OS 스케줄러가 결정한다.<br>
+        코드가 작업을 "제출"하는 시점과 "실제로 실행"되는 시점은 다르다.
+      </div>
+      <p>
+        로컬에서 <code>CompletableFuture.runAsync()</code>로 A, B, C 세 작업을 동시에 제출했을 때,
+        전체 시간이 <code>max(A, B, C)</code>가 아니라 <code>A + B + C</code>에 가깝게 나온다면
+        코드 버그가 아니라 <strong>OS 스케줄러의 실행 순서 결정</strong> 때문일 가능성이 높다.
+      </p>
+      <p>
+        개발 머신은 IDE, 브라우저, 시스템 데몬 등 수십~수백 개의 스레드가 경쟁하고 있다.
+        내 워커 스레드는 그 경쟁에서 언제 CPU를 받을지 보장받지 못한다.
+      </p>
+    </div>
+
+    <!-- 현상 분석 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        현상과 배경: 무슨 일이 벌어진 건가
+      </div>
+
+      <h2>관찰된 이상 현상</h2>
+      <ul>
+        <li>전체 응답 시간이 <code>A + B + C</code>에 근접 (병렬이면 <code>max(A, B, C)</code>여야 함)</li>
+        <li>각 메서드 호출 시점 사이에 30~50ms 이상 갭 발생</li>
+        <li>코드 레벨 blocking 없음 — <code>join()</code>, <code>get()</code> 불필요한 호출 없음</li>
+      </ul>
+
+      <h2 style="margin-top:1.25rem;">왜 "논리적 병렬"과 "물리적 동시성"은 다른가</h2>
+      <p>
+        <code>runAsync()</code>를 호출하면 JVM은 작업을 <strong>ForkJoinPool(공통 풀)</strong>의 큐에 넣는다.
+        이 시점은 제출(submission)이지, 실행(execution)이 아니다.
+        실제 CPU를 점유하려면 OS 스케줄러가 해당 워커 스레드를 선택해야 한다.
+      </p>
+
+      <div class="diagram-wrap">
+        <svg width="720" height="200" viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" font-family="'JetBrains Mono', monospace">
+          <!-- 배경 레인 -->
+          <rect x="10" y="10" width="700" height="50" rx="6" fill="#1a1d27" stroke="#2e3250" stroke-width="1"/>
+          <rect x="10" y="75" width="700" height="50" rx="6" fill="#1a1d27" stroke="#2e3250" stroke-width="1"/>
+          <rect x="10" y="140" width="700" height="50" rx="6" fill="#1a1d27" stroke="#2e3250" stroke-width="1"/>
+
+          <!-- 레인 레이블 -->
+          <text x="20" y="40" fill="#64748b" font-size="11">Main Thread</text>
+          <text x="20" y="105" fill="#64748b" font-size="11">Worker-1 (A)</text>
+          <text x="20" y="170" fill="#64748b" font-size="11">Worker-2 (B)</text>
+
+          <!-- 이상적 (기대) -->
+          <!-- Main: submit A,B at t=120 -->
+          <rect x="110" y="20" width="14" height="30" rx="3" fill="#7c6af7" opacity="0.9"/>
+          <text x="103" y="65" fill="#a78bfa" font-size="10">submit A,B</text>
+
+          <!-- 이상적 Worker-1: t=124 시작 -->
+          <rect x="130" y="85" width="120" height="30" rx="3" fill="#34d399" opacity="0.85"/>
+          <text x="155" y="105" fill="#0f1117" font-size="11" font-weight="700">A 실행</text>
+
+          <!-- 이상적 Worker-2: t=124 시작 -->
+          <rect x="130" y="150" width="100" height="30" rx="3" fill="#38bdf8" opacity="0.85"/>
+          <text x="155" y="170" fill="#0f1117" font-size="11" font-weight="700">B 실행</text>
+
+          <!-- 수직선 t=130 -->
+          <line x1="130" y1="10" x2="130" y2="195" stroke="#2e3250" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="122" y="8" fill="#64748b" font-size="9">t=0</text>
+
+          <!-- 실제 (현실) — 오른쪽에 표시 -->
+          <line x1="380" y1="10" x2="380" y2="195" stroke="#2e3250" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="372" y="8" fill="#64748b" font-size="9">t=0</text>
+
+          <!-- submit -->
+          <rect x="390" y="20" width="14" height="30" rx="3" fill="#7c6af7" opacity="0.9"/>
+          <text x="376" y="65" fill="#a78bfa" font-size="10">submit A,B</text>
+
+          <!-- Worker-1: 지연 후 시작 -->
+          <rect x="420" y="85" width="8" height="30" rx="2" fill="#64748b" opacity="0.5"/>
+          <text x="405" y="82" fill="#fbbf24" font-size="9">대기</text>
+          <rect x="434" y="85" width="120" height="30" rx="3" fill="#34d399" opacity="0.85"/>
+          <text x="459" y="105" fill="#0f1117" font-size="11" font-weight="700">A 실행</text>
+
+          <!-- Worker-2: 더 긴 지연 후 시작 -->
+          <rect x="420" y="150" width="50" height="30" rx="2" fill="#64748b" opacity="0.5"/>
+          <text x="428" y="147" fill="#fbbf24" font-size="9">대기 (50ms+)</text>
+          <rect x="476" y="150" width="100" height="30" rx="3" fill="#38bdf8" opacity="0.85"/>
+          <text x="501" y="170" fill="#0f1117" font-size="11" font-weight="700">B 실행</text>
+
+          <!-- 레이블 -->
+          <text x="155" y="195" fill="#34d399" font-size="10">← 기대 (병렬) →</text>
+          <text x="450" y="195" fill="#f87171" font-size="10">← 실제 (OS 지연) →</text>
+        </svg>
+      </div>
+
+      <p>
+        왼쪽(기대)에서는 A와 B가 거의 동시에 시작한다. 오른쪽(실제)에서는 OS가 Worker-2에 CPU를
+        늦게 할당하여 B의 시작이 50ms 이상 밀린다. 결과적으로 겹치는 구간이 줄어 전체 시간이 늘어난다.
+      </p>
+    </div>
+
+    <!-- OS 스케줄러 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        OS 스케줄러 — 왜 내 스레드가 바로 실행되지 않는가
+      </div>
+
+      <h2>스케줄러의 역할</h2>
+      <p>
+        OS 스케줄러는 CPU라는 희소 자원을 수백 개의 스레드에게 공정하게 나눠주는 교통 정리사다.
+        Linux의 <strong>CFS(Completely Fair Scheduler)</strong>, macOS/Windows의 멀티레벨 피드백 큐 등
+        구체적인 구현은 다르지만 핵심 개념은 같다.
+      </p>
+
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>개념</th>
+            <th>설명</th>
+            <th>영향</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>선점형 스케줄링</strong></td>
+            <td>실행 중인 스레드라도 타임슬라이스가 끝나면 CPU를 빼앗김</td>
+            <td><span class="badge badge-yellow">예측 불가</span></td>
+          </tr>
+          <tr>
+            <td><strong>우선순위</strong></td>
+            <td>IDE, 시스템 프로세스가 워커 스레드보다 높은 우선순위일 수 있음</td>
+            <td><span class="badge badge-red">지연 원인</span></td>
+          </tr>
+          <tr>
+            <td><strong>Time Slice</strong></td>
+            <td>한 스레드가 연속으로 CPU를 점유할 수 있는 시간 (보통 1~10ms)</td>
+            <td><span class="badge badge-yellow">짧을수록 전환 잦음</span></td>
+          </tr>
+          <tr>
+            <td><strong>Context Switching</strong></td>
+            <td>스레드 교체 시 레지스터·스택 상태 저장/복원 — 수 마이크로초 오버헤드</td>
+            <td><span class="badge badge-yellow">누적 시 유의미</span></td>
+          </tr>
+          <tr>
+            <td><strong>Run Queue 경쟁</strong></td>
+            <td>새로 생성된 스레드는 런큐 끝에 줄 서서 순서를 기다림</td>
+            <td><span class="badge badge-red">시작 지연 원인</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>스레드가 실제로 실행되기까지의 과정</h2>
+      <ol class="step-list">
+        <li>
+          <span class="step-num">1</span>
+          <div><code>runAsync(task)</code> 호출 → 태스크가 ForkJoinPool 큐에 등록된다. 스레드 생성이나 실행이 아님.</div>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <div>풀에서 유휴 워커 스레드가 태스크를 가져간다 (Work Stealing 방식).</div>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <div>워커 스레드가 <code>RUNNABLE</code> 상태로 전환되어 OS 런큐(run queue)에 진입한다.</div>
+        </li>
+        <li>
+          <span class="step-num">4</span>
+          <div>OS 스케줄러가 해당 스레드에 CPU 코어를 할당할 때 비로소 실행된다. 이 대기 시간이 0이 아니다.</div>
+        </li>
+      </ol>
+
+      <h2 style="margin-top:1.25rem;">로컬 개발 환경이 특히 나쁜 이유</h2>
+      <p>
+        프로덕션 서버는 애플리케이션 외 프로세스가 거의 없다.
+        반면 개발 머신은 IntelliJ/Eclipse, Chrome, 슬랙, Docker Desktop, 터미널 등 수백 개의 스레드가
+        같은 CPU를 놓고 경쟁한다. 워커 스레드가 런큐에서 기다리는 시간이 서버 환경보다 훨씬 길다.
+      </p>
+      <div class="warning-box">
+        ⚠️ 로컬에서 직렬처럼 보여도 서버에서는 제대로 병렬 동작할 수 있다.<br>
+        성능 측정은 반드시 프로덕션에 가까운 환경(부하 낮은 서버)에서 해야 한다.
+      </div>
+    </div>
+
+    <!-- 도커 해결책 분석 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-solution">◎</div>
+        도커로 해결할 수 있을까? — 잘못된 직관과 올바른 이해
+      </div>
+
+      <h2>직관: "도커는 격리된 환경이니 간섭이 없겠지"</h2>
+      <p>
+        도커 컨테이너가 호스트와 분리되어 있다는 인식에서 나온 발상이다.
+        결론적으로 <strong>도커는 이 문제를 해결하지 못한다.</strong>
+      </p>
+
+      <div class="diagram-wrap">
+        <svg width="620" height="220" viewBox="0 0 620 220" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- 하드웨어 레이어 -->
+          <rect x="20" y="175" width="580" height="35" rx="6" fill="#22263a" stroke="#2e3250"/>
+          <text x="310" y="197" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">CPU Hardware (물리 코어)</text>
+
+          <!-- OS 커널 레이어 -->
+          <rect x="20" y="130" width="580" height="35" rx="6" fill="#1a1d27" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="310" y="152" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="700">Host OS Kernel + CPU Scheduler</text>
+
+          <!-- 일반 프로세스 -->
+          <rect x="30" y="70" width="130" height="50" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="95" y="90" text-anchor="middle" fill="#94a3b8" font-size="11">Chrome</text>
+          <text x="95" y="108" text-anchor="middle" fill="#64748b" font-size="10">스레드 n개</text>
+
+          <rect x="170" y="70" width="130" height="50" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="235" y="90" text-anchor="middle" fill="#94a3b8" font-size="11">IntelliJ</text>
+          <text x="235" y="108" text-anchor="middle" fill="#64748b" font-size="10">스레드 n개</text>
+
+          <!-- 도커 컨테이너 -->
+          <rect x="315" y="55" width="280" height="65" rx="8" fill="#0f1117" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="335" y="73" fill="#38bdf8" font-size="10" font-weight="600">🐳 Docker Container</text>
+          <rect x="325" y="78" width="120" height="35" rx="5" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="385" y="93" text-anchor="middle" fill="#94a3b8" font-size="10">JVM</text>
+          <text x="385" y="107" text-anchor="middle" fill="#64748b" font-size="9">워커 스레드</text>
+
+          <!-- 화살표: 모든 스레드 → OS Kernel -->
+          <line x1="95" y1="120" x2="95" y2="133" stroke="#2e3250" stroke-width="1.5" stroke-dasharray="3,2"/>
+          <line x1="235" y1="120" x2="235" y2="133" stroke="#2e3250" stroke-width="1.5" stroke-dasharray="3,2"/>
+          <line x1="420" y1="120" x2="420" y2="133" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="3,2"/>
+
+          <!-- OS → Hardware -->
+          <line x1="310" y1="165" x2="310" y2="175" stroke="#7c6af7" stroke-width="1.5"/>
+          <polygon points="306,174 314,174 310,180" fill="#7c6af7"/>
+
+          <!-- 핵심 레이블 -->
+          <text x="310" y="30" text-anchor="middle" fill="#f87171" font-size="12" font-weight="700">컨테이너 내부 스레드도 OS 스케줄러가 관리한다</text>
+          <text x="310" y="48" text-anchor="middle" fill="#64748b" font-size="11">도커는 네임스페이스/cgroup 격리이지, CPU 스케줄러 교체가 아님</text>
+        </svg>
+      </div>
+
+      <h2>도커가 격리하는 것 vs 격리하지 않는 것</h2>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>도커가 격리하는 것</th>
+            <th>도커가 격리하지 않는 것</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>파일시스템 (레이어)</td>
+            <td>CPU 스케줄러</td>
+          </tr>
+          <tr>
+            <td>네트워크 네임스페이스</td>
+            <td>OS 커널 (호스트 커널 공유)</td>
+          </tr>
+          <tr>
+            <td>PID 네임스페이스</td>
+            <td>스레드 실행 우선순위 경쟁</td>
+          </tr>
+          <tr>
+            <td>CPU/메모리 사용량 (cgroup)</td>
+            <td>Context Switching 오버헤드</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="warning-box">
+        cgroup으로 CPU 쿼터를 설정할 수는 있지만, 이는 최대 사용량 제한이지 전용 할당이 아니다.
+        컨테이너 안의 스레드는 여전히 호스트의 다른 스레드와 경쟁한다.
+      </div>
+
+      <h2>그렇다면 실제 해결책은?</h2>
+      <p>이 문제는 "해결"보다 "이해와 수용"이 맞는 접근이다.</p>
+      <ul>
+        <li><strong>성능 측정은 프로덕션 환경에서</strong> — 로컬 수치에 과도하게 의존하지 말 것</li>
+        <li><strong>워밍업(Warmup) 후 측정</strong> — JIT 컴파일, 스레드풀 초기화 이후 안정 수치 사용</li>
+        <li><strong>JMH(Java Microbenchmark Harness)</strong> 사용 — 벤치마킹 전용 도구는 워밍업, 통계 처리를 자동화함</li>
+        <li><strong>커스텀 스레드풀 사용</strong> — 공통 ForkJoinPool 대신 <code>Executors.newFixedThreadPool(n)</code>으로 우선순위 조절 가능</li>
+        <li><strong>Virtual Threads (Java 21+)</strong> — OS 스레드를 직접 쓰지 않아 컨텍스트 스위칭 비용 감소, 단 CPU-bound 작업엔 효과 제한적</li>
+      </ul>
+
+      <pre><code>// 커스텀 ThreadFactory로 우선순위 높이기
+ThreadFactory highPriority = r -> {
+    Thread t = new Thread(r);
+    t.setPriority(Thread.MAX_PRIORITY);
+    return t;
+};
+ExecutorService exec = Executors.newFixedThreadPool(4, highPriority);
+
+CompletableFuture&lt;Void&gt; a = CompletableFuture.runAsync(taskA, exec);
+CompletableFuture&lt;Void&gt; b = CompletableFuture.runAsync(taskB, exec);
+CompletableFuture&lt;Void&gt; c = CompletableFuture.runAsync(taskC, exec);
+CompletableFuture.allOf(a, b, c).join();</code></pre>
+
+      <div class="success-box">
+        ✅ 실무에서 중요한 것은 "로컬에서 완벽한 병렬"이 아니라 "프로덕션에서 충분한 병렬"이다.
+        로컬 지연은 노이즈로 보고, 실제 환경 측정으로 검증하는 것이 올바른 접근이다.
+      </div>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        CompletableFuture 실행 흐름 전체 그림
+      </div>
+
+      <div class="diagram-wrap">
+        <svg width="700" height="310" viewBox="0 0 700 310" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif" font-size="12">
+
+          <!-- 단계 박스들 -->
+          <!-- 1. runAsync 호출 -->
+          <rect x="270" y="15" width="160" height="40" rx="8" fill="#1a1d27" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="350" y="33" text-anchor="middle" fill="#a78bfa" font-weight="700">runAsync() 호출</text>
+          <text x="350" y="48" text-anchor="middle" fill="#64748b" font-size="10">Main Thread</text>
+
+          <!-- 화살표 -->
+          <line x1="350" y1="55" x2="350" y2="75" stroke="#2e3250" stroke-width="1.5"/>
+          <polygon points="346,74 354,74 350,80" fill="#2e3250"/>
+
+          <!-- 2. 태스크 큐 등록 -->
+          <rect x="200" y="80" width="300" height="40" rx="8" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="350" y="98" text-anchor="middle" fill="#38bdf8" font-weight="700">ForkJoinPool 큐에 태스크 등록</text>
+          <text x="350" y="113" text-anchor="middle" fill="#64748b" font-size="10">메모리에 있는 큐 — 아직 실행 아님</text>
+
+          <!-- 화살표 -->
+          <line x1="350" y1="120" x2="350" y2="140" stroke="#2e3250" stroke-width="1.5"/>
+          <polygon points="346,139 354,139 350,145" fill="#2e3250"/>
+
+          <!-- 3. 워커 스레드가 태스크 pick up -->
+          <rect x="200" y="145" width="300" height="40" rx="8" fill="#1a1d27" stroke="#2e3250" stroke-width="1.5"/>
+          <text x="350" y="163" text-anchor="middle" fill="#e2e8f0" font-weight="700">워커 스레드가 태스크 획득 (Work Steal)</text>
+          <text x="350" y="178" text-anchor="middle" fill="#64748b" font-size="10">RUNNABLE 상태로 전환</text>
+
+          <!-- 화살표 -->
+          <line x1="350" y1="185" x2="350" y2="205" stroke="#2e3250" stroke-width="1.5"/>
+          <polygon points="346,204 354,204 350,210" fill="#2e3250"/>
+
+          <!-- 4. OS 런큐 대기 -->
+          <rect x="170" y="210" width="360" height="45" rx="8" fill="#1a1d27" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="350" y="228" text-anchor="middle" fill="#fbbf24" font-weight="700">OS Run Queue 대기</text>
+          <text x="350" y="244" text-anchor="middle" fill="#64748b" font-size="10">⚠️ 이 구간이 가변적 — 수 ms ~ 수십 ms</text>
+          <text x="350" y="257" text-anchor="middle" fill="#64748b" font-size="10">다른 스레드들과 CPU 경쟁</text>
+
+          <!-- 화살표 -->
+          <line x1="350" y1="255" x2="350" y2="275" stroke="#2e3250" stroke-width="1.5"/>
+          <polygon points="346,274 354,274 350,280" fill="#2e3250"/>
+
+          <!-- 5. 실제 실행 -->
+          <rect x="220" y="280" width="260" height="25" rx="8" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="350" y="297" text-anchor="middle" fill="#34d399" font-weight="700">✅ 실제 CPU에서 태스크 실행</text>
+
+        </svg>
+      </div>
+
+      <p>
+        4단계 "OS Run Queue 대기"가 핵심 병목이다.
+        코드에서는 <code>runAsync()</code> 한 줄이지만, 내부적으로는 위 5단계를 모두 거친다.
+        로컬 환경에서 이 대기 시간이 길어지면 A, B, C의 실제 시작 시점이 분산되어 직렬처럼 보인다.
+      </p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">ForkJoinPool & Work Stealing</span>
+        <span class="related-tag">Java Virtual Threads (Loom)</span>
+        <span class="related-tag">JMH 벤치마킹</span>
+        <span class="related-tag">Linux CFS 스케줄러</span>
+        <span class="related-tag">Context Switching 비용</span>
+        <span class="related-tag">cgroup CPU quota</span>
+        <span class="related-tag">Thread.setPriority()</span>
+        <span class="related-tag">Amdahl's Law</span>
+        <span class="related-tag">CPU-bound vs I/O-bound</span>
+        <span class="related-tag">CompletableFuture.allOf()</span>
+        <span class="related-tag">ThreadPoolTaskExecutor (Spring)</span>
+        <span class="related-tag">Reactive Streams (WebFlux)</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/Java-동시성/CompletableFuture/index.html" class="nav-link">← CompletableFuture 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JPA cascade — 부모가 자식의 생명주기를 관리한다 — JPA 실전 패턴 · 설계 스터디</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>JPA cascade — 부모가 자식의 생명주기를 관리한다</h1>
+      <p class="meta">설계 스터디 · JPA 실전 패턴 · 2026-03-30</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <code>cascade</code>는 부모 엔티티의 영속성 변화를 자식에게 <strong>전파</strong>하는 설정이다.
+        부모를 저장하면 자식도 저장, 부모를 삭제하면 자식도 삭제.
+      </div>
+    </div>
+
+    <!-- cascade 타입 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        cascade 타입
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr><th>타입</th><th>동작</th><th>사용 빈도</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>PERSIST</code></td><td>부모 저장 시 자식도 저장</td><td>자주 사용</td></tr>
+          <tr><td><code>MERGE</code></td><td>부모 병합 시 자식도 병합</td><td>가끔</td></tr>
+          <tr><td><code>REMOVE</code></td><td>부모 삭제 시 자식도 삭제</td><td>주의 필요</td></tr>
+          <tr><td><code>REFRESH</code></td><td>부모 새로고침 시 자식도 새로고침</td><td>드묾</td></tr>
+          <tr><td><code>DETACH</code></td><td>부모 분리 시 자식도 분리</td><td>드묾</td></tr>
+          <tr><td><code>ALL</code></td><td>위 전부</td><td>편하지만 위험할 수 있음</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 실전 예시 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        실전 예시
+      </div>
+
+      <h3>cascade 없을 때</h3>
+      <pre><code>// 부모와 자식을 각각 저장해야 함
+PointWallet wallet = new PointWallet(user);
+walletRepository.save(wallet);
+
+PointTransaction tx = new PointTransaction(wallet, ...);
+transactionRepository.save(tx);  // 직접 save 필요</code></pre>
+
+      <h3>cascade = ALL 일 때</h3>
+      <pre><code>@OneToMany(cascade = CascadeType.ALL)
+private List&lt;PointTransaction&gt; transactions = new ArrayList&lt;&gt;();
+
+// 부모만 저장하면 자식도 자동 저장
+wallet.charge(amount, transactionId);  // 내부에서 transactions.add()
+// wallet의 dirty checking 시 새로 추가된 transaction도 INSERT됨
+// transactionRepository.save() 불필요!</code></pre>
+
+      <h3>orphanRemoval과 함께</h3>
+      <pre><code>@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+private List&lt;PaymentCancel&gt; cancels;
+
+// orphanRemoval = true → 컬렉션에서 제거하면 DB에서도 DELETE
+cancels.remove(0);  // → DELETE FROM payment_cancels WHERE id = ?
+
+// orphanRemoval = false → 컬렉션에서 제거해도 DB에 남음
+cancels.remove(0);  // → FK만 null로 변경</code></pre>
+    </div>
+
+    <!-- 언제 쓰는가 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        언제 쓰고 언제 피하는가
+      </div>
+
+      <h3>cascade를 써야 하는 경우</h3>
+      <p><strong>자식이 부모 없이 존재할 수 없을 때</strong> (생명주기가 같을 때)</p>
+      <pre><code>// PointWallet ↔ PointTransaction
+// → 지갑 없는 거래 내역은 의미 없음
+// → 지갑에서 charge() 할 때 트랜잭션도 함께 생성
+@OneToMany(cascade = CascadeType.ALL)
+private List&lt;PointTransaction&gt; transactions;
+
+// Payment ↔ PaymentCancel
+// → 결제 없는 취소는 의미 없음
+@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+private List&lt;PaymentCancel&gt; cancels;</code></pre>
+
+      <h3>cascade를 피해야 하는 경우</h3>
+      <p><strong>자식이 독립적인 생명주기를 가질 때</strong></p>
+      <pre><code>// User ↔ PointWallet
+// → User 삭제해도 Wallet은 남아야 할 수 있음 (잔액 정산 등)
+// → cascade REMOVE 쓰면 User 삭제 시 Wallet도 삭제됨 → 위험
+@OneToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "user_id")
+private User user;  // cascade 없음
+
+// CouponEvent ↔ Coupon
+// → 이벤트 삭제해도 발급된 쿠폰은 남아야 함
+// → cascade 쓰면 안 됨</code></pre>
+
+      <h3>판단 기준 정리</h3>
+      <table class="compare-table">
+        <thead>
+          <tr><th>질문</th><th>Yes</th><th>No</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>부모 없이 자식이 존재할 수 있는가?</td><td>cascade 피하기</td><td>cascade 쓰기</td></tr>
+          <tr><td>부모 삭제 시 자식도 삭제돼야 하는가?</td><td>REMOVE 포함</td><td>REMOVE 제외</td></tr>
+          <tr><td>자식을 다른 곳에서도 직접 관리하는가?</td><td>cascade 피하기</td><td>cascade 쓰기</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ALL의 위험성 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        CascadeType.ALL의 위험성
+      </div>
+      <p><code>ALL</code>은 <code>REMOVE</code>를 포함하기 때문에 의도치 않은 삭제가 발생할 수 있다.</p>
+      <pre><code>// 안전한 선택: 필요한 것만 명시
+@OneToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+
+// 편하지만 위험할 수 있는 선택
+@OneToMany(cascade = CascadeType.ALL)
+// → 부모 삭제 시 자식도 전부 삭제됨</code></pre>
+      <p>확실히 생명주기가 같을 때만 <code>ALL</code>을 쓰고, 애매하면 <code>PERSIST + MERGE</code>만 쓰는 게 안전해요.</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">orphanRemoval</span>
+        <span class="related-tag">영속성 전이</span>
+        <span class="related-tag">dirty checking</span>
+        <span class="related-tag">양방향 매핑</span>
+        <span class="related-tag">@OneToMany</span>
+        <span class="related-tag">생명주기</span>
+        <span class="related-tag">Aggregate Root</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

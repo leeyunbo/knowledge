@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Elasticsearch 핵심 개념 정리 — DevOps 인프라</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a { color: var(--text3); text-decoration: none; transition: color 0.2s; }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.85rem; font-weight: 600;
+      letter-spacing: 0.02em; color: var(--accent2);
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+    }
+    .card-header .icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-structure { background: rgba(124,106,247,0.2); }
+    .icon-index { background: rgba(56,189,248,0.2); }
+    .icon-design { background: rgba(52,211,153,0.2); }
+    .icon-calc { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1rem;
+    }
+    .highlight-box.warning {
+      background: rgba(251,191,36,0.08);
+      border-left-color: var(--yellow);
+    }
+
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      margin: 1rem 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .compare-table {
+      width: 100%;
+      min-width: 400px;
+      border-collapse: collapse;
+    }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+      background: var(--bg3);
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    h3 {
+      color: var(--accent2);
+      font-size: 1.1rem;
+      margin: 1.5rem 0 0.75rem;
+    }
+    h3:first-child { margin-top: 0; }
+
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="../index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="index.html">Elasticsearch</a>
+      <span class="sep">›</span>
+      <span class="current">핵심 개념 정리</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Elasticsearch 핵심 개념 정리</h1>
+      <p class="meta">Elasticsearch · 기본개념 · 2025-03-25</p>
+    </header>
+
+    <!-- 1. ES 내부 구조 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-structure">◈</div>
+        ES 내부 저장 구조
+      </div>
+
+      <div class="highlight-box">
+        <strong>핵심:</strong> 인덱스 → 샤드 → 세그먼트 → 파일들
+      </div>
+
+      <div class="diagram-wrap">
+        <svg width="700" height="320" viewBox="0 0 700 320">
+          <!-- Index Box -->
+          <rect x="20" y="20" width="660" height="280" rx="12" fill="#1e1e2e" stroke="#7c6af7" stroke-width="2"/>
+          <text x="40" y="50" fill="#a78bfa" font-size="14" font-weight="600">인덱스: alio-send-kakao-2026.03.25</text>
+
+          <!-- Primary Shard 0 -->
+          <rect x="40" y="70" width="300" height="100" rx="8" fill="#22263a" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="55" y="95" fill="#38bdf8" font-size="12" font-weight="500">Primary Shard 0</text>
+          <rect x="55" y="105" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b"/>
+          <text x="70" y="135" fill="#94a3b8" font-size="10">Segment _0</text>
+          <rect x="145" y="105" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b"/>
+          <text x="160" y="135" fill="#94a3b8" font-size="10">Segment _1</text>
+          <rect x="235" y="105" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b"/>
+          <text x="260" y="135" fill="#94a3b8" font-size="10">...</text>
+
+          <!-- Primary Shard 1 -->
+          <rect x="360" y="70" width="300" height="100" rx="8" fill="#22263a" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="375" y="95" fill="#38bdf8" font-size="12" font-weight="500">Primary Shard 1</text>
+          <rect x="375" y="105" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b"/>
+          <text x="390" y="135" fill="#94a3b8" font-size="10">Segment _0</text>
+          <rect x="465" y="105" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b"/>
+          <text x="480" y="135" fill="#94a3b8" font-size="10">Segment _1</text>
+          <rect x="555" y="105" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b"/>
+          <text x="580" y="135" fill="#94a3b8" font-size="10">...</text>
+
+          <!-- Replica Shard 0 -->
+          <rect x="40" y="185" width="300" height="100" rx="8" fill="#22263a" stroke="#34d399" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <text x="55" y="210" fill="#34d399" font-size="12" font-weight="500">Replica Shard 0 (복제본)</text>
+          <rect x="55" y="220" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b" stroke-dasharray="3,2"/>
+          <text x="70" y="250" fill="#94a3b8" font-size="10">Segment _0</text>
+          <rect x="145" y="220" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b" stroke-dasharray="3,2"/>
+          <text x="160" y="250" fill="#94a3b8" font-size="10">Segment _1</text>
+
+          <!-- Replica Shard 1 -->
+          <rect x="360" y="185" width="300" height="100" rx="8" fill="#22263a" stroke="#34d399" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <text x="375" y="210" fill="#34d399" font-size="12" font-weight="500">Replica Shard 1 (복제본)</text>
+          <rect x="375" y="220" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b" stroke-dasharray="3,2"/>
+          <text x="390" y="250" fill="#94a3b8" font-size="10">Segment _0</text>
+          <rect x="465" y="220" width="80" height="50" rx="4" fill="#2e3250" stroke="#64748b" stroke-dasharray="3,2"/>
+          <text x="480" y="250" fill="#94a3b8" font-size="10">Segment _1</text>
+        </svg>
+      </div>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>구성 요소</th>
+            <th>설명</th>
+            <th>특징</th>
+          </tr>
+          <tr>
+            <td><strong>인덱스</strong></td>
+            <td>데이터를 담는 논리적 단위</td>
+            <td>RDB의 테이블과 유사. 우리가 이름을 정함</td>
+          </tr>
+          <tr>
+            <td><strong>샤드</strong></td>
+            <td>인덱스를 물리적으로 분할한 조각</td>
+            <td>병렬 처리 가능. 권장 크기: 10~50GB</td>
+          </tr>
+          <tr>
+            <td><strong>세그먼트</strong></td>
+            <td>실제 데이터가 저장되는 파일 단위</td>
+            <td>불변(immutable). refresh 시 생성됨</td>
+          </tr>
+          <tr>
+            <td><strong>레플리카</strong></td>
+            <td>Primary 샤드의 복제본</td>
+            <td>장애 대비. <strong>저장 공간 2배</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>세그먼트 파일 구조</h3>
+      <p>각 세그먼트마다 아래 파일들이 생성됨 (번호: _0, _1, _2, ...)</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>파일</th>
+            <th>용도</th>
+            <th>설명</th>
+          </tr>
+          <tr>
+            <td><code>_0.fdt</code></td>
+            <td>원본 데이터</td>
+            <td>_source 필드 (저장된 JSON 원본)</td>
+          </tr>
+          <tr>
+            <td><code>_0.tim / .tip</code></td>
+            <td>역인덱스</td>
+            <td>단어 → 문서 매핑 (검색용)</td>
+          </tr>
+          <tr>
+            <td><code>_0.dvd / .dvm</code></td>
+            <td>Doc Values</td>
+            <td>정렬/집계용 컬럼 데이터</td>
+          </tr>
+          <tr>
+            <td><code>_0.si / .fnm</code></td>
+            <td>메타데이터</td>
+            <td>세그먼트 정보, 필드명/타입 정보</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="highlight-box warning">
+        <strong>실제 디스크 사용량:</strong> 원본 JSON + 역인덱스 + Doc Values + 메타데이터 = <strong>JSON의 1.5~2배</strong>
+      </div>
+    </div>
+
+    <!-- 2. 역인덱스와 필드 타입 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-index">◉</div>
+        역인덱스와 필드 타입
+      </div>
+
+      <div class="highlight-box">
+        <strong>역인덱스 (Inverted Index):</strong> 단어 → 문서 목록을 미리 만들어두는 자료구조. ES가 빠른 이유!
+      </div>
+
+      <div class="diagram-wrap">
+        <svg width="600" height="180" viewBox="0 0 600 180">
+          <!-- 일반 DB -->
+          <rect x="20" y="20" width="250" height="140" rx="8" fill="#22263a" stroke="#f87171" stroke-width="1.5"/>
+          <text x="35" y="45" fill="#f87171" font-size="12" font-weight="600">일반 DB 방식</text>
+          <text x="35" y="75" fill="#94a3b8" font-size="11">"testbizppurio" 검색</text>
+          <text x="35" y="95" fill="#94a3b8" font-size="11">→ 100만 건 전부 스캔</text>
+          <text x="35" y="125" fill="#f87171" font-size="13" font-weight="600">느림 🐢</text>
+
+          <!-- VS -->
+          <text x="290" y="95" fill="#64748b" font-size="14" font-weight="600">vs</text>
+
+          <!-- 역인덱스 -->
+          <rect x="330" y="20" width="250" height="140" rx="8" fill="#22263a" stroke="#34d399" stroke-width="1.5"/>
+          <text x="345" y="45" fill="#34d399" font-size="12" font-weight="600">역인덱스 방식</text>
+          <text x="345" y="75" fill="#94a3b8" font-size="11">"testbizppurio" 검색</text>
+          <text x="345" y="95" fill="#38bdf8" font-size="11">→ [doc1, doc5, doc99]</text>
+          <text x="345" y="125" fill="#34d399" font-size="13" font-weight="600">즉시 찾음 ⚡</text>
+        </svg>
+      </div>
+
+      <h3>필드 타입별 역인덱스 방식</h3>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>타입</th>
+            <th>역인덱스 방식</th>
+            <th>검색</th>
+            <th>비용</th>
+          </tr>
+          <tr>
+            <td><strong>keyword</strong> ⭐</td>
+            <td>값 통째로 저장</td>
+            <td>정확히 일치만</td>
+            <td style="color: #34d399;">낮음</td>
+          </tr>
+          <tr>
+            <td>text</td>
+            <td>형태소 분석 후 쪼갬</td>
+            <td>부분 검색 가능</td>
+            <td style="color: #f87171;">높음</td>
+          </tr>
+          <tr>
+            <td><strong>date</strong></td>
+            <td>숫자로 변환</td>
+            <td>범위 검색</td>
+            <td style="color: #34d399;">낮음</td>
+          </tr>
+          <tr>
+            <td><strong>boolean</strong></td>
+            <td>true/false</td>
+            <td>정확히 일치</td>
+            <td style="color: #34d399;">낮음</td>
+          </tr>
+          <tr>
+            <td><strong>long</strong></td>
+            <td>숫자</td>
+            <td>범위 검색</td>
+            <td style="color: #34d399;">낮음</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="highlight-box">
+        <strong>왜 keyword를 주로 사용?</strong><br>
+        <code>partnerId</code>, <code>msgId</code>, <code>code</code> 같은 필드는 정확히 일치 검색만 필요.<br>
+        keyword는 형태소 분석 안 함 → <strong>인덱싱 비용 낮음</strong>
+      </div>
+    </div>
+
+    <!-- 3. 인덱스 설계 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-design">✦</div>
+        인덱스 설계 포인트
+      </div>
+
+      <h3>인덱스 vs 역인덱스 (헷갈리는 용어!)</h3>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>구분</th>
+            <th>누가 만듦</th>
+            <th>용도</th>
+            <th>예시</th>
+          </tr>
+          <tr>
+            <td><strong>인덱스</strong></td>
+            <td>우리가 설계</td>
+            <td>데이터 저장/관리 단위</td>
+            <td><code>alio-send-kakao-2026.03.25</code></td>
+          </tr>
+          <tr>
+            <td><strong>역인덱스</strong></td>
+            <td>ES가 자동 생성</td>
+            <td>빠른 검색용 자료구조</td>
+            <td><code>"testbizppurio" → [doc1, doc5]</code></td>
+          </tr>
+        </table>
+      </div>
+
+      <p>날짜별 인덱스는 <strong>역인덱스(형태소)와 무관</strong>하고, 순수하게 <strong>관리 편의</strong>를 위한 설계 결정!</p>
+
+      <h3>인덱스 템플릿 설정</h3>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>설정</th>
+            <th>권장값</th>
+            <th>선정 이유</th>
+          </tr>
+          <tr>
+            <td><strong>number_of_shards</strong></td>
+            <td>2</td>
+            <td>병렬 처리 (권장: 샤드당 10~50GB)</td>
+          </tr>
+          <tr>
+            <td><strong>number_of_replicas</strong></td>
+            <td>1 (운영) / 0 (개발)</td>
+            <td>운영: 장애 대응 (저장 공간 2배)<br>개발: 용량 절약</td>
+          </tr>
+          <tr>
+            <td><strong>refresh_interval</strong></td>
+            <td>5s</td>
+            <td>너무 짧으면 세그먼트 과다 생성 → I/O 부하</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="highlight-box warning">
+        <strong>매핑 안 하면?</strong> ES가 자동 추측(Dynamic Mapping) → 보통 text로 판단 → 불필요한 형태소 분석 발생 → 성능 저하<br>
+        <strong>반드시 매핑 정의 필요!</strong>
+      </div>
+    </div>
+
+    <!-- 4. ILM과 용량 계산 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-calc">◆</div>
+        ILM과 용량 계산
+      </div>
+
+      <h3>ILM (Index Lifecycle Management)</h3>
+      <p>인덱스의 생명주기를 자동 관리. 오래된 데이터를 자동으로 축소/삭제.</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>Phase</th>
+            <th>기간</th>
+            <th>액션</th>
+            <th>설명</th>
+          </tr>
+          <tr>
+            <td style="color: #f87171;"><strong>Hot</strong></td>
+            <td>0 ~ 7일</td>
+            <td>rollover</td>
+            <td>활발히 쓰기/읽기</td>
+          </tr>
+          <tr>
+            <td style="color: #fbbf24;"><strong>Warm</strong></td>
+            <td>7일 ~ N일</td>
+            <td>shrink, forcemerge</td>
+            <td>읽기만, 샤드 축소</td>
+          </tr>
+          <tr>
+            <td style="color: #38bdf8;"><strong>Delete</strong></td>
+            <td>N일 이후</td>
+            <td>delete</td>
+            <td>인덱스 삭제</td>
+          </tr>
+        </table>
+      </div>
+
+      <h3>용량 계산 공식</h3>
+
+<pre><code>월간 JSON 용량
+  × ES 오버헤드 (1.5~2배)   ← 역인덱스 + 메타데이터
+  × 레플리카 (2배)          ← replica: 1
+  ÷ 보관일수/30일
+  = 실제 디스크 사용량</code></pre>
+
+      <h3>예시 계산 (월간 3억건, JSON 300 Bytes 기준)</h3>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr>
+            <th>항목</th>
+            <th>옵션 A (2개 모듈)</th>
+            <th>옵션 B (3개 모듈)</th>
+          </tr>
+          <tr>
+            <td>월간 JSON 용량</td>
+            <td>~180GB</td>
+            <td>~270GB</td>
+          </tr>
+          <tr>
+            <td>ES 실제 저장 (×1.5~2)</td>
+            <td>~270~360GB</td>
+            <td>~400~540GB</td>
+          </tr>
+          <tr>
+            <td><strong>레플리카 포함 (×2)</strong></td>
+            <td><strong>~540~720GB</strong></td>
+            <td><strong>~800GB~1TB</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="highlight-box">
+        <strong>보관기간별 환산:</strong><br>
+        • 7일 보관: 위 수치의 약 1/4<br>
+        • 15일 보관: 위 수치의 약 1/2<br>
+        • 30일 보관: 위 수치 그대로
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Lucene</span>
+        <span class="related-tag">Filebeat</span>
+        <span class="related-tag">Logstash</span>
+        <span class="related-tag">Kibana</span>
+        <span class="related-tag">grok 파싱</span>
+        <span class="related-tag">JSON 로깅</span>
+        <span class="related-tag">Hot-Warm 아키텍처</span>
+        <span class="related-tag">Index Template</span>
+        <span class="related-tag">Dynamic Mapping</span>
+        <span class="related-tag">Bulk API</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="index.html" class="nav-link">← 기본개념 목록</a>
+      <a href="../index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+</body>
+</html>

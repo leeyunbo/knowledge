@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>인덱스 스킵 스캔이랑, 루스 인덱스 스캔이랑 다른게 뭐야? — 인덱스-최적화 · RealMySQL8.0</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/index.html">RealMySQL8.0</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html">인덱스-최적화</a>
+      <span class="sep">›</span>
+      <span class="current">스킵 스캔 vs 루스 스캔</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>인덱스 스킵 스캔이랑, 루스 인덱스 스캔이랑 다른게 뭐야?</h1>
+      <p class="meta">RealMySQL8.0 · 인덱스-최적화 · 2026-03-16</p>
+    </header>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        인덱스 스킵 스캔은 WHERE 조건 처리를 위해 인덱스 앞부분을 건너뛰고, 루스 인덱스 스캔은 GROUP BY 처리를 위해 그룹 내 레코드를 건너뜁니다.
+      </div>
+      <p>이름은 비슷하지만 <strong>완전히 다른 최적화 기법</strong>입니다:</p>
+      <ul>
+        <li><strong>인덱스 스킵 스캔</strong>: WHERE 절 최적화, 인덱스 앞 컬럼의 값들을 순회하며 검색</li>
+        <li><strong>루스 인덱스 스캔</strong>: GROUP BY 최적화, 각 그룹의 첫 레코드만 읽기</li>
+      </ul>
+      <p>둘 다 "건너뛴다"는 공통점이 있지만, 건너뛰는 대상과 목적이 전혀 다릅니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      
+      <p><strong>복합 인덱스의 제약</strong></p>
+      <p>복합 인덱스 <code>INDEX(A, B, C)</code>는 왼쪽부터 순서대로 사용해야 합니다:</p>
+      <ul>
+        <li><code>WHERE A=1 AND B=2</code> ✅ 인덱스 사용 가능</li>
+        <li><code>WHERE B=2 AND C=3</code> ❌ A가 없어서 인덱스 효율 낮음</li>
+      </ul>
+      <p>이 제약을 완화하는 것이 <strong>인덱스 스킵 스캔</strong>입니다.</p>
+
+      <p><strong>GROUP BY의 비용</strong></p>
+      <p><code>GROUP BY</code>는 보통 모든 레코드를 읽어 그룹핑하는데, 인덱스가 이미 정렬되어 있다면 각 그룹의 대표값만 읽을 수 있습니다. 이것이 <strong>루스 인덱스 스캔</strong>입니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>핵심 차이점 비교</strong></p>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>인덱스 스킵 스캔</th>
+            <th>루스 인덱스 스캔</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>도입 버전</strong></td>
+            <td>MySQL 8.0.13+</td>
+            <td>MySQL 5.0+ (오래됨)</td>
+          </tr>
+          <tr>
+            <td><strong>주요 용도</strong></td>
+            <td>WHERE 조건 처리</td>
+            <td>GROUP BY 처리</td>
+          </tr>
+          <tr>
+            <td><strong>해결 문제</strong></td>
+            <td>인덱스 앞 컬럼 없는 쿼리</td>
+            <td>그룹별 MIN/MAX 구하기</td>
+          </tr>
+          <tr>
+            <td><strong>건너뛰는 대상</strong></td>
+            <td>앞 컬럼의 고유값들</td>
+            <td>같은 그룹의 레코드들</td>
+          </tr>
+          <tr>
+            <td><strong>EXPLAIN 표시</strong></td>
+            <td>Using index for skip scan</td>
+            <td>Using index for group-by</td>
+          </tr>
+          <tr>
+            <td><strong>사용 조건</strong></td>
+            <td>앞 컬럼 카디널리티 낮음</td>
+            <td>MIN/MAX만 사용, 왼쪽 접두사</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>인덱스 스킵 스캔 상세</strong></p>
+      <p>복합 인덱스 <code>INDEX(gender, birth_date)</code>에서:</p>
+      <pre><code>-- gender 조건 없이 birth_date만 검색
+SELECT * FROM users WHERE birth_date = '1990-01-01';
+
+-- 내부적으로 다음처럼 변환됨:
+WHERE gender='M' AND birth_date='1990-01-01'
+UNION ALL
+WHERE gender='F' AND birth_date='1990-01-01'</code></pre>
+      <p><code>gender</code>의 고유값('M', 'F')을 자동으로 순회하면서 각각 인덱스 검색을 수행합니다.</p>
+
+      <p><strong>루스 인덱스 스캔 상세</strong></p>
+      <p>복합 인덱스 <code>INDEX(category_id, price)</code>에서:</p>
+      <pre><code>-- 각 카테고리의 최소 가격 구하기
+SELECT category_id, MIN(price)
+FROM products
+GROUP BY category_id;</code></pre>
+      <p>인덱스가 이미 <code>category_id</code>로 정렬되어 있고, 같은 <code>category_id</code> 내에서 <code>price</code>가 정렬되어 있으므로, 각 카테고리의 첫 레코드만 읽으면 MIN 값을 알 수 있습니다.</p>
+
+      <p><strong>언제 각각 사용되나?</strong></p>
+      <p><strong>스킵 스캔:</strong></p>
+      <ul>
+        <li>복합 인덱스 (A, B)에서 B만으로 검색</li>
+        <li>A의 고유값이 적을 때 (성별, 상태코드 등)</li>
+        <li>WHERE 조건 최적화 목적</li>
+      </ul>
+
+      <p><strong>루스 스캔:</strong></p>
+      <ul>
+        <li>복합 인덱스 (A, B)에서 A로 GROUP BY</li>
+        <li>MIN/MAX 집계 함수 사용</li>
+        <li>GROUP BY 최적화 목적</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#a78bfa" />
+            </marker>
+          </defs>
+
+          <!-- 스킵 스캔 -->
+          <text x="150" y="30" text-anchor="middle" fill="#fbbf24" font-size="14" font-weight="600">인덱스 스킵 스캔</text>
+          <text x="150" y="50" text-anchor="middle" fill="#94a3b8" font-size="10">INDEX(gender, age)</text>
+
+          <rect x="30" y="70" width="120" height="40" rx="6" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="90" y="93" text-anchor="middle" fill="#a78bfa" font-size="10" font-weight="600">WHERE age=25</text>
+
+          <line x1="90" y1="110" x2="90" y2="135" stroke="#fbbf24" stroke-width="2" marker-end="url(#arr)"/>
+          <text x="110" y="125" fill="#fbbf24" font-size="8">스킵!</text>
+
+          <rect x="30" y="135" width="120" height="60" rx="6" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="90" y="155" text-anchor="middle" fill="#fbbf24" font-size="9">gender='M' 구간</text>
+          <text x="90" y="170" text-anchor="middle" fill="#94a3b8" font-size="8">age=25 검색</text>
+          <text x="90" y="185" text-anchor="middle" fill="#34d399" font-size="8">→ 결과 반환</text>
+
+          <line x1="150" y1="165" x2="200" y2="165" stroke="#fbbf24" stroke-width="2" marker-end="url(#arr)"/>
+          
+          <rect x="200" y="135" width="120" height="60" rx="6" fill="#22263a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="260" y="155" text-anchor="middle" fill="#fbbf24" font-size="9">gender='F' 구간</text>
+          <text x="260" y="170" text-anchor="middle" fill="#94a3b8" font-size="8">age=25 검색</text>
+          <text x="260" y="185" text-anchor="middle" fill="#34d399" font-size="8">→ 결과 반환</text>
+
+          <!-- 루스 스캔 -->
+          <text x="530" y="30" text-anchor="middle" fill="#38bdf8" font-size="14" font-weight="600">루스 인덱스 스캔</text>
+          <text x="530" y="50" text-anchor="middle" fill="#94a3b8" font-size="10">INDEX(cat_id, price)</text>
+
+          <rect x="410" y="70" width="120" height="40" rx="6" fill="#22263a" stroke="#7c6af7" stroke-width="2"/>
+          <text x="470" y="93" text-anchor="middle" fill="#a78bfa" font-size="9" font-weight="600">GROUP BY cat_id, MIN(price)</text>
+
+          <line x1="470" y1="110" x2="470" y2="135" stroke="#38bdf8" stroke-width="2" marker-end="url(#arr)"/>
+
+          <rect x="410" y="135" width="240" height="60" rx="6" fill="#22263a" stroke="#38bdf8" stroke-width="2"/>
+          <text x="530" y="152" text-anchor="middle" fill="#38bdf8" font-size="9">cat_id=1 그룹</text>
+          <text x="530" y="167" text-anchor="middle" fill="#94a3b8" font-size="8">price: 100, 150, 200...</text>
+          <text x="440" y="185" text-anchor="middle" fill="#34d399" font-size="8">✓ 첫 레코드(100)</text>
+          <text x="610" y="185" text-anchor="middle" fill="#64748b" font-size="8" text-decoration="line-through">나머지 스킵</text>
+
+          <!-- 비교 설명 -->
+          <rect x="50" y="240" width="600" height="140" rx="8" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="350" y="265" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">핵심 차이</text>
+          
+          <text x="70" y="290" fill="#fbbf24" font-size="10" font-weight="600">스킵 스캔</text>
+          <text x="70" y="308" fill="#94a3b8" font-size="9">• 목적: WHERE 절 최적화</text>
+          <text x="70" y="325" fill="#94a3b8" font-size="9">• 대상: 인덱스 앞 컬럼의 값들</text>
+          <text x="70" y="342" fill="#94a3b8" font-size="9">• 조건: 앞 컬럼 카디널리티 낮음</text>
+          <text x="70" y="359" fill="#94a3b8" font-size="9">• 예: gender 2개 값 순회</text>
+
+          <text x="380" y="290" fill="#38bdf8" font-size="10" font-weight="600">루스 스캔</text>
+          <text x="380" y="308" fill="#94a3b8" font-size="9">• 목적: GROUP BY 최적화</text>
+          <text x="380" y="325" fill="#94a3b8" font-size="9">• 대상: 그룹 내 나머지 레코드</text>
+          <text x="380" y="342" fill="#94a3b8" font-size="9">• 조건: MIN/MAX만 사용</text>
+          <text x="380" y="359" fill="#94a3b8" font-size="9">• 예: 각 그룹 첫 레코드만</text>
+        </svg>
+      </div>
+      <p style="margin-top: 1rem;">스킵 스캔은 앞 컬럼 값을 순회하고, 루스 스캔은 그룹 내 레코드를 건너뜁니다.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">복합 인덱스</span>
+        <span class="related-tag">인덱스 레인지 스캔</span>
+        <span class="related-tag">GROUP BY 최적화</span>
+        <span class="related-tag">MIN/MAX 함수</span>
+        <span class="related-tag">카디널리티</span>
+        <span class="related-tag">EXPLAIN</span>
+        <span class="related-tag">optimizer_switch</span>
+        <span class="related-tag">커버링 인덱스</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/RealMySQL8.0/인덱스-최적화/index.html" class="nav-link">← 인덱스-최적화 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

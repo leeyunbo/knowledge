@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Elasticsearch 상세 구조 — Elasticsearch · DevOps 인프라</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Elasticsearch 상세 구조</h1>
+      <p class="meta">DevOps 인프라 · Elasticsearch · 2026-03-23</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Elasticsearch는 <strong>분산 역색인(Inverted Index) 기반 검색 엔진</strong>으로, 데이터를 여러 노드의 샤드에 분산 저장하고, 역색인 구조로 전문 검색을 밀리초 단위로 수행한다.
+      </div>
+      <p>RDBMS가 행(row) 단위로 데이터를 저장하고 B-Tree 인덱스로 탐색하는 반면, ES는 <strong>문서(Document)</strong> 단위로 저장하고 <strong>역색인(Inverted Index)</strong>으로 탐색한다. 이 구조 차이가 "텍스트 검색"에서 압도적인 성능 차이를 만든다.</p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h2>1. Lucene — ES의 심장</h2>
+      <p>ES는 <strong>Apache Lucene</strong> 위에 만들어진 래퍼다. Lucene이 실제 역색인 생성, 검색, 스코어링을 담당하고, ES는 그 위에 분산 처리, REST API, 클러스터 관리를 얹은 것이다.</p>
+      <pre><code>사용자 → ES REST API → ES 분산 레이어 → Lucene (실제 검색)</code></pre>
+
+      <h2>2. 역색인 (Inverted Index)</h2>
+      <p>일반 인덱스가 "문서 → 단어"를 매핑한다면, 역색인은 <strong>"단어 → 문서 목록"</strong>을 매핑한다.</p>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>Term (토큰)</th><th>Document IDs</th></tr>
+          <tr><td><code>elasticsearch</code></td><td>doc_1, doc_3, doc_7</td></tr>
+          <tr><td><code>검색</code></td><td>doc_1, doc_2, doc_5</td></tr>
+          <tr><td><code>인덱스</code></td><td>doc_2, doc_3</td></tr>
+          <tr><td><code>분산</code></td><td>doc_1, doc_7</td></tr>
+        </table>
+      </div>
+      <p>"elasticsearch 분산"을 검색하면? 두 포스팅 리스트의 <strong>교집합</strong>을 구하면 끝 → <code>doc_1, doc_7</code>. B-Tree처럼 모든 행을 LIKE 스캔할 필요가 없다.</p>
+
+      <h2>3. Analyzer — 텍스트를 토큰으로 분해하는 파이프라인</h2>
+      <p>역색인을 만들려면 먼저 텍스트를 토큰으로 쪼개야 한다. 이 과정을 <strong>Analysis</strong>라 하며, 3단계로 구성된다:</p>
+      <div class="highlight-box">
+        <strong>Character Filter</strong> → <strong>Tokenizer</strong> → <strong>Token Filter</strong>
+      </div>
+      <ul>
+        <li><strong>Character Filter</strong>: 원본 텍스트 전처리 (HTML 태그 제거, 특수문자 치환 등)</li>
+        <li><strong>Tokenizer</strong>: 텍스트를 토큰으로 분리 (Standard, Nori(한국어), Whitespace 등)</li>
+        <li><strong>Token Filter</strong>: 토큰 후처리 (소문자 변환, 불용어 제거, 동의어 확장 등)</li>
+      </ul>
+      <pre><code><span class="cm">// 예시: "The Quick Brown Fox!" → Standard Analyzer</span>
+Character Filter : "The Quick Brown Fox!"  <span class="cm">→ 변화 없음</span>
+Tokenizer       : ["The", "Quick", "Brown", "Fox"]
+Token Filter    : ["the", "quick", "brown", "fox"]  <span class="cm">→ lowercase</span></code></pre>
+      <p>한국어의 경우 <strong>Nori Analyzer</strong>를 사용하며, 형태소 분석을 통해 "검색엔진을" → ["검색", "엔진", "을"] 같이 분리한다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h2>1. 클러스터 → 노드 → 인덱스 → 샤드 → 세그먼트</h2>
+      <p>ES의 물리적 구조를 계층별로 이해하자:</p>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>계층</th><th>설명</th><th>RDBMS 대응</th></tr>
+          <tr><td><strong>Cluster</strong></td><td>여러 노드의 집합. 하나의 클러스터가 하나의 서비스</td><td>DB 서버 클러스터</td></tr>
+          <tr><td><strong>Node</strong></td><td>클러스터를 구성하는 단일 ES 인스턴스</td><td>DB 서버 1대</td></tr>
+          <tr><td><strong>Index</strong></td><td>문서의 논리적 그룹 (검색의 단위)</td><td>Database (또는 Table)</td></tr>
+          <tr><td><strong>Shard</strong></td><td>인덱스를 수평 분할한 조각. 각 샤드 = Lucene 인스턴스 1개</td><td>파티션</td></tr>
+          <tr><td><strong>Segment</strong></td><td>샤드 내부의 불변(immutable) 파일 단위</td><td>—</td></tr>
+          <tr><td><strong>Document</strong></td><td>저장/검색의 기본 단위 (JSON)</td><td>Row</td></tr>
+          <tr><td><strong>Field</strong></td><td>문서 내 키-값 쌍</td><td>Column</td></tr>
+        </table>
+      </div>
+
+      <h2>2. 샤드 (Shard) — 분산의 핵심</h2>
+      <p>인덱스를 만들 때 <strong>Primary Shard 수</strong>를 지정한다 (기본 1개, 생성 후 변경 불가). 문서는 <code>hash(_id) % shard_count</code>로 어떤 샤드에 갈지 결정된다.</p>
+      <ul>
+        <li><strong>Primary Shard</strong>: 원본 데이터를 가진 샤드. 쓰기 요청을 먼저 처리</li>
+        <li><strong>Replica Shard</strong>: Primary의 복제본. 읽기 부하 분산 + 장애 시 승격</li>
+      </ul>
+      <div class="warn-box">
+        Primary Shard 수는 인덱스 생성 후 변경할 수 없다. 나중에 바꾸려면 <code>_reindex</code>로 새 인덱스를 만들어야 한다. 초기 설계가 중요하다.
+      </div>
+
+      <h2>3. 세그먼트 (Segment) — 불변 파일의 비밀</h2>
+      <p>각 샤드는 내부적으로 여러 <strong>세그먼트</strong>로 구성된다. 세그먼트는 한 번 쓰면 절대 수정되지 않는 <strong>불변(immutable)</strong> 파일이다.</p>
+      <ul>
+        <li>새 문서 인덱싱 → 메모리 버퍼에 쌓임 → 주기적으로 새 세그먼트로 flush</li>
+        <li>문서 수정 → 기존 문서를 삭제 표시 + 새 세그먼트에 신규 버전 작성</li>
+        <li>문서 삭제 → <code>.del</code> 파일에 삭제 표시만 (실제 삭제는 merge 시)</li>
+      </ul>
+      <div class="good-box">
+        <strong>왜 불변으로 만들까?</strong> 동시성 제어가 극도로 단순해진다. 락(lock) 없이 여러 스레드가 동시에 읽을 수 있고, OS 파일시스템 캐시를 최대한 활용할 수 있다.
+      </div>
+
+      <h2>4. Segment Merge — 가비지 컬렉션</h2>
+      <p>시간이 지나면 작은 세그먼트가 쌓인다. ES는 백그라운드에서 작은 세그먼트들을 <strong>큰 세그먼트로 합병(merge)</strong>한다. 이때 삭제 표시된 문서가 실제로 제거된다.</p>
+      <pre><code><span class="cm">// Merge 전</span>
+Segment_1 (100 docs, 3 deleted)
+Segment_2 (50 docs, 1 deleted)
+Segment_3 (30 docs, 0 deleted)
+
+<span class="cm">// Merge 후</span>
+Segment_merged (176 docs, 0 deleted)  <span class="cm">← 삭제된 4개 제거됨</span></code></pre>
+
+      <h2>5. Near Real-Time (NRT) 검색</h2>
+      <p>ES는 "실시간"이 아니라 <strong>"거의 실시간(NRT)"</strong>이다:</p>
+      <ul>
+        <li>문서 인덱싱 → 메모리 버퍼에 저장</li>
+        <li><strong>Refresh</strong> (기본 1초 간격) → 메모리 버퍼의 내용을 새 세그먼트로 만들어 검색 가능하게 함</li>
+        <li><strong>Flush</strong> (주기적) → 세그먼트를 디스크에 영구 저장 + Translog 클리어</li>
+      </ul>
+      <div class="highlight-box">
+        문서를 인덱싱하고 <strong>최대 1초 후</strong>에 검색 결과에 나타난다. 이것이 "Near Real-Time"의 의미다.
+      </div>
+
+      <h2>6. Translog — 장애 복구의 핵심</h2>
+      <p>Refresh로 세그먼트가 만들어져도 아직 디스크에 flush되지 않았을 수 있다. 이 사이에 노드가 죽으면? <strong>Translog(Transaction Log)</strong>가 이를 방지한다.</p>
+      <ul>
+        <li>모든 인덱싱/삭제 연산은 Translog에 먼저 기록 (WAL과 동일한 개념)</li>
+        <li>노드 재시작 시 Translog를 replay하여 유실된 세그먼트 복구</li>
+        <li>Flush 이후 Translog 삭제</li>
+      </ul>
+
+      <h2>7. 노드 역할 (Node Roles)</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>역할</th><th>설명</th><th>실무 포인트</th></tr>
+          <tr><td><strong>Master</strong></td><td>클러스터 상태 관리 (인덱스 생성/삭제, 샤드 할당)</td><td>전용 마스터 노드 3대 권장 (split-brain 방지)</td></tr>
+          <tr><td><strong>Data</strong></td><td>실제 데이터 저장 및 검색/집계 수행</td><td>CPU/메모리/디스크 고사양 필요</td></tr>
+          <tr><td><strong>Coordinating</strong></td><td>클라이언트 요청을 받아 관련 샤드로 라우팅, 결과 취합</td><td>로드밸런서 역할, 모든 노드가 기본으로 수행</td></tr>
+          <tr><td><strong>Ingest</strong></td><td>인덱싱 전 데이터 변환 파이프라인 실행</td><td>Logstash 대신 간단한 변환에 사용</td></tr>
+        </table>
+      </div>
+
+      <h2>8. 검색 실행 과정 (Query → Fetch)</h2>
+      <p>ES의 분산 검색은 <strong>2 phase</strong>로 동작한다:</p>
+      <div class="highlight-box">
+        <strong>Phase 1 — Query</strong>: 모든 관련 샤드에서 매칭되는 문서 ID + 점수를 수집<br>
+        <strong>Phase 2 — Fetch</strong>: 상위 N개 문서의 실제 데이터를 해당 샤드에서 가져옴
+      </div>
+      <pre><code><span class="cm">// 예: "elasticsearch" 검색 (3 Primary Shards)</span>
+
+<span class="kw">Client</span> → <span class="ty">Coordinating Node</span>
+           ├─→ <span class="fn">Shard 0</span>: 매칭 doc_id + score 반환
+           ├─→ <span class="fn">Shard 1</span>: 매칭 doc_id + score 반환
+           └─→ <span class="fn">Shard 2</span>: 매칭 doc_id + score 반환
+
+<span class="ty">Coordinating Node</span>: 전체 결과를 score 기준 정렬, 상위 10개 선택
+
+<span class="ty">Coordinating Node</span> → 해당 샤드들에서 실제 문서 데이터 fetch
+           → <span class="kw">Client</span>에 최종 결과 반환</code></pre>
+
+      <h2>9. Relevance Scoring (BM25)</h2>
+      <p>ES는 검색 결과의 관련성 순위를 매기기 위해 <strong>BM25</strong> 알고리즘을 사용한다 (v5.0부터, 이전은 TF-IDF).</p>
+      <ul>
+        <li><strong>TF (Term Frequency)</strong>: 해당 문서에 검색어가 많이 나올수록 높은 점수</li>
+        <li><strong>IDF (Inverse Document Frequency)</strong>: 전체 문서에서 드물게 나타나는 단어일수록 높은 점수</li>
+        <li><strong>Field Length</strong>: 짧은 필드에서 매칭되면 더 높은 점수 (제목 > 본문)</li>
+      </ul>
+
+      <h2>10. Mapping — 스키마 정의</h2>
+      <p>RDBMS의 스키마에 해당한다. 각 필드의 <strong>데이터 타입</strong>과 <strong>분석 방법</strong>을 정의한다.</p>
+      <pre><code>{
+  <span class="st">"mappings"</span>: {
+    <span class="st">"properties"</span>: {
+      <span class="st">"title"</span>:   { <span class="st">"type"</span>: <span class="st">"text"</span>, <span class="st">"analyzer"</span>: <span class="st">"nori"</span> },
+      <span class="st">"status"</span>:  { <span class="st">"type"</span>: <span class="st">"keyword"</span> },
+      <span class="st">"price"</span>:   { <span class="st">"type"</span>: <span class="st">"integer"</span> },
+      <span class="st">"created"</span>: { <span class="st">"type"</span>: <span class="st">"date"</span> }
+    }
+  }
+}</code></pre>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>타입</th><th>역색인 여부</th><th>용도</th></tr>
+          <tr><td><code>text</code></td><td>O (Analyzer 적용)</td><td>전문 검색 (match query)</td></tr>
+          <tr><td><code>keyword</code></td><td>O (토큰화 없이 원본 그대로)</td><td>정확 일치, 필터링, 집계, 정렬</td></tr>
+          <tr><td><code>integer / long / float</code></td><td>X (BKD tree)</td><td>범위 검색, 집계</td></tr>
+          <tr><td><code>date</code></td><td>X (내부적으로 long)</td><td>시간 범위 검색</td></tr>
+          <tr><td><code>boolean</code></td><td>X</td><td>필터링</td></tr>
+        </table>
+      </div>
+      <div class="warn-box">
+        <strong>text vs keyword</strong>를 구분하는 게 핵심이다. <code>text</code>는 분석(토큰화)되므로 "Hello World"로 검색하면 "hello"와 "world" 각각 매칭. <code>keyword</code>는 "Hello World" 전체가 하나의 토큰이므로 정확히 일치해야 매칭.
+      </div>
+
+      <h2>11. RDBMS vs Elasticsearch 비교</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>관점</th><th>RDBMS</th><th>Elasticsearch</th></tr>
+          <tr><td>저장 구조</td><td>행(Row) 기반, B-Tree 인덱스</td><td>문서(JSON) 기반, 역색인</td></tr>
+          <tr><td>스키마</td><td>엄격 (ALTER TABLE)</td><td>유연 (Dynamic Mapping, 하지만 명시 권장)</td></tr>
+          <tr><td>트랜잭션</td><td>ACID 완전 지원</td><td>단일 문서 수준만 원자적</td></tr>
+          <tr><td>조인</td><td>다중 테이블 JOIN</td><td>기본적으로 없음 (비정규화 or Nested)</td></tr>
+          <tr><td>텍스트 검색</td><td>LIKE '%keyword%' (풀스캔)</td><td>역색인으로 O(1)에 가까운 검색</td></tr>
+          <tr><td>집계</td><td>GROUP BY (인덱스 필요)</td><td>Aggregation 프레임워크 (doc_values)</td></tr>
+          <tr><td>확장</td><td>Scale-up 중심</td><td>Scale-out (샤딩 내장)</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+
+      <h2>ES 클러스터 물리 구조</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 520" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- Cluster border -->
+          <rect x="20" y="10" width="760" height="500" rx="16" fill="none" stroke="#2e3250" stroke-width="2" stroke-dasharray="8,4"/>
+          <text x="400" y="40" text-anchor="middle" fill="#94a3b8" font-size="14" font-weight="600">CLUSTER: my-application</text>
+
+          <!-- Node 1 - Master + Data -->
+          <rect x="40" y="60" width="230" height="200" rx="12" fill="#1a1d27" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="155" y="85" text-anchor="middle" fill="#a78bfa" font-size="13" font-weight="600">Node 1 (Master + Data)</text>
+          <!-- Shard P0 -->
+          <rect x="60" y="100" width="90" height="60" rx="8" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+          <text x="105" y="125" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">P0</text>
+          <text x="105" y="145" text-anchor="middle" fill="#64748b" font-size="9">Primary Shard</text>
+          <!-- Shard R1 -->
+          <rect x="160" y="100" width="90" height="60" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1"/>
+          <text x="205" y="125" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">R1</text>
+          <text x="205" y="145" text-anchor="middle" fill="#64748b" font-size="9">Replica Shard</text>
+          <!-- Segments inside P0 -->
+          <rect x="60" y="170" width="190" height="75" rx="6" fill="rgba(56,189,248,0.08)" stroke="#2e3250" stroke-width="1"/>
+          <text x="155" y="190" text-anchor="middle" fill="#64748b" font-size="9">Shard P0 내부</text>
+          <rect x="70" y="200" width="50" height="30" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="95" y="220" text-anchor="middle" fill="#38bdf8" font-size="9">Seg 0</text>
+          <rect x="130" y="200" width="50" height="30" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="155" y="220" text-anchor="middle" fill="#38bdf8" font-size="9">Seg 1</text>
+          <rect x="190" y="200" width="50" height="30" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="215" y="220" text-anchor="middle" fill="#38bdf8" font-size="9">Seg 2</text>
+
+          <!-- Node 2 - Data -->
+          <rect x="290" y="60" width="230" height="200" rx="12" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+          <text x="405" y="85" text-anchor="middle" fill="#34d399" font-size="13" font-weight="600">Node 2 (Data)</text>
+          <rect x="310" y="100" width="90" height="60" rx="8" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+          <text x="355" y="125" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">P1</text>
+          <text x="355" y="145" text-anchor="middle" fill="#64748b" font-size="9">Primary Shard</text>
+          <rect x="410" y="100" width="90" height="60" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1"/>
+          <text x="455" y="125" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">R2</text>
+          <text x="455" y="145" text-anchor="middle" fill="#64748b" font-size="9">Replica Shard</text>
+          <rect x="310" y="170" width="190" height="75" rx="6" fill="rgba(56,189,248,0.08)" stroke="#2e3250" stroke-width="1"/>
+          <text x="405" y="190" text-anchor="middle" fill="#64748b" font-size="9">Translog + Segments</text>
+          <rect x="320" y="200" width="70" height="30" rx="4" fill="#22263a" stroke="#fbbf24" stroke-width="1"/>
+          <text x="355" y="220" text-anchor="middle" fill="#fbbf24" font-size="9">Translog</text>
+          <rect x="400" y="200" width="50" height="30" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="425" y="220" text-anchor="middle" fill="#38bdf8" font-size="9">Seg 0</text>
+          <rect x="460" y="200" width="30" height="30" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="475" y="220" text-anchor="middle" fill="#38bdf8" font-size="9">...</text>
+
+          <!-- Node 3 - Data -->
+          <rect x="540" y="60" width="230" height="200" rx="12" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="655" y="85" text-anchor="middle" fill="#38bdf8" font-size="13" font-weight="600">Node 3 (Data)</text>
+          <rect x="560" y="100" width="90" height="60" rx="8" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+          <text x="605" y="125" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">P2</text>
+          <text x="605" y="145" text-anchor="middle" fill="#64748b" font-size="9">Primary Shard</text>
+          <rect x="660" y="100" width="90" height="60" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1"/>
+          <text x="705" y="125" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">R0</text>
+          <text x="705" y="145" text-anchor="middle" fill="#64748b" font-size="9">Replica Shard</text>
+
+          <!-- Index label -->
+          <rect x="40" y="280" width="730" height="45" rx="10" fill="rgba(124,106,247,0.08)" stroke="#7c6af7" stroke-width="1" stroke-dasharray="4,4"/>
+          <text x="400" y="307" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="500">Index: "messages" — 3 Primary Shards, 1 Replica</text>
+
+          <!-- Write flow -->
+          <text x="400" y="355" text-anchor="middle" fill="#94a3b8" font-size="13" font-weight="600">인덱싱 (쓰기) 흐름</text>
+          <rect x="120" y="370" width="120" height="35" rx="8" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="1"/>
+          <text x="180" y="392" text-anchor="middle" fill="#fbbf24" font-size="11">Client Request</text>
+          <line x1="240" y1="387" x2="290" y2="387" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowY)"/>
+          <rect x="290" y="370" width="140" height="35" rx="8" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+          <text x="360" y="392" text-anchor="middle" fill="#a78bfa" font-size="11">Coordinating Node</text>
+          <line x1="430" y1="387" x2="480" y2="387" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrowP)"/>
+          <rect x="480" y="370" width="120" height="35" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1"/>
+          <text x="540" y="392" text-anchor="middle" fill="#34d399" font-size="11">Primary Shard</text>
+          <line x1="600" y1="387" x2="640" y2="387" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowG)"/>
+          <rect x="640" y="370" width="120" height="35" rx="8" fill="rgba(56,189,248,0.15)" stroke="#38bdf8" stroke-width="1"/>
+          <text x="700" y="392" text-anchor="middle" fill="#38bdf8" font-size="11">Replica Shard</text>
+
+          <!-- Search flow -->
+          <text x="400" y="440" text-anchor="middle" fill="#94a3b8" font-size="13" font-weight="600">검색 (읽기) 흐름</text>
+          <rect x="50" y="455" width="100" height="35" rx="8" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="1"/>
+          <text x="100" y="477" text-anchor="middle" fill="#fbbf24" font-size="10">Client</text>
+          <line x1="150" y1="472" x2="185" y2="472" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowY)"/>
+          <rect x="185" y="455" width="120" height="35" rx="8" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+          <text x="245" y="477" text-anchor="middle" fill="#a78bfa" font-size="10">Coordinating</text>
+          <line x1="305" y1="462" x2="345" y2="452" stroke="#38bdf8" stroke-width="1" stroke-dasharray="3,2"/>
+          <line x1="305" y1="472" x2="345" y2="472" stroke="#38bdf8" stroke-width="1" stroke-dasharray="3,2"/>
+          <line x1="305" y1="482" x2="345" y2="492" stroke="#38bdf8" stroke-width="1" stroke-dasharray="3,2"/>
+          <rect x="345" y="440" width="80" height="25" rx="6" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="385" y="457" text-anchor="middle" fill="#38bdf8" font-size="9">Shard 0</text>
+          <rect x="345" y="465" width="80" height="25" rx="6" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="385" y="482" text-anchor="middle" fill="#38bdf8" font-size="9">Shard 1</text>
+          <rect x="345" y="490" width="80" height="25" rx="6" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="385" y="507" text-anchor="middle" fill="#38bdf8" font-size="9">Shard 2</text>
+          <text x="460" y="477" fill="#64748b" font-size="10">→ Query Phase</text>
+          <rect x="560" y="455" width="90" height="35" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1"/>
+          <text x="605" y="477" text-anchor="middle" fill="#34d399" font-size="10">Merge + Sort</text>
+          <line x1="650" y1="472" x2="680" y2="472" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowG)"/>
+          <text x="720" y="477" fill="#fbbf24" font-size="10">Fetch</text>
+
+          <!-- Arrow markers -->
+          <defs>
+            <marker id="arrowY" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#fbbf24"/>
+            </marker>
+            <marker id="arrowP" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#7c6af7"/>
+            </marker>
+            <marker id="arrowG" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#34d399"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p>Primary Shard와 그 Replica는 반드시 <strong>다른 노드</strong>에 배치된다. Node 1이 죽으면 Node 3의 R0가 새로운 P0로 승격되어 서비스가 유지된다.</p>
+
+      <h2>문서 인덱싱 내부 흐름</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- Steps -->
+          <rect x="20" y="30" width="140" height="50" rx="8" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="90" y="52" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">1. 문서 도착</text>
+          <text x="90" y="68" text-anchor="middle" fill="#64748b" font-size="9">JSON Document</text>
+
+          <line x1="160" y1="55" x2="190" y2="55" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowY2)"/>
+
+          <rect x="190" y="30" width="140" height="50" rx="8" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="260" y="52" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">2. Analyze</text>
+          <text x="260" y="68" text-anchor="middle" fill="#64748b" font-size="9">텍스트 → 토큰 분해</text>
+
+          <line x1="330" y1="55" x2="360" y2="55" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrowP2)"/>
+
+          <rect x="360" y="30" width="140" height="50" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="430" y="52" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">3. Buffer</text>
+          <text x="430" y="68" text-anchor="middle" fill="#64748b" font-size="9">In-Memory Buffer</text>
+
+          <line x1="500" y1="55" x2="530" y2="55" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowG2)"/>
+
+          <rect x="530" y="20" width="120" height="35" rx="8" fill="rgba(248,113,113,0.15)" stroke="#f87171" stroke-width="1.5"/>
+          <text x="590" y="42" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">3-1. Translog</text>
+
+          <rect x="530" y="60" width="120" height="35" rx="8" fill="rgba(56,189,248,0.15)" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="590" y="82" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="600">동시에 기록</text>
+
+          <!-- Refresh -->
+          <line x1="430" y1="80" x2="430" y2="130" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowY2)"/>
+          <text x="480" y="115" fill="#fbbf24" font-size="10">Refresh (1초)</text>
+
+          <rect x="340" y="135" width="180" height="50" rx="8" fill="rgba(56,189,248,0.15)" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="430" y="157" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="600">4. New Segment 생성</text>
+          <text x="430" y="173" text-anchor="middle" fill="#64748b" font-size="9">검색 가능해짐 (NRT)</text>
+
+          <!-- Flush -->
+          <line x1="430" y1="185" x2="430" y2="220" stroke="#34d399" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowG2)"/>
+          <text x="480" y="210" fill="#34d399" font-size="10">Flush (주기적)</text>
+
+          <rect x="340" y="225" width="180" height="50" rx="8" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="430" y="247" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">5. 디스크 영구 저장</text>
+          <text x="430" y="263" text-anchor="middle" fill="#64748b" font-size="9">fsync + Translog 클리어</text>
+
+          <!-- Merge -->
+          <rect x="600" y="135" width="170" height="50" rx="8" fill="rgba(248,113,113,0.15)" stroke="#f87171" stroke-width="1.5"/>
+          <text x="685" y="157" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">6. Segment Merge</text>
+          <text x="685" y="173" text-anchor="middle" fill="#64748b" font-size="9">백그라운드, 삭제 문서 제거</text>
+          <line x1="520" y1="160" x2="600" y2="160" stroke="#f87171" stroke-width="1" stroke-dasharray="4,3"/>
+
+          <defs>
+            <marker id="arrowY2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#fbbf24"/>
+            </marker>
+            <marker id="arrowP2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#7c6af7"/>
+            </marker>
+            <marker id="arrowG2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#34d399"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Inverted Index (역색인)</span>
+        <span class="related-tag">Apache Lucene</span>
+        <span class="related-tag">BM25 / TF-IDF</span>
+        <span class="related-tag">Nori Analyzer (한국어)</span>
+        <span class="related-tag">Shard Routing</span>
+        <span class="related-tag">Segment Merge</span>
+        <span class="related-tag">NRT (Near Real-Time)</span>
+        <span class="related-tag">Translog (WAL)</span>
+        <span class="related-tag">ELK Stack (Logstash, Kibana)</span>
+        <span class="related-tag">doc_values (집계용 열지향 저장)</span>
+        <span class="related-tag">Split Brain 방지</span>
+        <span class="related-tag">Index Lifecycle Management (ILM)</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

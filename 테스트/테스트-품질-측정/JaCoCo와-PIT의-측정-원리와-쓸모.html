@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JaCoCo와 PIT의 측정 원리와 쓸모 — 테스트 품질 측정 · 테스트</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>JaCoCo와 PIT의 측정 원리와 쓸모</h1>
+      <p class="meta">테스트 · 테스트 품질 측정 · 2026-04-04</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        JaCoCo는 "코드가 실행됐는지"를 측정하고, PIT은 "테스트가 진짜 버그를 잡는지"를 측정한다. 둘은 보는 관점이 완전히 다르다.
+      </div>
+      <p>JaCoCo(커버리지)가 높다고 테스트가 좋은 게 아니다. 커버리지 100%여도 assert가 하나도 없으면 아무것도 검증하지 않는 테스트다. PIT(뮤테이션 테스팅)은 이 허점을 찾아준다.</p>
+      <p>비유하자면:</p>
+      <ul>
+        <li><strong>JaCoCo</strong> = 시험 범위를 다 읽었는지 확인 (읽기만 하고 이해 못 했을 수도 있음)</li>
+        <li><strong>PIT</strong> = 시험 문제를 살짝 바꿔서 진짜 이해했는지 확인</li>
+      </ul>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+      <h3>코드 커버리지란?</h3>
+      <p>테스트를 실행했을 때 프로덕션 코드 중 몇 %가 실행됐는지를 수치화한 것이다. 종류가 여러 가지다:</p>
+      <table>
+        <thead>
+          <tr><th>종류</th><th>측정 대상</th><th>예시</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>라인 커버리지</strong></td><td>코드 한 줄이 실행됐는가</td><td>10줄 중 8줄 실행 → 80%</td></tr>
+          <tr><td><strong>브랜치 커버리지</strong></td><td>if/else 분기를 모두 탔는가</td><td>if-else 중 if만 탐 → 50%</td></tr>
+          <tr><td><strong>메서드 커버리지</strong></td><td>메서드가 호출됐는가</td><td>5개 중 4개 호출 → 80%</td></tr>
+        </tbody>
+      </table>
+
+      <h3>뮤테이션 테스팅이란?</h3>
+      <p>프로덕션 코드를 일부러 망가뜨려서(뮤턴트), 테스트가 이걸 잡아내는지 확인하는 기법이다. 테스트가 뮤턴트를 잡아내면 "킬(kill)", 못 잡으면 "생존(survived)"이라 한다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h3>JaCoCo는 어떻게 측정하는가</h3>
+      <p>JaCoCo는 <strong>바이트코드 인스트루먼테이션(bytecode instrumentation)</strong>으로 동작한다:</p>
+      <ol>
+        <li>컴파일된 .class 파일의 바이트코드에 프로브(probe)를 삽입</li>
+        <li>테스트 실행 시 각 프로브가 "이 코드가 실행됐다"고 기록</li>
+        <li>실행 후 프로브 데이터를 수집해서 리포트 생성</li>
+      </ol>
+      <p>즉, <strong>소스 코드를 건드리지 않고</strong> 바이트코드 레벨에서 측정한다. 그래서 프로덕션 코드에 영향이 없다.</p>
+
+      <div class="highlight-box" style="background: #fff3cd; border-left-color: #ffc107;">
+        <strong>JaCoCo의 한계</strong><br>
+        아래 테스트는 JaCoCo 기준 100% 커버리지다. 하지만 아무것도 검증하지 않는다:
+        <pre style="margin-top: 8px; font-size: 14px;">@Test
+void test() {
+    credit.charge(100);
+    credit.use(30);
+    // assert 없음 — 결과가 70인지 -30인지 확인 안 함
+}</pre>
+      </div>
+
+      <h3>PIT은 어떻게 측정하는가</h3>
+      <p>PIT은 <strong>뮤테이션 연산자(mutator)</strong>를 적용해서 코드를 변형한다:</p>
+      <table>
+        <thead>
+          <tr><th>뮤테이션 연산자</th><th>원본 코드</th><th>변형된 코드 (뮤턴트)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>조건 경계 변경</td><td><code>if (balance < amount)</code></td><td><code>if (balance <= amount)</code></td></tr>
+          <tr><td>조건 부정</td><td><code>if (balance < amount)</code></td><td><code>if (balance >= amount)</code></td></tr>
+          <tr><td>반환값 변경</td><td><code>return true;</code></td><td><code>return false;</code></td></tr>
+          <tr><td>메서드 호출 제거</td><td><code>list.add(item);</code></td><td><code>// 제거됨</code></td></tr>
+          <tr><td>수학 연산 변경</td><td><code>a + b</code></td><td><code>a - b</code></td></tr>
+        </tbody>
+      </table>
+
+      <p>각 뮤턴트마다:</p>
+      <ol>
+        <li>코드를 변형한다 (예: <code>&lt;</code>를 <code>&lt;=</code>로)</li>
+        <li>관련 테스트를 실행한다</li>
+        <li>테스트가 실패하면 → <strong>킬(KILLED)</strong> = 테스트가 이 변형을 감지했다</li>
+        <li>테스트가 통과하면 → <strong>생존(SURVIVED)</strong> = 테스트가 이 변형을 못 잡았다</li>
+        <li>테스트가 아예 실행 안 됐으면 → <strong>NO_COVERAGE</strong> = 테스트가 닿지도 않는 코드</li>
+      </ol>
+
+      <div class="highlight-box" style="background: #d4edda; border-left-color: #28a745;">
+        <strong>PIT이 잡아내는 것</strong><br>
+        아까 assert 없는 테스트? PIT이 <code>balance -= amount</code>를 <code>balance += amount</code>로 바꿔도 테스트가 통과한다.
+        → <strong>SURVIVED</strong> → "이 테스트는 잔액 계산을 검증하지 않는다"를 알려준다.
+      </div>
+
+      <h3>실제 사례: 우리 프로젝트에서 일어난 일</h3>
+      <table>
+        <thead>
+          <tr><th>발견된 문제</th><th>도구</th><th>내용</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>경계값 누락</td>
+            <td>PIT</td>
+            <td><code>balance &lt; amount</code>에서 <code>&lt;</code>를 <code>&lt;=</code>로 바꿔도 테스트 통과 → <code>balance == amount</code>일 때 테스트가 없었음</td>
+          </tr>
+          <tr>
+            <td>부수 효과 미검증</td>
+            <td>PIT</td>
+            <td><code>repurposeStatusService.completeContent()</code> 호출을 제거해도 테스트 통과 → <code>verify()</code>로 호출 검증을 안 하고 있었음</td>
+          </tr>
+          <tr>
+            <td>미도달 코드</td>
+            <td>PIT</td>
+            <td><code>findRepurpose</code>의 예외 생성 람다가 NO_COVERAGE → 실패 케이스 테스트가 아예 없었음</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>그래서 쓸모가 있는가?</h3>
+      <table>
+        <thead>
+          <tr><th></th><th>JaCoCo</th><th>PIT</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>알려주는 것</strong></td><td>어디를 테스트 안 했는지</td><td>테스트가 얼마나 믿을 만한지</td></tr>
+          <tr><td><strong>못 알려주는 것</strong></td><td>테스트가 제대로 검증하는지</td><td>어떤 테스트를 작성해야 하는지</td></tr>
+          <tr><td><strong>비용</strong></td><td>거의 없음 (빌드 +1초)</td><td>높음 (뮤턴트 수 × 테스트 수)</td></tr>
+          <tr><td><strong>쓰는 방식</strong></td><td>빌드 게이트 (80% 미만이면 실패)</td><td>리뷰 도구 (생존 뮤턴트 확인)</td></tr>
+          <tr><td><strong>실무 채택률</strong></td><td>높음 (대부분의 팀)</td><td>낮음 (품질에 민감한 팀)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="highlight-box">
+        <strong>결론</strong><br>
+        JaCoCo = <strong>최소 안전망</strong>. "테스트 안 짠 코드가 있다"를 방지.<br>
+        PIT = <strong>품질 검증</strong>. "테스트가 진짜 동작하는지"를 확인.<br><br>
+        둘 다 있으면 좋지만, JaCoCo 없이 PIT만 쓰는 건 의미 없고, JaCoCo만으로는 테스트 품질을 보장할 수 없다.
+      </div>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%; font-family: 'Pretendard Variable', sans-serif;">
+          <!-- Title -->
+          <text x="400" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#1a1a2e">테스트 품질 측정 파이프라인</text>
+
+          <!-- Source Code -->
+          <rect x="30" y="60" width="160" height="60" rx="8" fill="#e8eaf6" stroke="#3f51b5" stroke-width="2"/>
+          <text x="110" y="85" text-anchor="middle" font-size="13" font-weight="600" fill="#1a1a2e">프로덕션 코드</text>
+          <text x="110" y="105" text-anchor="middle" font-size="11" fill="#666">Credit.java 등</text>
+
+          <!-- Test Code -->
+          <rect x="30" y="160" width="160" height="60" rx="8" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+          <text x="110" y="185" text-anchor="middle" font-size="13" font-weight="600" fill="#1a1a2e">테스트 코드</text>
+          <text x="110" y="205" text-anchor="middle" font-size="11" fill="#666">CreditTest.java 등</text>
+
+          <!-- Arrow to JaCoCo -->
+          <line x1="190" y1="90" x2="270" y2="130" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <line x1="190" y1="190" x2="270" y2="150" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <!-- JaCoCo -->
+          <rect x="270" y="110" width="180" height="70" rx="8" fill="#fff3e0" stroke="#ff9800" stroke-width="2"/>
+          <text x="360" y="135" text-anchor="middle" font-size="14" font-weight="700" fill="#e65100">JaCoCo</text>
+          <text x="360" y="155" text-anchor="middle" font-size="11" fill="#666">바이트코드에 프로브 삽입</text>
+          <text x="360" y="170" text-anchor="middle" font-size="11" fill="#666">"실행됐는가?" 기록</text>
+
+          <!-- Arrow to JaCoCo Result -->
+          <line x1="450" y1="145" x2="530" y2="105" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <!-- JaCoCo Result -->
+          <rect x="530" y="70" width="230" height="70" rx="8" fill="#fff" stroke="#ff9800" stroke-width="1.5"/>
+          <text x="645" y="95" text-anchor="middle" font-size="12" font-weight="600" fill="#e65100">커버리지 리포트</text>
+          <text x="645" y="115" text-anchor="middle" font-size="11" fill="#666">라인 88% | 브랜치 75%</text>
+          <text x="645" y="130" text-anchor="middle" font-size="10" fill="#999">→ "어디를 안 테스트했나"</text>
+
+          <!-- Arrow to PIT -->
+          <line x1="360" y1="180" x2="360" y2="240" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <!-- PIT -->
+          <rect x="270" y="240" width="180" height="80" rx="8" fill="#fce4ec" stroke="#e91e63" stroke-width="2"/>
+          <text x="360" y="265" text-anchor="middle" font-size="14" font-weight="700" fill="#c2185b">PIT</text>
+          <text x="360" y="283" text-anchor="middle" font-size="11" fill="#666">코드를 일부러 변형</text>
+          <text x="360" y="298" text-anchor="middle" font-size="11" fill="#666">< → <= | + → - | 호출 제거</text>
+          <text x="360" y="313" text-anchor="middle" font-size="11" fill="#666">"테스트가 잡는가?"</text>
+
+          <!-- Arrow to PIT Result -->
+          <line x1="450" y1="280" x2="530" y2="280" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <!-- PIT Result -->
+          <rect x="530" y="240" width="230" height="80" rx="8" fill="#fff" stroke="#e91e63" stroke-width="1.5"/>
+          <text x="645" y="265" text-anchor="middle" font-size="12" font-weight="600" fill="#c2185b">뮤테이션 리포트</text>
+          <text x="645" y="285" text-anchor="middle" font-size="11" fill="#666">54 뮤턴트 | 54 킬 (100%)</text>
+          <text x="645" y="305" text-anchor="middle" font-size="10" fill="#999">→ "테스트가 진짜 검증하는가"</text>
+
+          <!-- Summary -->
+          <rect x="180" y="360" width="440" height="45" rx="8" fill="#f5f5f5" stroke="#ddd" stroke-width="1"/>
+          <text x="400" y="380" text-anchor="middle" font-size="12" fill="#666">JaCoCo: 실행 여부 (양) → PIT: 검증 여부 (질)</text>
+          <text x="400" y="396" text-anchor="middle" font-size="11" fill="#999">커버리지가 높아도 뮤턴트가 살아남으면 테스트가 약한 것</text>
+
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">바이트코드 인스트루먼테이션</span>
+        <span class="related-tag">브랜치 커버리지 vs 라인 커버리지</span>
+        <span class="related-tag">뮤테이션 연산자 (Mutator)</span>
+        <span class="related-tag">테스트 피라미드</span>
+        <span class="related-tag">TDD</span>
+        <span class="related-tag">프로퍼티 기반 테스팅</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

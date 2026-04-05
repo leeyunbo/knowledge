@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Presenter에서 유스케이스 인터페이스를 의존하는 이유 — 22장 클린 아키텍처 · Clean Architecture</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --accent3: #38bdf8;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #64748b;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --radius: 12px;
+      --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
+
+    .breadcrumb {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.8rem; color: var(--text3); margin-bottom: 2.5rem;
+    }
+    .breadcrumb a {
+      color: var(--text3); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .breadcrumb a:hover { color: var(--accent2); }
+    .breadcrumb .sep { color: var(--border); }
+    .breadcrumb .current { color: var(--text2); }
+
+    .page-header { margin-bottom: 3rem; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent2); border-radius: 20px;
+      padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2.2rem);
+      font-weight: 700; line-height: 1.3;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .meta { font-size: 0.85rem; color: var(--text3); }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text3);
+      margin-bottom: 1.25rem;
+    }
+    .card-header .icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .icon-answer { background: rgba(124,106,247,0.2); }
+    .icon-background { background: rgba(56,189,248,0.2); }
+    .icon-deep { background: rgba(52,211,153,0.2); }
+    .icon-visual { background: rgba(251,191,36,0.2); }
+    .icon-related { background: rgba(248,113,113,0.2); }
+
+    .card p { color: var(--text); margin-bottom: 1rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .highlight-box {
+      background: rgba(124,106,247,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+    }
+
+    .card ul, .card ol { padding-left: 1.5rem; color: var(--text); }
+    .card li { margin-bottom: 0.5rem; }
+    .card li::marker { color: var(--accent2); }
+
+    code {
+      font-family: var(--mono);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+      color: var(--accent3);
+    }
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    pre code {
+      background: none; border: none; padding: 0;
+      font-size: 0.9rem; color: var(--text);
+    }
+
+    .diagram-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap svg { max-width: 100%; height: auto; }
+
+    .compare-table { width: 100%; border-collapse: collapse; }
+    .compare-table th, .compare-table td {
+      text-align: left; padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .compare-table th {
+      color: var(--text3); font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .related-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .related-tag {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 0.3rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .related-tag:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+      background: rgba(124,106,247,0.1);
+    }
+
+    .bottom-nav {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 0.5rem;
+      color: var(--text3); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .nav-link:hover { color: var(--accent2); }
+
+    @media (max-width: 640px) {
+      .container { padding: 1.5rem 1rem 4rem; }
+      .card { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">📚 지식 요람</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/Clean Architecture/index.html">Clean Architecture</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/Clean Architecture/22장 클린 아키텍처/index.html">22장 클린 아키텍처</a>
+      <span class="sep">›</span>
+      <span class="current">Presenter와 유스케이스 인터페이스</span>
+    </nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Presenter에서 유스케이스 인터페이스를 의존하는 이유</h1>
+      <p class="meta">Clean Architecture · 22장 클린 아키텍처 · 2026-03-22</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        22장의 인터페이스는 <strong>두 종류</strong>이고, 존재 이유가 다르다. Output Boundary/Data Access Interface는 <strong>의존성 규칙을 지키기 위해 필수</strong>이고, Input Boundary는 <strong>유스케이스 교체 가능성이 있을 때만 의미</strong> 있다.
+      </div>
+
+      <p><strong>출발점: "UI 계층에서 UseCase에 의존하는 건 상관없잖아?"</strong></p>
+      <p>
+        맞다. Controller(저수준)→UseCase(고수준)는 이미 올바른 방향이다. 의존성 규칙을 위반하지 않는다.
+        그러면 왜 22장에서는 Input Boundary 인터페이스를 끼웠을까?
+      </p>
+    </div>
+
+    <!-- Output Boundary: 필수인 이유 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        Output Boundary — 이건 필수다
+      </div>
+      <p>
+        UseCase가 실행 결과를 Presenter에 전달해야 한다. 이때 UseCase가 Presenter를 직접 알면?
+      </p>
+      <pre><code>// UseCase(고수준)가 Presenter(저수준)를 직접 의존 → 의존성 규칙 위반!
+public class CreateOrderInteractor {
+    private final OrderPresenter presenter; // 저수준 클래스를 직접 import
+
+    public void execute(CreateOrderRequest request) {
+        Order order = ...;
+        presenter.present(order); // 고수준 → 저수준 의존
+    }
+}</code></pre>
+      <p>
+        <strong>고수준(UseCase)이 저수준(Presenter)을 직접 의존</strong>하게 된다. DB Gateway 케이스와 완전히 같은 문제다.
+        그래서 Output Boundary 인터페이스를 UseCase 계층에 두고, Presenter가 이를 구현하게 해서 방향을 역전시킨다. 이건 <strong>의존성 규칙을 지키기 위해 반드시 필요</strong>하다.
+      </p>
+    </div>
+
+    <!-- Input Boundary: 필수가 아닌 이유 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        Input Boundary — 이건 항상 필요한 건 아니다
+      </div>
+      <p>
+        Controller→UseCase는 이미 저수준→고수준이니까, 구체 클래스에 직접 의존해도 <strong>의존성 규칙 위반이 아니다</strong>.
+      </p>
+      <pre><code>// 이것도 의존성 규칙상 문제없다
+public class OrderController {
+    private final CreateOrderInteractor useCase; // 구체 클래스 직접 의존
+
+    public void createOrder(HttpRequest req) {
+        useCase.execute(new CreateOrderRequest(...));
+    }
+}</code></pre>
+      <p>
+        그러면 22장에서 Input Boundary를 넣은 건 왜일까? <strong>유스케이스 구현체를 교체할 가능성</strong>을 고려한 것이다.
+      </p>
+      <pre><code>// 인터페이스가 있으면 구현체 교체가 가능
+public interface CreateOrderInputBoundary {
+    void execute(CreateOrderRequest request);
+}
+
+// 일반 주문
+public class CreateOrderInteractor implements CreateOrderInputBoundary { ... }
+
+// 프리미엄 주문 (다른 비즈니스 로직)
+public class PremiumCreateOrderInteractor implements CreateOrderInputBoundary { ... }</code></pre>
+      <p>
+        이런 교체 가능성이 <strong>현실적으로 존재하면</strong> Input Boundary는 의미가 있다.
+        하지만 구현체가 하나뿐이고 교체할 일이 없다면? <strong>불필요한 간접 계층이고, 오버엔지니어링</strong>이다.
+      </p>
+      <p>
+        22장은 Clean Architecture의 <strong>"원칙의 완전한 형태"를 보여주는 교과서적 예시</strong>이지, "항상 이렇게 해야 한다"는 뜻이 아니다.
+      </p>
+    </div>
+
+    <!-- 정리 테이블 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        정리
+      </div>
+      <table class="compare-table">
+        <tr>
+          <th>인터페이스</th>
+          <th>의존 방향</th>
+          <th>필수 여부</th>
+          <th>이유</th>
+        </tr>
+        <tr>
+          <td><strong>Output Boundary</strong><br>(UseCase → Presenter)</td>
+          <td>고수준→저수준<br><span style="color: var(--red);">방향 잘못됨</span></td>
+          <td><strong style="color: var(--red);">필수</strong></td>
+          <td>없으면 의존성 규칙 위반. 방향을 역전시켜야 한다.</td>
+        </tr>
+        <tr>
+          <td><strong>Data Access Interface</strong><br>(UseCase → DB)</td>
+          <td>고수준→저수준<br><span style="color: var(--red);">방향 잘못됨</span></td>
+          <td><strong style="color: var(--red);">필수</strong></td>
+          <td>Output Boundary와 같은 이유. 방향 역전이 필요하다.</td>
+        </tr>
+        <tr>
+          <td><strong>Input Boundary</strong><br>(Controller → UseCase)</td>
+          <td>저수준→고수준<br><span style="color: var(--green);">이미 올바름</span></td>
+          <td><strong style="color: var(--yellow);">선택적</strong></td>
+          <td>유스케이스 구현체 교체가 현실적일 때만 의미 있다. 구현체가 하나뿐이면 오버엔지니어링.</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 780 440" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- 계층 배경 -->
+          <rect x="10" y="10" width="760" height="120" rx="12" fill="#1a1d27" stroke="#2e3250" stroke-width="1"/>
+          <text x="30" y="38" fill="#64748b" font-size="12" font-weight="600">INTERFACE ADAPTERS (저수준)</text>
+
+          <rect x="10" y="150" width="760" height="140" rx="12" fill="#1e2235" stroke="#2e3250" stroke-width="1"/>
+          <text x="30" y="178" fill="#64748b" font-size="12" font-weight="600">USE CASES (고수준)</text>
+
+          <rect x="10" y="310" width="760" height="120" rx="12" fill="#1a1d27" stroke="#2e3250" stroke-width="1"/>
+          <text x="30" y="338" fill="#64748b" font-size="12" font-weight="600">INTERFACE ADAPTERS (저수준)</text>
+
+          <!-- Controller -->
+          <rect x="60" y="55" width="160" height="55" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="140" y="88" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="500">Controller</text>
+
+          <!-- Input Boundary (선택적 — 노란 테두리) -->
+          <rect x="280" y="175" width="180" height="45" rx="8" fill="#22263a" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="370" y="193" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">&lt;&lt;interface&gt;&gt; 선택적</text>
+          <text x="370" y="210" text-anchor="middle" fill="#e2e8f0" font-size="13">Input Boundary</text>
+
+          <!-- UseCaseInteractor -->
+          <rect x="540" y="185" width="200" height="55" rx="8" fill="#22263a" stroke="#34d399" stroke-width="1.5"/>
+          <text x="640" y="218" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="500">UseCaseInteractor</text>
+
+          <!-- Output Boundary (필수 — 빨간 테두리) -->
+          <rect x="280" y="240" width="180" height="45" rx="8" fill="#22263a" stroke="#f87171" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="370" y="258" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">&lt;&lt;interface&gt;&gt; 필수</text>
+          <text x="370" y="275" text-anchor="middle" fill="#e2e8f0" font-size="13">Output Boundary</text>
+
+          <!-- Presenter -->
+          <rect x="60" y="350" width="160" height="55" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="140" y="383" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="500">Presenter</text>
+
+          <!-- DB Gateway -->
+          <rect x="560" y="350" width="180" height="55" rx="8" fill="#22263a" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="650" y="383" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="500">DB Gateway</text>
+
+          <!-- Data Access Interface (필수) -->
+          <rect x="540" y="240" width="200" height="45" rx="8" fill="#22263a" stroke="#f87171" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="640" y="258" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">&lt;&lt;interface&gt;&gt; 필수</text>
+          <text x="640" y="275" text-anchor="middle" fill="#e2e8f0" font-size="13">DataAccessInterface</text>
+
+          <!-- Controller → Input Boundary -->
+          <line x1="220" y1="82" x2="280" y2="192" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowYellow)"/>
+          <text x="225" y="135" fill="#fbbf24" font-size="10" transform="rotate(30, 225, 135)">저수준→고수준 (OK)</text>
+
+          <!-- UseCaseInteractor implements Input Boundary -->
+          <line x1="540" y1="205" x2="460" y2="198" stroke="#34d399" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowGreen)"/>
+
+          <!-- UseCaseInteractor → Output Boundary -->
+          <line x1="570" y1="240" x2="460" y2="258" stroke="#f87171" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+          <text x="500" y="242" fill="#f87171" font-size="10">의존</text>
+
+          <!-- Presenter implements Output Boundary -->
+          <line x1="140" y1="350" x2="280" y2="270" stroke="#34d399" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowGreen)"/>
+          <text x="175" y="305" fill="#34d399" font-size="10">구현</text>
+
+          <!-- DB Gateway implements DataAccessInterface -->
+          <line x1="650" y1="350" x2="645" y2="285" stroke="#34d399" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowGreen)"/>
+          <text x="660" y="320" fill="#34d399" font-size="10">구현</text>
+
+          <!-- 범례 -->
+          <rect x="30" y="435" width="12" height="3" fill="#f87171"/>
+          <text x="48" y="438" fill="#f87171" font-size="10">필수 — 없으면 의존성 규칙 위반</text>
+          <rect x="280" y="435" width="12" height="3" fill="#fbbf24"/>
+          <text x="298" y="438" fill="#fbbf24" font-size="10">선택적 — 유스케이스 교체 시에만 의미 있음</text>
+
+          <defs>
+            <marker id="arrowYellow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6" fill="none" stroke="#fbbf24" stroke-width="1"/>
+            </marker>
+            <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6" fill="none" stroke="#f87171" stroke-width="1"/>
+            </marker>
+            <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6" fill="none" stroke="#34d399" stroke-width="1"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p>
+        <strong style="color: var(--red);">빨간 인터페이스</strong> = 없으면 고수준→저수준 의존이 되어 의존성 규칙 위반. 반드시 필요.<br>
+        <strong style="color: var(--yellow);">노란 인터페이스</strong> = 방향은 이미 맞음. 유스케이스 구현체를 교체할 일이 있을 때만 의미 있고, 아니면 오버엔지니어링.
+      </p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">의존성 역전 원칙 (DIP)</span>
+        <span class="related-tag">의존성 규칙 (Dependency Rule)</span>
+        <span class="related-tag">포트와 어댑터 (Hexagonal Architecture)</span>
+        <span class="related-tag">YAGNI</span>
+        <span class="related-tag">제어 흐름 vs 의존성 방향</span>
+        <span class="related-tag">험블 객체 패턴 (Humble Object)</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav">
+      <a href="/knowledge/Clean Architecture/22장 클린 아키텍처/index.html" class="nav-link">← 22장 클린 아키텍처 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

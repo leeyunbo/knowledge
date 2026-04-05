@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>글로벌 메모리 영역과 로컬 메모리 영역 — Chapter4 아키텍처 · RealMySQL8.0</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- 브레드크럼 -->
+    <nav class="breadcrumb">
+      <a href="/knowledge/index.html">bok's wiki</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/index.html">RealMySQL8.0</a>
+      <span class="sep">›</span>
+      <a href="/knowledge/RealMySQL8.0/Chapter4-아키텍처/index.html">Chapter4 아키텍처</a>
+      <span class="sep">›</span>
+      <span class="current">글로벌/로컬 메모리 영역</span>
+    </nav>
+
+    <!-- 헤더 -->
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>MySQL의 글로벌 메모리 영역과 로컬 메모리 영역</h1>
+      <p class="meta">RealMySQL8.0 · Chapter4 아키텍처 · 2026-03-19</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <strong>글로벌 메모리 영역</strong>은 모든 스레드가 공유하는 메모리로 MySQL 서버 시작 시 한 번 할당되며, <strong>로컬 메모리 영역</strong>은 각 클라이언트 스레드마다 독립적으로 할당되는 메모리로 커넥션별로 생성/삭제됩니다.
+      </div>
+
+      <p><strong>글로벌 메모리 영역 (Global Memory Area)</strong></p>
+      <ul>
+        <li><strong>특징</strong>: 모든 스레드가 공유, MySQL 서버 시작 시 1회 할당, 서버 종료 시 해제</li>
+        <li><strong>주요 구성요소</strong>:
+          <ul>
+            <li><code>InnoDB Buffer Pool</code> — 데이터/인덱스 페이지 캐시 (가장 중요)</li>
+            <li><code>InnoDB Log Buffer</code> — Redo Log 임시 저장</li>
+            <li><code>Table Cache</code> — 테이블 메타데이터 캐시</li>
+            <li><code>Key Cache (MyISAM)</code> — MyISAM 인덱스 캐시</li>
+          </ul>
+        </li>
+        <li><strong>설정 방식</strong>: <code>my.cnf</code>에서 전역 설정 (<code>innodb_buffer_pool_size</code> 등)</li>
+      </ul>
+
+      <p><strong>로컬 메모리 영역 (Thread/Session Memory Area)</strong></p>
+      <ul>
+        <li><strong>특징</strong>: 각 클라이언트 커넥션(스레드)마다 독립적으로 할당, 커넥션 연결 시 생성 / 종료 시 해제</li>
+        <li><strong>주요 구성요소</strong>:
+          <ul>
+            <li><code>Connection Buffer</code> — 클라이언트와 통신용 버퍼</li>
+            <li><code>Result Buffer</code> — 쿼리 결과 반환용 버퍼</li>
+            <li><code>Sort Buffer</code> — ORDER BY, GROUP BY 정렬 작업용</li>
+            <li><code>Join Buffer</code> — 조인 연산 시 사용</li>
+            <li><code>Read Buffer / Read RND Buffer</code> — 테이블 풀 스캔 시 사용</li>
+            <li><code>Temporary Table</code> — 임시 테이블 생성 시 메모리 사용</li>
+          </ul>
+        </li>
+        <li><strong>설정 방식</strong>: <code>sort_buffer_size</code>, <code>join_buffer_size</code> 등으로 스레드당 크기 제어</li>
+        <li><strong>주의점</strong>: 커넥션 수가 많으면 전체 메모리 사용량이 급증할 수 있음</li>
+      </ul>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <p><strong>스레드 기반 아키텍처</strong><br>
+      MySQL은 클라이언트가 연결할 때마다 <strong>스레드(Thread)</strong>를 생성하거나 스레드 풀에서 할당합니다. 각 스레드는 독립적인 메모리 공간을 가지며, 이를 로컬 메모리 영역이라고 합니다.</p>
+
+      <p><strong>메모리 할당 시점</strong><br>
+      글로벌 메모리는 <strong>서버 시작 시 한 번</strong> 할당되지만, 로컬 메모리는 <strong>필요할 때마다 동적으로 할당</strong>됩니다. 예를 들어 Sort Buffer는 ORDER BY가 실행될 때만 할당됩니다.</p>
+
+      <p><strong>메모리 오버커밋 (Over-commit)</strong><br>
+      로컬 메모리 설정값은 "최대값"이지 "예약값"이 아닙니다. 실제로는 필요한 만큼만 할당되지만, 최악의 경우 모든 커넥션이 최대 크기를 사용할 수 있으므로 메모리 계산 시 주의가 필요합니다.</p>
+
+      <p><strong>Connection Pool vs Thread Pool</strong><br>
+      애플리케이션의 Connection Pool은 커넥션 수를 제한하지만, MySQL 내부의 Thread Pool은 스레드 생성 비용을 줄이기 위한 것입니다. 두 개념을 혼동하지 말아야 합니다.</p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <p><strong>글로벌 메모리 영역의 실무 튜닝</strong></p>
+
+      <p><code>innodb_buffer_pool_size</code>는 MySQL에서 가장 중요한 설정입니다. 일반적으로 <strong>전체 메모리의 70-80%</strong>를 할당하지만, 다음을 고려해야 합니다:</p>
+
+      <ul>
+        <li><strong>OS 캐시 영역 확보</strong>: 최소 1-2GB는 OS와 다른 프로세스를 위해 남겨둠</li>
+        <li><strong>로컬 메모리 합산</strong>: <code>max_connections × (sort_buffer_size + join_buffer_size + ...)</code> 만큼은 여유 확보</li>
+        <li><strong>스왑 방지</strong>: 물리 메모리를 초과하면 스왑이 발생해 성능이 급격히 저하됨</li>
+      </ul>
+
+      <p><strong>Buffer Pool의 동적 크기 조정 (MySQL 5.7+)</strong></p>
+
+      <pre><code>-- 런타임에 Buffer Pool 크기 변경 가능
+SET GLOBAL innodb_buffer_pool_size = 8G;
+
+-- 변경 중 서비스는 계속 동작하지만, 일시적인 성능 저하 가능</code></pre>
+
+      <p><strong>로컬 메모리 영역의 함정</strong></p>
+
+      <p>로컬 메모리 설정은 <strong>커넥션당 곱하기</strong>가 적용되므로 주의가 필요합니다:</p>
+
+      <pre><code>예시:
+- max_connections = 500
+- sort_buffer_size = 2MB
+- join_buffer_size = 2MB
+- read_buffer_size = 1MB
+
+최악의 경우 메모리 사용량:
+500 × (2MB + 2MB + 1MB) = 2.5GB</code></pre>
+
+      <p>실제로는 모든 커넥션이 동시에 정렬/조인을 하지 않으므로 이 값보다 적게 사용되지만, <strong>메모리 부족 상황</strong>을 대비해 여유를 두어야 합니다.</p>
+
+      <p><strong>Sort Buffer의 동작 방식</strong></p>
+
+      <p>Sort Buffer는 ORDER BY 실행 시 할당되며, 정렬할 데이터가 버퍼 크기를 초과하면 <strong>디스크 기반 정렬(filesort)</strong>로 전환됩니다:</p>
+
+      <ul>
+        <li><strong>Single-pass 정렬</strong>: 정렬에 필요한 모든 컬럼을 Sort Buffer에 적재 (MySQL 5.6+)</li>
+        <li><strong>Two-pass 정렬</strong>: 정렬 키와 row ID만 저장 후, 나중에 다시 테이블 접근 (레거시)</li>
+        <li><strong>디스크 Merge</strong>: 버퍼를 초과하면 임시 파일로 나눠서 정렬 후 병합</li>
+      </ul>
+
+      <p><code>sort_buffer_size</code>를 너무 크게 설정하면 메모리 부족 + 정렬 알고리즘 효율 저하가 발생할 수 있으므로, 일반적으로 <strong>256KB ~ 2MB</strong> 정도가 적절합니다.</p>
+
+      <p><strong>Join Buffer의 활용</strong></p>
+
+      <p>Join Buffer는 인덱스를 사용하지 못하는 조인 (Block Nested Loop Join, Hash Join)에서 사용됩니다:</p>
+
+      <ul>
+        <li><strong>BNL (MySQL 8.0.18 이전)</strong>: Driving 테이블의 레코드를 Join Buffer에 캐싱</li>
+        <li><strong>Hash Join (MySQL 8.0.18+)</strong>: 해시 테이블 생성용으로 사용</li>
+      </ul>
+
+      <p>조인 성능을 높이려면 Join Buffer 크기를 늘리는 것보다, <strong>인덱스를 추가</strong>해서 Nested Loop Join으로 변경하는 것이 훨씬 효과적입니다.</p>
+
+      <p><strong>Temporary Table 메모리 관리</strong></p>
+
+      <p>임시 테이블은 다음 상황에서 생성됩니다:</p>
+      <ul>
+        <li>DISTINCT, GROUP BY, ORDER BY (인덱스 미사용 시)</li>
+        <li>UNION, 서브쿼리</li>
+        <li>Derived Table (FROM 절의 서브쿼리)</li>
+      </ul>
+
+      <p>임시 테이블은 처음에는 <strong>메모리(TempTable 엔진)</strong>에 생성되고, 크기가 <code>tmp_table_size</code> 또는 <code>max_heap_table_size</code>를 초과하면 <strong>디스크로 전환</strong>됩니다. MySQL 8.0부터는 디스크 임시 테이블도 InnoDB를 사용합니다.</p>
+
+      <p><strong>메모리 모니터링</strong></p>
+
+      <pre><code>-- 현재 메모리 사용량 확인
+SELECT EVENT_NAME, CURRENT_NUMBER_OF_BYTES_USED/1024/1024 AS MB
+FROM performance_schema.memory_summary_global_by_event_name
+WHERE CURRENT_NUMBER_OF_BYTES_USED > 0
+ORDER BY CURRENT_NUMBER_OF_BYTES_USED DESC
+LIMIT 20;
+
+-- 세션별 메모리 사용량
+SELECT THREAD_ID, EVENT_NAME, CURRENT_NUMBER_OF_BYTES_USED/1024/1024 AS MB
+FROM performance_schema.memory_summary_by_thread_by_event_name
+WHERE THREAD_ID = CONNECTION_ID()
+ORDER BY CURRENT_NUMBER_OF_BYTES_USED DESC;</code></pre>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg width="750" height="550" xmlns="http://www.w3.org/2000/svg">
+          <!-- Background -->
+          <rect width="750" height="550" fill="#1a1d27"/>
+
+          <!-- Title -->
+          <text x="375" y="30" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#e2e8f0" text-anchor="middle">
+            MySQL 메모리 구조: 글로벌 vs 로컬 메모리 영역
+          </text>
+
+          <!-- MySQL Server Box -->
+          <rect x="30" y="60" width="690" height="460" rx="10" fill="#0f1117" stroke="#7c6af7" stroke-width="3"/>
+          <text x="375" y="85" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#a78bfa" text-anchor="middle">
+            MySQL Server Process
+          </text>
+
+          <!-- Global Memory Section -->
+          <rect x="50" y="100" width="320" height="390" rx="8" fill="#22263a" stroke="#34d399" stroke-width="2"/>
+          <text x="210" y="125" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#34d399" text-anchor="middle">
+            글로벌 메모리 영역 (공유)
+          </text>
+          <text x="210" y="142" font-family="Arial, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">
+            서버 시작 시 1회 할당, 모든 스레드 공유
+          </text>
+
+          <!-- InnoDB Buffer Pool -->
+          <rect x="70" y="160" width="280" height="70" rx="6" fill="#0f1117" stroke="#7c6af7" stroke-width="2"/>
+          <text x="210" y="182" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#7c6af7" text-anchor="middle">
+            InnoDB Buffer Pool
+          </text>
+          <text x="210" y="198" font-family="Arial, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">
+            데이터 페이지 + 인덱스 페이지 캐시
+          </text>
+          <text x="210" y="212" font-family="Arial, sans-serif" font-size="9" fill="#64748b" text-anchor="middle">
+            (innodb_buffer_pool_size)
+          </text>
+          <text x="210" y="224" font-family="Arial, sans-serif" font-size="9" font-weight="bold" fill="#34d399" text-anchor="middle">
+            ⭐ 가장 중요! 전체 메모리의 70-80%
+          </text>
+
+          <!-- InnoDB Log Buffer -->
+          <rect x="70" y="245" width="280" height="50" rx="6" fill="#0f1117" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="210" y="265" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#38bdf8" text-anchor="middle">
+            InnoDB Log Buffer
+          </text>
+          <text x="210" y="280" font-family="Arial, sans-serif" font-size="9" fill="#94a3b8" text-anchor="middle">
+            Redo Log 임시 저장
+          </text>
+          <text x="210" y="292" font-family="Arial, sans-serif" font-size="8" fill="#64748b" text-anchor="middle">
+            (innodb_log_buffer_size: 16MB)</text>
+
+          <!-- Table Cache -->
+          <rect x="70" y="310" width="130" height="45" rx="6" fill="#0f1117" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="135" y="328" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#fbbf24" text-anchor="middle">
+            Table Cache
+          </text>
+          <text x="135" y="342" font-family="Arial, sans-serif" font-size="8" fill="#94a3b8" text-anchor="middle">
+            테이블 메타데이터
+          </text>
+          <text x="135" y="352" font-family="Arial, sans-serif" font-size="7" fill="#64748b" text-anchor="middle">
+            (table_open_cache)</text>
+
+          <!-- Key Cache (MyISAM) -->
+          <rect x="220" y="310" width="130" height="45" rx="6" fill="#0f1117" stroke="#f87171" stroke-width="1.5"/>
+          <text x="285" y="328" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#f87171" text-anchor="middle">
+            Key Cache
+          </text>
+          <text x="285" y="342" font-family="Arial, sans-serif" font-size="8" fill="#94a3b8" text-anchor="middle">
+            MyISAM 인덱스
+          </text>
+          <text x="285" y="352" font-family="Arial, sans-serif" font-size="7" fill="#64748b" text-anchor="middle">
+            (key_buffer_size)</text>
+
+          <!-- Global Memory Note -->
+          <rect x="70" y="370" width="280" height="105" rx="6" fill="rgba(52,211,153,0.1)" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/>
+          <text x="210" y="388" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#34d399" text-anchor="middle">
+            💡 글로벌 메모리 특징
+          </text>
+          <text x="210" y="405" font-family="Arial, sans-serif" font-size="9" fill="#e2e8f0" text-anchor="middle">
+            ✓ 서버 시작 시 한 번만 할당
+          </text>
+          <text x="210" y="420" font-family="Arial, sans-serif" font-size="9" fill="#e2e8f0" text-anchor="middle">
+            ✓ 모든 스레드가 공유
+          </text>
+          <text x="210" y="435" font-family="Arial, sans-serif" font-size="9" fill="#e2e8f0" text-anchor="middle">
+            ✓ 크기 고정 (동적 조정 가능)
+          </text>
+          <text x="210" y="450" font-family="Arial, sans-serif" font-size="9" fill="#e2e8f0" text-anchor="middle">
+            ✓ 서버 종료 시 해제
+          </text>
+          <text x="210" y="467" font-family="Arial, sans-serif" font-size="8" font-style="italic" fill="#64748b" text-anchor="middle">
+            메모리 계산: 설정값 그대로
+          </text>
+
+          <!-- Thread/Local Memory Section -->
+          <rect x="390" y="100" width="310" height="390" rx="8" fill="#22263a" stroke="#a78bfa" stroke-width="2"/>
+          <text x="545" y="125" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#a78bfa" text-anchor="middle">
+            로컬 메모리 영역 (독립)
+          </text>
+          <text x="545" y="142" font-family="Arial, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">
+            커넥션(스레드)마다 독립 할당
+          </text>
+
+          <!-- Connection 1 -->
+          <rect x="410" y="160" width="270" height="90" rx="6" fill="#0f1117" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="545" y="178" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#7c6af7" text-anchor="middle">
+            📱 Connection #1 (Thread)
+          </text>
+          <rect x="420" y="185" width="110" height="28" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="475" y="202" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Sort Buffer</text>
+          <text x="475" y="212" font-family="Arial, sans-serif" font-size="7" fill="#64748b" text-anchor="middle">(256KB-2MB)</text>
+          <rect x="540" y="185" width="130" height="28" rx="4" fill="#22263a" stroke="#34d399" stroke-width="1"/>
+          <text x="605" y="202" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Join Buffer</text>
+          <text x="605" y="212" font-family="Arial, sans-serif" font-size="7" fill="#64748b" text-anchor="middle">(256KB)</text>
+          <rect x="420" y="220" width="110" height="23" rx="4" fill="#22263a" stroke="#fbbf24" stroke-width="1"/>
+          <text x="475" y="236" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Read Buffer</text>
+          <rect x="540" y="220" width="130" height="23" rx="4" fill="#22263a" stroke="#f87171" stroke-width="1"/>
+          <text x="605" y="236" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Result Buffer</text>
+
+          <!-- Connection 2 -->
+          <rect x="410" y="260" width="270" height="90" rx="6" fill="#0f1117" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="545" y="278" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#7c6af7" text-anchor="middle">
+            📱 Connection #2 (Thread)
+          </text>
+          <rect x="420" y="285" width="110" height="28" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="475" y="302" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Sort Buffer</text>
+          <text x="475" y="312" font-family="Arial, sans-serif" font-size="7" fill="#64748b" text-anchor="middle">(256KB-2MB)</text>
+          <rect x="540" y="285" width="130" height="28" rx="4" fill="#22263a" stroke="#34d399" stroke-width="1"/>
+          <text x="605" y="302" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Join Buffer</text>
+          <text x="605" y="312" font-family="Arial, sans-serif" font-size="7" fill="#64748b" text-anchor="middle">(256KB)</text>
+          <rect x="420" y="320" width="110" height="23" rx="4" fill="#22263a" stroke="#fbbf24" stroke-width="1"/>
+          <text x="475" y="336" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Read Buffer</text>
+          <rect x="540" y="320" width="130" height="23" rx="4" fill="#22263a" stroke="#f87171" stroke-width="1"/>
+          <text x="605" y="336" font-family="Arial, sans-serif" font-size="8" fill="#e2e8f0" text-anchor="middle">Result Buffer</text>
+
+          <!-- Connection N -->
+          <rect x="410" y="360" width="270" height="40" rx="6" fill="#0f1117" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <text x="545" y="385" font-family="Arial, sans-serif" font-size="11" font-style="italic" fill="#64748b" text-anchor="middle">
+            ... (max_connections까지)
+          </text>
+
+          <!-- Local Memory Note -->
+          <rect x="410" y="410" width="270" height="65" rx="6" fill="rgba(167,139,250,0.1)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,3"/>
+          <text x="545" y="428" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#a78bfa" text-anchor="middle">
+            ⚠️ 로컬 메모리 주의사항
+          </text>
+          <text x="545" y="443" font-family="Arial, sans-serif" font-size="9" fill="#e2e8f0" text-anchor="middle">
+            ✓ 커넥션마다 독립 할당
+          </text>
+          <text x="545" y="458" font-family="Arial, sans-serif" font-size="9" fill="#e2e8f0" text-anchor="middle">
+            ✓ 필요할 때만 할당 (동적)
+          </text>
+          <text x="545" y="471" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="#f87171" text-anchor="middle">
+            메모리 계산: 설정값 × max_connections
+          </text>
+
+          <!-- Bottom calculation example -->
+          <rect x="50" y="505" width="650" height="30" rx="6" fill="rgba(124,106,247,0.15)" stroke="#7c6af7" stroke-width="1"/>
+          <text x="375" y="525" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#a78bfa" text-anchor="middle">
+            💡 총 메모리 = innodb_buffer_pool_size + (sort_buffer + join_buffer + ...) × max_connections
+          </text>
+        </svg>
+      </div>
+
+      <p><strong>다이어그램 설명:</strong></p>
+      <ul>
+        <li><strong>왼쪽 (글로벌 메모리)</strong>: 모든 스레드가 공유하는 영역, 서버 시작 시 한 번 할당</li>
+        <li><strong>오른쪽 (로컬 메모리)</strong>: 각 커넥션(스레드)마다 독립적으로 할당되는 영역</li>
+        <li><strong>주의</strong>: 로컬 메모리는 커넥션 수에 비례해 증가하므로 max_connections 설정 시 신중히 계산</li>
+      </ul>
+    </div>
+
+    <!-- 비교 테이블 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        글로벌 vs 로컬 메모리 비교
+      </div>
+
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>구분</th>
+              <th>글로벌 메모리 영역</th>
+              <th>로컬 메모리 영역</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>공유 여부</strong></td>
+              <td data-label="글로벌 메모리">모든 스레드가 공유</td>
+              <td data-label="로컬 메모리">커넥션(스레드)마다 독립</td>
+            </tr>
+            <tr>
+              <td><strong>할당 시점</strong></td>
+              <td data-label="글로벌 메모리">MySQL 서버 시작 시 1회</td>
+              <td data-label="로컬 메모리">커넥션 연결 시 (또는 필요 시)</td>
+            </tr>
+            <tr>
+              <td><strong>해제 시점</strong></td>
+              <td data-label="글로벌 메모리">MySQL 서버 종료 시</td>
+              <td data-label="로컬 메모리">커넥션 종료 시</td>
+            </tr>
+            <tr>
+              <td><strong>크기 조정</strong></td>
+              <td data-label="글로벌 메모리">고정 (런타임 변경 가능)</td>
+              <td data-label="로컬 메모리">동적 (필요한 만큼)</td>
+            </tr>
+            <tr>
+              <td><strong>주요 구성요소</strong></td>
+              <td data-label="글로벌 메모리">InnoDB Buffer Pool, Log Buffer, Table Cache</td>
+              <td data-label="로컬 메모리">Sort Buffer, Join Buffer, Read Buffer</td>
+            </tr>
+            <tr>
+              <td><strong>메모리 계산</strong></td>
+              <td data-label="글로벌 메모리">설정값 그대로</td>
+              <td data-label="로컬 메모리">설정값 × max_connections (최악)</td>
+            </tr>
+            <tr>
+              <td><strong>성능 영향</strong></td>
+              <td data-label="글로벌 메모리">크게 설정할수록 디스크 I/O 감소</td>
+              <td data-label="로컬 메모리">너무 크면 메모리 부족 위험</td>
+            </tr>
+            <tr>
+              <td><strong>권장 설정</strong></td>
+              <td data-label="글로벌 메모리">전체 메모리의 70-80%</td>
+              <td data-label="로컬 메모리">256KB ~ 2MB (버퍼별로 다름)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 주요 메모리 설정 파라미터 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        주요 메모리 설정 파라미터
+      </div>
+
+      <p><strong>글로벌 메모리 설정</strong></p>
+
+      <pre><code>[mysqld]
+# InnoDB Buffer Pool (가장 중요!)
+innodb_buffer_pool_size = 8G          # 전체 메모리의 70-80%
+innodb_buffer_pool_instances = 8     # CPU 코어 수에 맞춤 (권장)
+
+# InnoDB Log Buffer
+innodb_log_buffer_size = 16M         # 기본값으로 충분
+
+# Table Cache
+table_open_cache = 2000              # 동시 오픈 테이블 수
+
+# Key Cache (MyISAM 사용 시만)
+key_buffer_size = 256M               # InnoDB 사용 시 작게 설정</code></pre>
+
+      <p><strong>로컬 메모리 설정</strong></p>
+
+      <pre><code>[mysqld]
+# 커넥션 수 제한
+max_connections = 500                # 동시 접속 수
+
+# Sort Buffer (ORDER BY, GROUP BY)
+sort_buffer_size = 256K              # 기본값, 필요시 세션별로 조정
+
+# Join Buffer (조인 연산)
+join_buffer_size = 256K              # 기본값, 인덱스 개선이 우선
+
+# Read Buffer (테이블 풀 스캔)
+read_buffer_size = 128K              # 기본값
+read_rnd_buffer_size = 256K          # 정렬 후 읽기
+
+# 임시 테이블 크기 제한
+tmp_table_size = 16M                 # 메모리 임시 테이블 최대 크기
+max_heap_table_size = 16M            # MEMORY 엔진 테이블 최대 크기</code></pre>
+
+      <p><strong>메모리 계산 예시</strong></p>
+
+      <pre><code>시스템: 16GB RAM, MySQL 전용 서버
+
+글로벌 메모리:
+- innodb_buffer_pool_size: 12GB (75%)
+- 기타 글로벌 메모리: ~500MB
+= 약 12.5GB
+
+로컬 메모리 (최악의 경우):
+- max_connections: 500
+- sort_buffer_size: 256KB
+- join_buffer_size: 256KB
+- read_buffer_size: 128KB
+= 500 × (256KB + 256KB + 128KB) = 320MB
+
+OS 영역:
+- 시스템 프로세스 + 파일 시스템 캐시: ~3GB
+
+총합: 12.5GB + 0.32GB + 3GB ≈ 16GB ✅ 적절</code></pre>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">InnoDB Buffer Pool</span>
+        <span class="related-tag">Thread Pool</span>
+        <span class="related-tag">Connection Pool</span>
+        <span class="related-tag">Sort Buffer</span>
+        <span class="related-tag">Join Buffer</span>
+        <span class="related-tag">max_connections</span>
+        <span class="related-tag">Filesort</span>
+        <span class="related-tag">Temporary Table</span>
+        <span class="related-tag">Performance Schema</span>
+        <span class="related-tag">메모리 오버커밋</span>
+        <span class="related-tag">OOM Killer</span>
+        <span class="related-tag">Swap</span>
+      </div>
+    </div>
+
+    <!-- 하단 네비게이션 -->
+    <nav class="bottom-nav">
+      <a href="/knowledge/RealMySQL8.0/Chapter4-아키텍처/index.html" class="nav-link">← Chapter4 아키텍처 목록</a>
+      <a href="/knowledge/index.html" class="nav-link">📚 전체 목록 →</a>
+    </nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

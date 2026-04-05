@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>전략 패턴 vs 파사드 패턴 — Chapter 24 부분적 경계 · Clean Architecture</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>전략 패턴 vs 파사드 패턴 — 부분적 경계에서의 역할</h1>
+      <p class="meta">Clean Architecture · Chapter 24 부분적 경계 · 2026-03-25</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <strong>전략 패턴</strong>은 "행위를 인터페이스로 분리해서 런타임에 교체 가능"하게 만드는 것이고, <strong>파사드 패턴</strong>은 "복잡한 내부를 단순한 인터페이스 뒤에 숨기는" 것이다. 24장에서 둘 다 <strong>완전한 아키텍처 경계 없이도 의존성을 관리하는 부분적 경계(Partial Boundary)</strong> 전략으로 등장한다.
+      </div>
+      <p>클린 아키텍처의 완전한 경계는 비용이 크다 — 양방향 인터페이스, 독립 컴파일, 독립 배포가 필요하니까. 24장은 <strong>"지금 당장 완전한 경계를 만들 필요는 없지만, 나중에 필요할 수도 있을 때"</strong> 쓸 수 있는 3가지 부분적 경계 전략을 제시한다. 전략 패턴과 파사드 패턴은 그중 핵심이다.</p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h2>1. 완전한 아키텍처 경계의 비용</h2>
+      <p>완전한 경계를 만들려면:</p>
+      <ul>
+        <li>양쪽 모두에 인터페이스(Boundary Interface)를 정의</li>
+        <li>Input/Output 데이터 구조를 별도로 생성</li>
+        <li>독립적으로 컴파일 가능한 모듈(또는 jar/패키지)로 분리</li>
+        <li>의존성 관리, 버전 관리, 릴리즈 관리까지 필요</li>
+      </ul>
+      <p>이건 <strong>진짜 비싸다</strong>. 초기에는 경계가 필요할지 확신이 없는 경우가 많다. 그래서 "부분적 경계"가 등장한다.</p>
+
+      <h2>2. 24장의 3가지 부분적 경계 전략</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>전략</th><th>핵심 아이디어</th><th>비용</th><th>보호 수준</th></tr>
+          <tr><td><strong>마지막 단계 건너뛰기</strong></td><td>완전한 경계를 설계하되, 별도 컴포넌트로 분리하지 않고 같은 컴포넌트에 둔다</td><td>중간</td><td>높음</td></tr>
+          <tr><td><strong>일차원 경계 (전략 패턴)</strong></td><td>인터페이스 하나 + 구현 클래스로 의존성 역전</td><td>낮음</td><td>중간</td></tr>
+          <tr><td><strong>파사드 패턴</strong></td><td>서비스 클래스 하나가 내부 구현을 감싸서 호출</td><td>매우 낮음</td><td>낮음</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h2>전략 패턴 (Strategy Pattern) — 일차원 경계</h2>
+      <p>24장에서 말하는 "일차원 경계"가 바로 전략 패턴의 응용이다.</p>
+
+      <div class="highlight-box">
+        <strong>핵심</strong>: 고수준 모듈이 인터페이스에 의존하고, 저수준 모듈이 그 인터페이스를 구현한다. 이렇게 하면 <strong>의존성 방향이 역전</strong>되어 고수준 정책이 저수준 세부사항에 의존하지 않게 된다.
+      </div>
+
+      <pre><code><span class="cm">// 고수준 모듈 (도메인 레이어)</span>
+<span class="kw">public interface</span> <span class="ty">MessageRepository</span> {
+    <span class="ty">Message</span> <span class="fn">findById</span>(<span class="ty">Long</span> id);
+    <span class="kw">void</span> <span class="fn">save</span>(<span class="ty">Message</span> message);
+}
+
+<span class="cm">// 저수준 모듈 (인프라 레이어)</span>
+<span class="kw">public class</span> <span class="ty">JpaMessageRepository</span> <span class="kw">implements</span> <span class="ty">MessageRepository</span> {
+    <span class="kw">private final</span> <span class="ty">JpaRepository</span> jpaRepo;
+
+    <span class="an">@Override</span>
+    <span class="kw">public</span> <span class="ty">Message</span> <span class="fn">findById</span>(<span class="ty">Long</span> id) {
+        <span class="kw">return</span> jpaRepo.findById(id).orElseThrow();
+    }
+}
+
+<span class="cm">// 고수준 모듈의 서비스는 인터페이스만 안다</span>
+<span class="kw">public class</span> <span class="ty">MessageService</span> {
+    <span class="kw">private final</span> <span class="ty">MessageRepository</span> repository; <span class="cm">// 인터페이스!</span>
+}</code></pre>
+
+      <p><strong>왜 "일차원"인가?</strong> 완전한 경계는 양쪽 모두 인터페이스를 두지만(쌍방향), 전략 패턴은 <strong>한쪽(고수준→저수준) 방향만 인터페이스로 보호</strong>한다. 반대 방향의 보호가 없으므로 "일차원"이다.</p>
+
+      <div class="warn-box">
+        <strong>위험</strong>: 인터페이스가 한쪽에만 있으므로, 누군가 실수로 저수준 모듈의 구현 클래스를 직접 참조하면 경계가 무너진다. "영리한 개발자나 게으른 개발자가 이 경계를 무시하고 직접 의존할 수 있다" — 밥 아저씨의 경고.
+      </div>
+
+      <h2>파사드 패턴 (Facade Pattern)</h2>
+      <p>가장 단순한 부분적 경계. 인터페이스조차 없이, <strong>파사드 클래스 하나</strong>가 내부 서비스들을 호출하는 메서드만 노출한다.</p>
+
+      <div class="highlight-box">
+        <strong>핵심</strong>: 클라이언트는 Facade만 알고, 내부의 복잡한 클래스들은 모른다. 하지만 의존성 역전이 없기 때문에 <strong>모든 의존성이 같은 방향</strong>으로 흐른다.
+      </div>
+
+      <pre><code><span class="cm">// Facade — 클라이언트가 아는 유일한 클래스</span>
+<span class="kw">public class</span> <span class="ty">NotificationFacade</span> {
+    <span class="kw">private final</span> <span class="ty">EmailSender</span> emailSender;
+    <span class="kw">private final</span> <span class="ty">SmsSender</span> smsSender;
+    <span class="kw">private final</span> <span class="ty">PushSender</span> pushSender;
+    <span class="kw">private final</span> <span class="ty">NotificationLogger</span> logger;
+
+    <span class="kw">public void</span> <span class="fn">notify</span>(<span class="ty">User</span> user, <span class="ty">String</span> message) {
+        <span class="cm">// 내부의 복잡한 로직을 단순한 메서드로 감춤</span>
+        <span class="kw">if</span> (user.prefersEmail()) emailSender.send(user, message);
+        <span class="kw">else if</span> (user.prefersSms()) smsSender.send(user, message);
+        <span class="kw">else</span> pushSender.send(user, message);
+        logger.log(user, message);
+    }
+}</code></pre>
+
+      <div class="warn-box">
+        <strong>위험</strong>: 파사드는 의존성 역전이 <strong>전혀 없다</strong>. 클라이언트 → Facade → 내부 클래스들로 <strong>추이적 의존성(transitive dependency)</strong>이 생긴다. 내부 클래스 중 하나가 변경되면 Facade를 거쳐 클라이언트까지 재컴파일이 필요할 수 있다.
+      </div>
+
+      <h2>전략 패턴 vs 파사드 패턴 — 핵심 비교</h2>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <tr><th>관점</th><th>전략 패턴 (일차원 경계)</th><th>파사드 패턴</th></tr>
+          <tr><td><strong>의존성 역전</strong></td><td>O — 인터페이스를 통해 역전</td><td>X — 모든 의존성이 같은 방향</td></tr>
+          <tr><td><strong>인터페이스</strong></td><td>필수 (경계의 핵심)</td><td>없음 (구체 클래스가 경계)</td></tr>
+          <tr><td><strong>교체 가능성</strong></td><td>구현체를 런타임에 교체 가능</td><td>내부 구현 교체 시 Facade 수정 필요</td></tr>
+          <tr><td><strong>테스트</strong></td><td>인터페이스 모킹으로 단위 테스트 용이</td><td>Facade 뒤의 클래스를 직접 모킹해야 함</td></tr>
+          <tr><td><strong>추이적 의존성</strong></td><td>인터페이스가 끊어줌</td><td>Facade를 통해 전파됨</td></tr>
+          <tr><td><strong>경계 보호 강도</strong></td><td>중간 — 인터페이스가 있지만 우회 가능</td><td>낮음 — 규율에 의존</td></tr>
+          <tr><td><strong>구현 비용</strong></td><td>인터페이스 + 구현 클래스</td><td>Facade 클래스 하나</td></tr>
+          <tr><td><strong>클린 아키텍처 위치</strong></td><td>24장: "일차원 경계"</td><td>24장: "파사드"</td></tr>
+        </table>
+      </div>
+
+      <h2>실무에서 어떻게 선택하나?</h2>
+
+      <div class="good-box">
+        <strong>전략 패턴을 쓸 때</strong>: 나중에 구현체가 바뀔 가능성이 높거나, 테스트에서 모킹이 필요하거나, 의존성 방향을 확실히 지키고 싶을 때. 예: Repository 인터페이스, 외부 API 클라이언트 인터페이스.
+      </div>
+
+      <div class="good-box">
+        <strong>파사드를 쓸 때</strong>: 경계가 필요할지 아직 불확실하고, 일단 복잡성만 감추고 싶을 때. 비용이 가장 낮으므로 "시작점"으로 적합. 예: 여러 서비스를 묶어서 하나의 API로 노출할 때.
+      </div>
+
+      <h2>밥 아저씨가 강조하는 핵심 메시지</h2>
+      <div class="highlight-box">
+        "부분적 경계는 <strong>완전한 경계보다 비용이 훨씬 적지만, 퇴화하기도 쉽다</strong>. 아키텍트의 역할은 이런 경계를 감시하고, 경계가 필요해지는 시점을 놓치지 않는 것이다."
+      </div>
+      <p>즉, 전략 패턴이든 파사드든 <strong>"지금은 부분적 경계로 충분하지만, 언제든 완전한 경계로 승격시킬 준비"</strong>를 해야 한다는 것이다. 부분적 경계는 목적지가 아니라 <strong>경유지</strong>다.</p>
+
+      <h2>경계의 진화 경로</h2>
+      <p>실무에서 경계는 보통 이런 순서로 진화한다:</p>
+      <pre><code><span class="cm">// Level 0: 경계 없음</span>
+<span class="ty">Controller</span> → <span class="ty">ServiceImpl</span> → <span class="ty">RepositoryImpl</span>
+
+<span class="cm">// Level 1: 파사드 (복잡성만 감춤)</span>
+<span class="ty">Controller</span> → <span class="ty">OrderFacade</span> → <span class="ty">ServiceA</span>, <span class="ty">ServiceB</span>, <span class="ty">ServiceC</span>
+
+<span class="cm">// Level 2: 전략 패턴 (의존성 역전)</span>
+<span class="ty">Controller</span> → <span class="ty">OrderService</span>(interface) ← <span class="ty">OrderServiceImpl</span>
+
+<span class="cm">// Level 3: 완전한 경계 (독립 컴포넌트)</span>
+<span class="ty">[api module]</span> → <span class="ty">OrderService</span>(interface)
+                         ↑ 구현
+<span class="ty">[impl module]</span> → <span class="ty">OrderServiceImpl</span></code></pre>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+
+      <h2>전략 패턴 (일차원 경계)</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- High-level side -->
+          <rect x="20" y="20" width="300" height="180" rx="12" fill="rgba(124,106,247,0.08)" stroke="#7c6af7" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="170" y="50" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">고수준 정책 (도메인)</text>
+
+          <rect x="50" y="70" width="120" height="45" rx="8" fill="#1a1d27" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="110" y="97" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="500">Client</text>
+
+          <rect x="50" y="130" width="120" height="45" rx="8" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="110" y="150" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="500">&lt;&lt;interface&gt;&gt;</text>
+          <text x="110" y="167" text-anchor="middle" fill="#38bdf8" font-size="12" font-weight="600">ServiceI</text>
+
+          <!-- Arrow: Client → Interface -->
+          <line x1="110" y1="115" x2="110" y2="130" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowS1)"/>
+
+          <!-- Low-level side -->
+          <rect x="380" y="20" width="300" height="180" rx="12" fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1.5" stroke-dasharray="6,3"/>
+          <text x="530" y="50" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">저수준 세부사항 (인프라)</text>
+
+          <rect x="460" y="130" width="140" height="45" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+          <text x="530" y="157" text-anchor="middle" fill="#34d399" font-size="12" font-weight="500">ServiceImpl</text>
+
+          <!-- Arrow: Impl → Interface (implements, dashed) -->
+          <line x1="460" y1="152" x2="170" y2="152" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrowTriangle)"/>
+          <text x="315" y="145" text-anchor="middle" fill="#64748b" font-size="10">implements</text>
+
+          <!-- DIP arrow -->
+          <text x="350" y="95" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">의존성 역전!</text>
+          <text x="350" y="112" text-anchor="middle" fill="#64748b" font-size="9">소스코드 의존성이 런타임과 반대</text>
+
+          <defs>
+            <marker id="arrowS1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#a78bfa"/>
+            </marker>
+            <marker id="arrowTriangle" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
+              <polygon points="10 0, 0 4, 10 8" fill="none" stroke="#38bdf8" stroke-width="1"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+
+      <h2>파사드 패턴</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" font-family="'Pretendard', sans-serif">
+          <!-- Client -->
+          <rect x="30" y="80" width="120" height="50" rx="8" fill="#1a1d27" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="90" y="110" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="500">Client</text>
+
+          <!-- Arrow to Facade -->
+          <line x1="150" y1="105" x2="220" y2="105" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowF1)"/>
+
+          <!-- Facade -->
+          <rect x="220" y="70" width="140" height="70" rx="10" fill="#1a1d27" stroke="#fbbf24" stroke-width="2"/>
+          <text x="290" y="100" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">Facade</text>
+          <text x="290" y="120" text-anchor="middle" fill="#64748b" font-size="9">단순한 인터페이스 제공</text>
+
+          <!-- Internal services -->
+          <rect x="430" y="15" width="130" height="40" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1"/>
+          <text x="495" y="40" text-anchor="middle" fill="#34d399" font-size="11">ServiceA</text>
+
+          <rect x="430" y="70" width="130" height="40" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1"/>
+          <text x="495" y="95" text-anchor="middle" fill="#34d399" font-size="11">ServiceB</text>
+
+          <rect x="430" y="125" width="130" height="40" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1"/>
+          <text x="495" y="150" text-anchor="middle" fill="#34d399" font-size="11">ServiceC</text>
+
+          <rect x="430" y="180" width="130" height="40" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1"/>
+          <text x="495" y="205" text-anchor="middle" fill="#34d399" font-size="11">ServiceD</text>
+
+          <!-- Facade → Services -->
+          <line x1="360" y1="90" x2="430" y2="35" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowF2)"/>
+          <line x1="360" y1="100" x2="430" y2="90" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowF2)"/>
+          <line x1="360" y1="110" x2="430" y2="145" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowF2)"/>
+          <line x1="360" y1="120" x2="430" y2="200" stroke="#fbbf24" stroke-width="1" marker-end="url(#arrowF2)"/>
+
+          <!-- Warning -->
+          <text x="350" y="205" text-anchor="middle" fill="#f87171" font-size="10" font-weight="500">⚠ 의존성 역전 없음 — 모두 같은 방향</text>
+
+          <defs>
+            <marker id="arrowF1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#a78bfa"/>
+            </marker>
+            <marker id="arrowF2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#fbbf24"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p>전략 패턴은 인터페이스가 의존성 방향을 <strong>꺾어준다</strong>. 파사드는 의존성이 <strong>직선으로 관통</strong>한다. 이 차이가 경계의 강도를 결정한다.</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">의존성 역전 원칙 (DIP)</span>
+        <span class="related-tag">추이적 의존성 (Transitive Dependency)</span>
+        <span class="related-tag">아키텍처 경계 (Boundary)</span>
+        <span class="related-tag">험블 객체 패턴</span>
+        <span class="related-tag">어댑터 패턴</span>
+        <span class="related-tag">프록시 패턴</span>
+        <span class="related-tag">포트와 어댑터 (Hexagonal)</span>
+        <span class="related-tag">컴포넌트 결합 원칙 (SDP, SAP)</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

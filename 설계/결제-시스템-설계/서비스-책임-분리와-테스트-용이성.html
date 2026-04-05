@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>서비스 책임 분리와 테스트 용이성 — 결제 시스템 설계 · 설계 스터디</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>서비스 책임 분리와 테스트 용이성</h1>
+      <p class="meta">설계 스터디 · 결제 시스템 설계 · 2026-04-01</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        엔티티 로직은 Mock할 수 없다. 서비스를 분리하면 <strong>@SpyBean으로 중간 실패를 유도</strong>할 수 있고,
+        결과적으로 재사용성과 테스트 용이성이 동시에 좋아진다.
+      </div>
+    </div>
+
+    <!-- 문제 상황 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        문제 — 엔티티는 Mock할 수 없다
+      </div>
+      <p>이체의 원자성을 테스트하고 싶다: "A 차감 후 B 증가 실패 시 A도 롤백되는가?"</p>
+      <pre><code>// 엔티티에 로직이 있으면 Mock 불가
+@Transactional
+public TransferResult transfer(...) {
+    fromWallet.transferOut(amount);  // 엔티티 메서드 → Mock 안 됨
+    toWallet.transferIn(amount);     // 여기를 실패시키고 싶은데...
+}</code></pre>
+      <p>JPA 엔티티는 Hibernate 프록시로 관리되기 때문에 Mockito로 Mock/Spy 처리가 안 된다.</p>
+    </div>
+
+    <!-- 해결: 서비스 분리 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        해결 — 잔액 변동을 별도 서비스로 분리
+      </div>
+      <pre><code>// WalletOperationService — 잔액 변동만 책임
+@Service
+public class WalletOperationService {
+
+    @Transactional
+    public PointWallet withdraw(Long walletId, BigDecimal amount) {
+        PointWallet wallet = findByIdWithLock(walletId);
+        wallet.decrease(amount);  // 엔티티는 순수 잔액 변동만
+        return wallet;
+    }
+
+    @Transactional
+    public PointWallet deposit(Long walletId, BigDecimal amount) {
+        PointWallet wallet = findByIdWithLock(walletId);
+        wallet.increase(amount);
+        return wallet;
+    }
+}
+
+// PointWalletService — 비즈니스 로직 + 트랜잭션 기록
+@Service
+public class PointWalletService {
+
+    private final WalletOperationService walletOps;
+
+    @Transactional
+    public PointTransaction chargePoint(...) {
+        walletOps.deposit(walletId, amount);       // 재사용
+        return saveTransaction(CHARGE, ...);
+    }
+
+    @Transactional
+    public PointTransaction usePoint(...) {
+        walletOps.withdraw(walletId, amount);      // 재사용
+        return saveTransaction(USE, ...);
+    }
+
+    @Transactional
+    public TransferResult transferPoint(...) {
+        walletOps.withdraw(fromId, amount);        // @SpyBean으로 Mock 가능
+        walletOps.deposit(toId, amount);           // @SpyBean으로 Mock 가능
+        saveTransaction(TRANSFER_OUT, ...);
+        saveTransaction(TRANSFER_IN, ...);
+    }
+}</code></pre>
+    </div>
+
+    <!-- 테스트 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        이제 원자성 테스트가 가능하다
+      </div>
+      <pre><code>@SpyBean
+private WalletOperationService walletOps;
+
+@Test
+void transferAtomic_depositFails_shouldRollback() {
+    // given — A: 100, B: 0
+    chargePoint(walletA, 100);
+
+    // deposit(B)에서 예외 터지게
+    doThrow(new RuntimeException("증가 실패"))
+            .when(walletOps).deposit(eq(walletB.getId()), any());
+
+    // when
+    assertThatThrownBy(() ->
+            service.transferPoint(walletA.getId(), walletB.getId(), 50, "TX-001"))
+            .isInstanceOf(RuntimeException.class);
+
+    // then — A 잔액이 100 그대로 (롤백됨)
+    assertThat(getBalance(walletA)).isEqualTo(new BigDecimal("100.00"));
+}</code></pre>
+      <p>엔티티를 Mock한 게 아니라, <strong>엔티티를 호출하는 서비스 메서드를 Mock</strong>한 것이다.</p>
+    </div>
+
+    <!-- 분리가 자연스러운 이유 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        테스트 때문이 아니라, 비즈니스가 그렇다
+      </div>
+      <p>포인트 시스템의 모든 기능이 withdraw/deposit의 조합이다:</p>
+      <table class="compare-table">
+        <thead>
+          <tr><th>기능</th><th>구성</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>충전</td><td>deposit</td></tr>
+          <tr><td>사용</td><td>withdraw</td></tr>
+          <tr><td>이체</td><td>withdraw + deposit</td></tr>
+        </tbody>
+      </table>
+      <p>트랜잭션 타입(CHARGE, USE, TRANSFER_OUT/IN)은 각 비즈니스 메서드가 기록하고,
+         잔액 변동 자체는 공통이다. 재사용이 자연스러우니 분리가 억지가 아니다.</p>
+
+      <h3>분리 판단 기준</h3>
+      <pre><code>분리가 맞는 경우:
+  → 같은 로직이 여러 비즈니스에서 재사용됨 (withdraw/deposit)
+  → 분리하면 테스트도 쉬워짐 (부수 효과)
+
+분리가 과한 경우:
+  → 한 곳에서만 쓰이는 로직을 테스트 때문에 억지로 분리
+  → 재사용 없이 클래스만 늘어남</code></pre>
+    </div>
+
+    <!-- 테스트 전략 정리 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        테스트 레이어별 역할
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr><th>레이어</th><th>역할</th><th>예시</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>엔티티 단위</td><td>비즈니스 규칙 검증</td><td>잔액 부족 시 예외, 음수 금액 거부, 상태 전이</td></tr>
+          <tr><td>서비스 통합</td><td>협력 흐름 검증</td><td>멱등성, 동시성, 원자성, 전체 플로우</td></tr>
+          <tr><td>컨트롤러</td><td>요청/응답 형식</td><td>@Valid, HTTP 상태 코드, JSON 구조</td></tr>
+        </tbody>
+      </table>
+      <p>겹치는 것처럼 보여도 <strong>검증 관점이 다르다</strong>. 엔티티 테스트는 "규칙이 맞는가",
+         서비스 테스트는 "흐름이 맞는가".</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">@SpyBean</span>
+        <span class="related-tag">@MockBean</span>
+        <span class="related-tag">단일 책임 원칙</span>
+        <span class="related-tag">테스트 용이성</span>
+        <span class="related-tag">@Transactional 원자성</span>
+        <span class="related-tag">서비스 레이어 분리</span>
+        <span class="related-tag">self-invocation</span>
+        <span class="related-tag">CountDownLatch</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="/nav.js"></script>
+</body>
+</html>

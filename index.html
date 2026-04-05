@@ -239,21 +239,313 @@
     <header class="hero">
       <h1>bok's wiki</h1>
       <p>아 이게 그거였구나</p>
-      <div class="stats">
-        <div class="stat"><span class="stat-num">48</span><span class="stat-label">Memos</span></div>
-        <div class="stat"><span class="stat-num">12</span><span class="stat-label">Topics</span></div>
-      </div>
+      <div class="stats" id="stats"></div>
     </header>
 
     <div class="search-wrap">
       <input type="text" class="search-input" placeholder="개념 검색..." id="searchInput" autocomplete="off">
     </div>
 
-    <!-- Search Results -->
     <div class="search-results" id="searchResults"></div>
     <div class="no-results" id="noResults">검색 결과가 없어요</div>
 
-    <div class="card-grid" id="cardGrid">
+    <div class="card-grid" id="cardGrid"></div>
+  </div>
+
+  <!-- ══ DATA ══ -->
+  <script id="wikiData" type="application/json">
+[
+  {
+    "title": "Java",
+    "icon": "java",
+    "emoji": "☕",
+    "dir": "Java",
+    "chapters": [
+      { "name": "CompletableFuture", "memos": [
+        { "title": "병렬처럼 보이지만 직렬로 동작하는 이유: OS 스케줄링", "file": "CompletableFuture/병렬처럼-보이지만-직렬로-동작하는-이유-OS-스케줄링.html" }
+      ]},
+      { "name": "제네릭", "memos": [
+        { "title": "제네릭을 자바에서 사용하는 이유", "file": "제네릭/제네릭을-자바에서-사용하는-이유.html" }
+      ]},
+      { "name": "JVM 성능 튜닝", "memos": [
+        { "title": "JVM 커스터마이징으로 성능 개선하는 실무 방법", "file": "JVM-성능-튜닝/JVM-커스터마이징으로-성능-개선하는-실무-방법.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "Spring",
+    "icon": "spring",
+    "emoji": "☘",
+    "dir": "Spring-내부-동작",
+    "chapters": [
+      { "name": "서블릿과 DispatcherServlet", "memos": [
+        { "title": "HTTP 요청이 컨트롤러에 도달하기까지", "file": "서블릿과-DispatcherServlet/HTTP-요청이-컨트롤러에-도달하기까지.html" }
+      ]},
+      { "name": "IoC 컨테이너와 빈 라이프사이클", "memos": [
+        { "title": "스프링 IoC 컨테이너와 빈 생명주기 완벽 이해", "file": "IoC-컨테이너와-빈-라이프사이클/스프링-IoC-컨테이너와-빈-생명주기-완벽-이해.html" }
+      ]},
+      { "name": "AOP와 프록시", "memos": [
+        { "title": "스프링 AOP와 프록시 내부 동작 원리", "file": "AOP와-프록시/스프링-AOP와-프록시-내부-동작-원리.html" }
+      ]},
+      { "name": "Spring Boot 자동 설정", "memos": [
+        { "title": "Spring Boot 자동 설정의 내부 동작 원리", "file": "Spring-Boot-자동-설정/SpringBoot-자동-설정의-내부-동작-원리.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "설계",
+    "icon": "arch",
+    "emoji": "◆",
+    "dir": "설계",
+    "chapters": [
+      { "name": "Clean Architecture", "memos": [
+        { "title": "공통 폐쇄 원칙 (CCP)", "file": "chapter-19/공통-폐쇄-원칙-CCP.html" },
+        { "title": "Clean Architecture 엔티티는 JPA Entity가 아니다", "file": "chapter-20/Clean-Architecture-엔티티는-JPA-Entity가-아니다.html" },
+        { "title": "엔티티를 요청 응답 모델로 쓰면 떠돌이 데이터와 조건문이 폭발한다", "file": "chapter-20/엔티티를-요청-응답-모델로-쓰면-떠돌이-데이터와-조건문이-폭발한다.html" },
+        { "title": "Presenter에서 유스케이스 인터페이스를 의존하는 이유", "file": "chapter-22/Presenter에서-유스케이스-인터페이스를-의존하는-이유.html" },
+        { "title": "전략패턴 vs 파사드패턴", "file": "chapter-24-부분적-경계/전략패턴-vs-파사드패턴.html" },
+        { "title": "택시 야옹이 예시로 본 서비스의 오류", "file": "chapter-27-크고-작은-모든-서비스들/택시-야옹이-예시로-본-서비스의-오류.html" }
+      ]},
+      { "name": "JPA 실전 패턴", "memos": [
+        { "title": "JPA cascade: 부모가 자식의 생명주기를 관리한다", "file": "JPA-실전-패턴/JPA-cascade-부모가-자식의-생명주기를-관리한다.html" },
+        { "title": "JPA 양방향 매핑: 언제 쓰고 언제 피하는가", "file": "JPA-실전-패턴/JPA-양방향-매핑-언제-쓰고-언제-피하는가.html" },
+        { "title": "LAZY 로딩과 프록시, 그리고 self-invocation", "file": "JPA-실전-패턴/LAZY-로딩과-프록시-그리고-self-invocation.html" }
+      ]},
+      { "name": "결제 시스템 설계", "memos": [
+        { "title": "멱등성, 상태머신, Outbox, 장애복구", "file": "결제-시스템-설계/멱등성-상태머신-Outbox-장애복구.html" },
+        { "title": "서비스 책임 분리와 테스트 용이성", "file": "결제-시스템-설계/서비스-책임-분리와-테스트-용이성.html" }
+      ]},
+      { "name": "동시성 데이터 설계", "memos": [
+        { "title": "unreadCount 설계 결함 분석", "file": "동시성-데이터-설계/unreadCount-설계-결함-분석.html" }
+      ]},
+      { "name": "락과 동시성 제어", "memos": [
+        { "title": "데드락 방지 전략 총정리", "file": "락과-동시성-제어/데드락-방지-전략-총정리.html" },
+        { "title": "비관적 락과 IN_PROGRESS 패턴", "file": "락과-동시성-제어/비관적-락과-IN_PROGRESS-패턴.html" }
+      ]},
+      { "name": "메시지 신뢰성", "memos": [
+        { "title": "Outbox 패턴 완벽 이해", "file": "메시지-신뢰성/Outbox-패턴-완벽-이해.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "DB",
+    "icon": "db",
+    "emoji": "⛁",
+    "dir": "DB",
+    "chapters": [
+      { "name": "아키텍처", "memos": [
+        { "title": "MySQL 데이터 버퍼와 캐시 동작 원리", "file": "Chapter4-아키텍처/MySQL-데이터-버퍼와-캐시-동작-원리.html" },
+        { "title": "글로벌 메모리 영역과 로컬 메모리 영역", "file": "Chapter4-아키텍처/글로벌-메모리-영역과-로컬-메모리-영역.html" }
+      ]},
+      { "name": "인덱스 최적화", "memos": [
+        { "title": "Duplicate weed 전략이 뭐야", "file": "인덱스-최적화/Duplicate-weed-전략이-뭐야.html" },
+        { "title": "Using join buffer에 대한 상세한 설명", "file": "인덱스-최적화/Using-join-buffer에-대한-상세한-설명.html" },
+        { "title": "Using sort_union vs Using union", "file": "인덱스-최적화/Using-sort_union-vs-Using-union.html" },
+        { "title": "루스 인덱스 스캔이 뭐고 어떻게 동작하는지", "file": "인덱스-최적화/루스-인덱스-스캔이-뭐고-어떻게-동작하는지.html" },
+        { "title": "스토리지 엔진에서 걸러지지 않고 MySQL 엔진에서 걸러지는건 무슨 경우야", "file": "인덱스-최적화/스토리지-엔진에서-걸러지지-않고-MySQL-엔진에서-걸러지는건-무슨-경우야.html" },
+        { "title": "인덱스 스킵 스캔이랑 루스 인덱스 스캔이랑 다른게 뭐야", "file": "인덱스-최적화/인덱스-스킵-스캔이랑-루스-인덱스-스캔이랑-다른게-뭐야.html" },
+        { "title": "인덱스 컨디션 푸시다운(ICP) 전략이 뭐야", "file": "인덱스-최적화/인덱스-컨디션-푸시다운-ICP-전략이-뭐야.html" },
+        { "title": "카테시안 조인, 블록 네스티드 루프 조인, 해시 조인이 뭐야", "file": "인덱스-최적화/카테시안-조인-블록-네스티드-루프-조인-해시-조인이-뭐야.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "인프라",
+    "icon": "infra",
+    "emoji": "⚙",
+    "dir": "인프라",
+    "chapters": [
+      { "name": "Docker 네트워크", "memos": [
+        { "title": "Mac Docker 네트워크: host와 host.docker.internal", "file": "Docker-네트워크/Mac-Docker-네트워크-host와-host.docker.internal.html" }
+      ]},
+      { "name": "Elasticsearch", "memos": [
+        { "title": "Elasticsearch 상세 구조", "file": "Elasticsearch/Elasticsearch-상세-구조.html" },
+        { "title": "ES 인덱스와 Grafana Loki 비교", "file": "Elasticsearch/ES-인덱스와-Grafana-Loki-비교.html" },
+        { "title": "ES 핵심 개념 정리", "file": "Elasticsearch/ES-핵심-개념-정리.html" },
+        { "title": "파일 디스크립터와 mmap 완벽 이해", "file": "Elasticsearch/파일-디스크립터와-mmap-완벽-이해.html" }
+      ]},
+      { "name": "HTTP", "memos": [
+        { "title": "HTTP Keep-Alive와 커넥션 풀링", "file": "HTTP/HTTP-Keep-Alive와-커넥션-풀링.html" }
+      ]},
+      { "name": "IO 이벤트 모델", "memos": [
+        { "title": "비동기 IO의 모든것: select부터 DPDK까지", "file": "IO-이벤트-모델/비동기-IO의-모든것-select부터-DPDK까지.html" }
+      ]},
+      { "name": "Jenkins CI/CD", "memos": [
+        { "title": "Docker 기반 Jenkins 구성", "file": "Jenkins-CI-CD/Docker-기반-Jenkins-구성.html" },
+        { "title": "Jenkins 파이프라인 설계와 설정", "file": "Jenkins-CI-CD/Jenkins-파이프라인-설계와-설정.html" }
+      ]},
+      { "name": "네트워크 기초", "memos": [
+        { "title": "OSI 7계층 실무 예시로 완벽 이해", "file": "네트워크-기초/OSI-7계층-실무-예시로-완벽-이해.html" },
+        { "title": "로드밸런싱 L2 L4 L7 완벽 이해", "file": "네트워크-기초/로드밸런싱-L2-L4-L7-완벽-이해.html" }
+      ]},
+      { "name": "메시지 브로커", "memos": [
+        { "title": "Kafka vs RabbitMQ 비교와 선택 기준", "file": "메시지-브로커/Kafka-vs-RabbitMQ-비교와-선택-기준.html" }
+      ]},
+      { "name": "메인프레임", "memos": [
+        { "title": "메인프레임이 안정적인 이유", "file": "메인프레임/메인프레임이-안정적인-이유.html" }
+      ]},
+      { "name": "보안 솔루션", "memos": [
+        { "title": "IPS 침입 방지 시스템 완벽 이해", "file": "보안-솔루션/IPS-침입-방지-시스템-완벽-이해.html" }
+      ]},
+      { "name": "스토리지", "memos": [
+        { "title": "ROW 스냅샷, COW 스냅샷", "file": "스토리지/ROW-스냅샷-COW-스냅샷.html" }
+      ]},
+      { "name": "웹서버", "memos": [
+        { "title": "Nginx와 Apache httpd 완벽 비교", "file": "웹서버/Nginx와-Apache-httpd-완벽-비교.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "Git",
+    "icon": "git",
+    "emoji": "⇌",
+    "dir": "Git",
+    "chapters": [
+      { "name": "기본 명령어", "memos": [
+        { "title": "cherry-pick이 정확히 무엇인가", "file": "기본-명령어/cherry-pick이-정확히-무엇인가.html" },
+        { "title": "git stash 완벽 정리", "file": "기본-명령어/git-stash-완벽-정리.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "테스트",
+    "icon": "test",
+    "emoji": "✓",
+    "dir": "테스트",
+    "chapters": [
+      { "name": "테스트 품질 측정", "memos": [
+        { "title": "JaCoCo와 PIT의 측정 원리와 쓸모", "file": "테스트-품질-측정/JaCoCo와-PIT의-측정-원리와-쓸모.html" }
+      ]}
+    ]
+  },
+  {
+    "title": "명문구",
+    "icon": "quote",
+    "emoji": "✎",
+    "dir": "명문구",
+    "chapters": [
+      { "name": "컬렉션", "memos": [
+        { "title": "명문구 컬렉션 보기", "file": "index.html" }
+      ]}
+    ]
+  }
+]
+  </script>
+
+  <!-- ══ RENDER ══ -->
+  <script>
+    // Theme
+    function toggleTheme() {
+      const html = document.documentElement;
+      const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      document.querySelector('.theme-icon').textContent = next === 'light' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+    }
+    (function() {
+      const saved = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', saved);
+      const icon = document.querySelector('.theme-icon');
+      if (icon) icon.textContent = saved === 'light' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+    })();
+
+    // Data
+    const data = JSON.parse(document.getElementById('wikiData').textContent);
+
+    // Stats
+    const totalMemos = data.reduce((sum, cat) => sum + cat.chapters.reduce((s, ch) => s + ch.memos.length, 0), 0);
+    const totalTopics = data.reduce((sum, cat) => sum + cat.chapters.length, 0);
+    document.getElementById('stats').innerHTML =
+      '<div class="stat"><span class="stat-num">' + totalMemos + '</span><span class="stat-label">Memos</span></div>' +
+      '<div class="stat"><span class="stat-num">' + totalTopics + '</span><span class="stat-label">Topics</span></div>';
+
+    // CSS class for test icon
+    const extraStyle = document.createElement('style');
+    extraStyle.textContent = '.cat-icon.test { background: linear-gradient(135deg, #e91e63 0%, #f06292 100%); }';
+    document.head.appendChild(extraStyle);
+
+    // Render cards
+    const grid = document.getElementById('cardGrid');
+    data.forEach(cat => {
+      const memoCount = cat.chapters.reduce((s, ch) => s + ch.memos.length, 0);
+      const previewTags = cat.chapters.slice(0, 5).map(ch =>
+        '<span class="preview-tag">' + ch.name + '</span>').join('');
+
+      const chaptersHtml = cat.chapters.map(ch => {
+        const memosHtml = ch.memos.map(m =>
+          '<a href="' + cat.dir + '/' + m.file + '" class="memo-link" data-title="' + m.title + '">' +
+          '<span class="memo-dot"></span>' +
+          '<span class="memo-title">' + m.title + '</span>' +
+          '<span class="arrow">&#8250;</span></a>'
+        ).join('');
+        return '<div class="chapter-section"><div class="ch-label">' + ch.name + '</div><div class="memo-list">' + memosHtml + '</div></div>';
+      }).join('');
+
+      const card = document.createElement('div');
+      card.className = 'cat-card';
+      card.onclick = function() { toggleCard(this); };
+      card.innerHTML =
+        '<div class="cat-top">' +
+          '<div class="cat-icon ' + cat.icon + '">' + cat.emoji + '</div>' +
+          '<div class="cat-info"><div class="cat-title">' + cat.title + '</div></div>' +
+          '<span class="cat-badge">' + memoCount + '</span>' +
+        '</div>' +
+        '<div class="cat-preview">' + previewTags + '</div>' +
+        '<div class="cat-body">' + chaptersHtml + '</div>';
+      grid.appendChild(card);
+    });
+
+    // Card toggle
+    function toggleCard(card) {
+      if (event.target.closest('.memo-link')) return;
+      const wasActive = card.classList.contains('active');
+      document.querySelectorAll('.cat-card.active').forEach(c => c.classList.remove('active'));
+      if (!wasActive) card.classList.add('active');
+    }
+
+    // Search
+    const searchInput = document.getElementById('searchInput');
+    const searchResults = document.getElementById('searchResults');
+    const noResults = document.getElementById('noResults');
+    const cardGrid = document.getElementById('cardGrid');
+
+    const allMemos = [];
+    data.forEach(cat => {
+      cat.chapters.forEach(ch => {
+        ch.memos.forEach(m => {
+          allMemos.push({ title: m.title, href: cat.dir + '/' + m.file, chapter: ch.name });
+        });
+      });
+    });
+
+    searchInput.addEventListener('input', function() {
+      const q = this.value.trim().toLowerCase();
+      if (!q) {
+        searchResults.classList.remove('active');
+        noResults.style.display = 'none';
+        cardGrid.classList.remove('searching');
+        return;
+      }
+      cardGrid.classList.add('searching');
+      const matches = allMemos.filter(m => m.title.toLowerCase().includes(q));
+      if (!matches.length) {
+        searchResults.classList.remove('active');
+        noResults.style.display = 'block';
+        return;
+      }
+      noResults.style.display = 'none';
+      searchResults.classList.add('active');
+      searchResults.innerHTML = matches.map(m =>
+        '<a href="' + m.href + '" class="memo-link" style="padding:0.7rem 1rem;border-radius:10px;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:0.75rem;transition:background 0.15s;background:var(--bg2);border:1px solid var(--border);margin-bottom:0.25rem;">' +
+        '<span class="memo-dot" style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;"></span>' +
+        '<span style="flex:1;font-size:0.88rem;">' + m.title + '</span>' +
+        '<span style="font-size:0.7rem;color:var(--text3);">' + m.chapter + '</span>' +
+        '<span style="color:var(--text3);font-size:0.75rem;">&#8250;</span></a>'
+      ).join('');
+    });
+  </script>
+</body>
+</html>
 
       <!-- ═══ Java ═══ -->
       <div class="cat-card" onclick="toggleCard(this)">
@@ -809,6 +1101,34 @@
                 <span class="memo-dot"></span>
                 <span class="memo-title">명문구 컬렉션 보기</span>
                 <span class="memo-date"></span>
+                <span class="arrow">&#8250;</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 테스트 ═══ -->
+      <div class="cat-card" onclick="toggleCard(this)">
+        <div class="cat-top">
+          <div class="cat-icon" style="background:linear-gradient(135deg,#e91e63,#f06292);">&#10003;</div>
+          <div class="cat-info">
+            <div class="cat-title">테스트</div>
+            <div class="meta">1개 메모</div>
+          </div>
+          <span class="cat-badge">1</span>
+        </div>
+        <div class="cat-preview">
+          <span class="preview-tag">테스트 품질 측정</span>
+        </div>
+        <div class="cat-body">
+          <div class="chapter-section">
+            <div class="chapter-title">테스트 품질 측정</div>
+            <div class="memo-list">
+              <a href="테스트/테스트-품질-측정/JaCoCo와-PIT의-측정-원리와-쓸모.html" class="memo-link" data-title="JaCoCo PIT 뮤테이션 테스팅 커버리지 테스트 품질">
+                <span class="memo-dot"></span>
+                <span class="memo-title">JaCoCo와 PIT의 측정 원리와 쓸모</span>
+                <span class="memo-date">2026-04-04</span>
                 <span class="arrow">&#8250;</span>
               </a>
             </div>
