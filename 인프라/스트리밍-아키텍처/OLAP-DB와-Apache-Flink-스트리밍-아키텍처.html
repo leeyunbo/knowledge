@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base href="https://leeyunbo.github.io/knowledge/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OLAP DB와 Apache Flink — 스트리밍 아키텍처 · 인프라</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>OLAP DB와 Apache Flink — Kafka → Flink → OLAP 아키텍처</h1>
+      <p class="meta">인프라 · 스트리밍 아키텍처 · 2026-04-07</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        <strong>OLAP DB</strong>는 대용량 집계 분석에 특화된 컬럼형 DB고, <strong>Apache Flink</strong>는 실시간 스트림을 변환·집계하는 엔진이다.<br>
+        <strong>Kafka → Flink → OLAP DB</strong>는 실시간 분석 파이프라인의 표준 패턴이다.
+      </div>
+      <p>서비스에서 발생하는 수많은 이벤트(클릭, 결제, 로그)를 <strong>실시간으로 집계해서 대시보드에 보여주려면</strong> 이 세 가지가 필요하다. MySQL 같은 OLTP DB는 트랜잭션 처리엔 강하지만, "지난 1시간 동안 국가별 결제 건수"처럼 대규모 집계 쿼리는 매우 느리다. OLAP DB는 이런 집계 쿼리를 초 단위로 처리하도록 설계되어 있다.</p>
+    </div>
+
+    <!-- OLAP DB -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        OLAP DB란?
+      </div>
+      <h3>OLAP vs OLTP</h3>
+      <p><strong>OLTP(Online Transaction Processing)</strong>은 MySQL, PostgreSQL처럼 빠른 단건 읽기/쓰기에 최적화된 DB다. 반면 <strong>OLAP(Online Analytical Processing)</strong>은 수억 건의 데이터를 집계·분석하는 쿼리에 최적화되어 있다.</p>
+
+      <table class="compare-table">
+        <thead>
+          <tr><th>특성</th><th>OLTP</th><th>OLAP</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>목적</td><td>트랜잭션 처리 (읽기/쓰기)</td><td>분석 · 집계</td></tr>
+          <tr><td>쿼리 패턴</td><td>단건 조회, 수정</td><td>SUM, COUNT, GROUP BY 등 집계</td></tr>
+          <tr><td>스토리지</td><td>Row-oriented (행 단위 저장)</td><td>Column-oriented (컬럼 단위 저장)</td></tr>
+          <tr><td>최적화</td><td>쓰기 성능, 트랜잭션</td><td>읽기 성능, 압축, 집계 속도</td></tr>
+          <tr><td>대표 제품</td><td>MySQL, PostgreSQL, Oracle</td><td>ClickHouse, Druid, Pinot, StarRocks</td></tr>
+        </tbody>
+      </table>
+
+      <h3>왜 컬럼형 저장이 빠른가?</h3>
+      <p>OLAP DB의 핵심은 <strong>컬럼 지향 스토리지(Columnar Storage)</strong>다. 예를 들어 "결제 금액의 합계"를 구할 때 OLTP는 모든 행을 읽고 금액 컬럼만 추출하지만, OLAP는 금액 컬럼 데이터만 연속으로 저장되어 있어서 해당 블록만 읽으면 된다. 게다가 같은 타입 데이터가 연속으로 있으면 압축률이 매우 높아져 I/O 자체가 줄어든다.</p>
+
+      <h3>대표 OLAP DB 비교</h3>
+      <ul>
+        <li><strong>ClickHouse</strong> — 초고속 컬럼형 DB. 초당 수억 행 집계. 실시간 분석 최강자. Kafka 직접 연동 지원.</li>
+        <li><strong>Apache Druid</strong> — 실시간 스트리밍 인제스트 + OLAP. Kafka Consumer 내장. 시계열 분석에 강함.</li>
+        <li><strong>Apache Pinot</strong> — LinkedIn이 개발한 실시간 분산 OLAP. 초저지연 쿼리.</li>
+        <li><strong>StarRocks / Apache Doris</strong> — MySQL 프로토콜 호환 OLAP. 국내 기업에서 많이 채택.</li>
+        <li><strong>Snowflake / BigQuery</strong> — 클라우드 기반 Data Warehouse. 관리형 서비스.</li>
+      </ul>
+    </div>
+
+    <!-- Apache Flink -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        Apache Flink란?
+      </div>
+      <p><strong>Apache Flink</strong>는 분산 스트림 처리 엔진(Stream Processing Engine)이다. Kafka에서 들어오는 무한한 이벤트 스트림을 실시간으로 변환·집계·조인하는 역할을 한다.</p>
+
+      <h3>핵심 개념</h3>
+      <ul>
+        <li><strong>DataStream API</strong> — 스트림 데이터를 처리하는 핵심 API. map/filter/keyBy/window 등으로 파이프라인 구성.</li>
+        <li><strong>Source / Sink</strong> — 데이터 입출력 커넥터. Kafka Source → 처리 → ClickHouse Sink.</li>
+        <li><strong>Window</strong> — 무한 스트림을 시간 기반으로 묶어서 처리하는 단위.
+          <ul>
+            <li>Tumbling Window: 겹치지 않는 고정 구간 (매 10분)</li>
+            <li>Sliding Window: 슬라이딩 구간 (10분 크기, 1분마다 갱신)</li>
+            <li>Session Window: 이벤트 비활성 구간으로 자동 분리</li>
+          </ul>
+        </li>
+        <li><strong>Watermark</strong> — 네트워크 지연으로 늦게 도착한 이벤트를 처리하기 위한 이벤트 타임 기준선. "이 시간 이전 이벤트는 다 도착했다고 간주"</li>
+        <li><strong>Stateful Processing</strong> — 이전 이벤트 상태를 기억하며 처리. 예: 사용자별 누적 금액 계산.</li>
+        <li><strong>Checkpoint / Savepoint</strong> — 장애 발생 시 정확히 어디까지 처리했는지 저장. 재시작해도 중복/유실 없음.</li>
+        <li><strong>Exactly-Once Semantics</strong> — Kafka + Flink + 트랜잭셔널 Sink 조합으로 정확히 한 번만 처리 보장.</li>
+      </ul>
+
+      <h3>Flink vs Spark Streaming</h3>
+      <table class="compare-table">
+        <thead>
+          <tr><th>항목</th><th>Apache Flink</th><th>Spark Streaming</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>처리 모델</td><td>Native Streaming (진짜 스트림)</td><td>Micro-batch (작은 배치 반복)</td></tr>
+          <tr><td>지연 시간</td><td>밀리초(ms) 단위</td><td>초(s) 단위 (배치 간격에 의존)</td></tr>
+          <tr><td>상태 관리</td><td>강력한 State Backend (RocksDB)</td><td>제한적</td></tr>
+          <tr><td>Exactly-Once</td><td>완전 지원</td><td>복잡한 설정 필요</td></tr>
+          <tr><td>주 사용 사례</td><td>실시간 집계, CEP, 이상 탐지</td><td>배치 + 스트리밍 혼합 처리</td></tr>
+          <tr><td>학습 곡선</td><td>높음 (Window, Watermark 개념)</td><td>낮음 (Spark 생태계 친숙)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        Kafka → Flink → OLAP DB — 왜 이 조합인가?
+      </div>
+      <p>이 아키텍처는 <strong>Lambda Architecture</strong>나 <strong>Kappa Architecture</strong>의 실시간 레이어를 구현하는 표준 패턴이다. 각 컴포넌트가 담당하는 역할이 명확하게 분리된다.</p>
+
+      <h3>각 컴포넌트의 역할</h3>
+      <ul>
+        <li><strong>Kafka (버퍼 + 내구성)</strong> — 이벤트를 디스크에 보관하므로 Flink가 장애나 재시작해도 다시 읽을 수 있다. 이벤트 유실 없음. Consumer가 느려도 압박이 Producer에 전달되지 않는다.</li>
+        <li><strong>Flink (변환 + 집계)</strong> — 원시 이벤트를 OLAP에 넣기 좋은 형태로 변환한다. 예: JSON 파싱, 컬럼 추출, 집계(Window), 여러 스트림 조인, 이상값 필터링. OLAP DB에 직접 쿼리 부하를 주지 않고 미리 가공.</li>
+        <li><strong>OLAP DB (고속 집계 제공)</strong> — 가공된 데이터에 대해 초고속 집계 쿼리를 제공한다. 수억 건 데이터도 초 단위 응답. 대시보드와 직접 연결.</li>
+      </ul>
+
+      <h3>실제 사용 사례</h3>
+      <ul>
+        <li><strong>실시간 결제 대시보드</strong> — 결제 이벤트 → Kafka → Flink(국가/금액 집계) → ClickHouse → Grafana</li>
+        <li><strong>사용자 행동 분석</strong> — 클릭/뷰 이벤트 → Kafka → Flink(세션 분석) → Druid → 분석 툴</li>
+        <li><strong>이상 탐지(Fraud Detection)</strong> — 거래 이벤트 → Kafka → Flink(패턴 감지, CEP) → Alert 또는 OLAP</li>
+        <li><strong>실시간 재고/주문 현황</strong> — 주문 이벤트 → Kafka → Flink(집계) → Pinot → 운영 대시보드</li>
+        <li><strong>광고 클릭 집계</strong> — 광고 클릭 → Kafka → Flink(Campaign별 집계) → StarRocks → 광고주 리포트</li>
+      </ul>
+
+      <h3>Druid처럼 Kafka를 직접 연동하는 경우도 있다</h3>
+      <p>Apache Druid, Apache Pinot은 Kafka Consumer를 내장하고 있어서 <strong>Flink 없이 Kafka → OLAP DB 직접 연결</strong>도 가능하다. 하지만 복잡한 변환/조인/이상 탐지가 필요하면 Flink를 중간에 넣는다. 단순 집계라면 Kafka → OLAP DB 직접 연결이 더 단순하다.</p>
+
+      <h3>어떤 OLAP DB를 선택하나?</h3>
+      <ul>
+        <li><strong>ClickHouse</strong> — 빠른 집계가 최우선. 운영이 단순. Flink와 조합 매우 흔함.</li>
+        <li><strong>Apache Druid</strong> — Kafka 직접 인제스트 + 시계열 분석. 별도 Flink 없이도 가능.</li>
+        <li><strong>StarRocks</strong> — MySQL 문법 호환. 팀이 SQL에 익숙할 때. 국내 스타트업 채택 증가.</li>
+        <li><strong>Snowflake/BigQuery</strong> — 관리 부담 없는 클라우드 환경. 실시간보다 준실시간(분 단위) 수준.</li>
+      </ul>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화 — 실시간 데이터 파이프라인
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" font-family="'JetBrains Mono', monospace">
+          <!-- 배경 -->
+          <rect width="720" height="420" fill="#0f1117" rx="8"/>
+
+          <!-- 제목 -->
+          <text x="360" y="30" fill="#94a3b8" font-size="12" text-anchor="middle">Kafka → Flink → OLAP DB 실시간 파이프라인</text>
+
+          <!-- 이벤트 소스 박스들 -->
+          <rect x="20" y="60" width="110" height="36" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="75" y="83" fill="#94a3b8" font-size="11" text-anchor="middle">앱 서버 이벤트</text>
+
+          <rect x="20" y="110" width="110" height="36" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="75" y="133" fill="#94a3b8" font-size="11" text-anchor="middle">CDC (DB 변경)</text>
+
+          <rect x="20" y="160" width="110" height="36" rx="6" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="75" y="183" fill="#94a3b8" font-size="11" text-anchor="middle">로그 수집기</text>
+
+          <!-- 화살표 → Kafka -->
+          <line x1="130" y1="78" x2="175" y2="120" stroke="#2e3250" stroke-width="1.5" marker-end="url(#arr)"/>
+          <line x1="130" y1="128" x2="175" y2="145" stroke="#2e3250" stroke-width="1.5" marker-end="url(#arr)"/>
+          <line x1="130" y1="178" x2="175" y2="165" stroke="#2e3250" stroke-width="1.5" marker-end="url(#arr)"/>
+
+          <!-- Kafka 박스 -->
+          <rect x="175" y="90" width="130" height="90" rx="8" fill="#1a1d27" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="240" y="113" fill="#fbbf24" font-size="13" text-anchor="middle" font-weight="bold">Kafka</text>
+          <text x="240" y="133" fill="#94a3b8" font-size="10" text-anchor="middle">Topic Partitions</text>
+          <text x="240" y="150" fill="#64748b" font-size="10" text-anchor="middle">버퍼 · 내구성</text>
+          <text x="240" y="167" fill="#64748b" font-size="10" text-anchor="middle">재처리 가능</text>
+
+          <!-- 화살표 → Flink -->
+          <line x1="305" y1="135" x2="350" y2="135" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+          <!-- Flink 박스 -->
+          <rect x="350" y="75" width="150" height="120" rx="8" fill="#1a1d27" stroke="#7c6af7" stroke-width="1.5"/>
+          <text x="425" y="100" fill="#a78bfa" font-size="13" text-anchor="middle" font-weight="bold">Apache Flink</text>
+          <text x="425" y="118" fill="#94a3b8" font-size="10" text-anchor="middle">데이터 변환/정제</text>
+          <text x="425" y="134" fill="#94a3b8" font-size="10" text-anchor="middle">Window 집계</text>
+          <text x="425" y="150" fill="#94a3b8" font-size="10" text-anchor="middle">스트림 조인</text>
+          <text x="425" y="166" fill="#64748b" font-size="10" text-anchor="middle">Exactly-Once</text>
+          <text x="425" y="182" fill="#64748b" font-size="10" text-anchor="middle">Stateful 처리</text>
+
+          <!-- 화살표 → OLAP -->
+          <line x1="500" y1="135" x2="545" y2="135" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+          <!-- OLAP DB 박스 -->
+          <rect x="545" y="85" width="150" height="100" rx="8" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="620" y="108" fill="#38bdf8" font-size="13" text-anchor="middle" font-weight="bold">OLAP DB</text>
+          <text x="620" y="126" fill="#94a3b8" font-size="10" text-anchor="middle">ClickHouse</text>
+          <text x="620" y="142" fill="#94a3b8" font-size="10" text-anchor="middle">Apache Druid</text>
+          <text x="620" y="158" fill="#94a3b8" font-size="10" text-anchor="middle">StarRocks / Pinot</text>
+          <text x="620" y="174" fill="#64748b" font-size="10" text-anchor="middle">컬럼형 · 초고속 집계</text>
+
+          <!-- 화살표 → 대시보드 -->
+          <line x1="620" y1="185" x2="620" y2="240" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr4)"/>
+
+          <!-- 대시보드 박스 -->
+          <rect x="545" y="240" width="150" height="50" rx="8" fill="#1a1d27" stroke="#34d399" stroke-width="1.5"/>
+          <text x="620" y="262" fill="#34d399" font-size="12" text-anchor="middle" font-weight="bold">대시보드</text>
+          <text x="620" y="278" fill="#64748b" font-size="10" text-anchor="middle">Grafana · Superset</text>
+
+          <!-- 하단 설명 라인들 -->
+          <line x1="175" y1="340" x2="305" y2="340" stroke="#f59e0b" stroke-width="2"/>
+          <text x="240" y="358" fill="#f59e0b" font-size="10" text-anchor="middle">이벤트 보관</text>
+          <text x="240" y="370" fill="#64748b" font-size="10" text-anchor="middle">재처리 가능</text>
+
+          <line x1="350" y1="340" x2="500" y2="340" stroke="#7c6af7" stroke-width="2"/>
+          <text x="425" y="358" fill="#a78bfa" font-size="10" text-anchor="middle">실시간 변환</text>
+          <text x="425" y="370" fill="#64748b" font-size="10" text-anchor="middle">ms 단위 처리</text>
+
+          <line x1="545" y1="340" x2="695" y2="340" stroke="#38bdf8" stroke-width="2"/>
+          <text x="620" y="358" fill="#38bdf8" font-size="10" text-anchor="middle">초고속 집계</text>
+          <text x="620" y="370" fill="#64748b" font-size="10" text-anchor="middle">수억 건 · 초 단위</text>
+
+          <!-- Checkpoint 표시 -->
+          <rect x="350" y="215" width="150" height="30" rx="6" fill="#1a2030" stroke="#2e3250" stroke-dasharray="4,2"/>
+          <text x="425" y="234" fill="#64748b" font-size="10" text-anchor="middle">Checkpoint → 장애 복구</text>
+
+          <!-- 화살표 마커들 -->
+          <defs>
+            <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#2e3250"/>
+            </marker>
+            <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b"/>
+            </marker>
+            <marker id="arr3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#7c6af7"/>
+            </marker>
+            <marker id="arr4" markerWidth="8" markerHeight="8" refX="3" refY="6" orient="auto">
+              <path d="M0,0 L6,0 L3,8 z" fill="#38bdf8"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <p>Kafka는 이벤트를 안전하게 보관하는 버퍼, Flink는 중간에서 변환·집계하는 엔진, OLAP DB는 대시보드가 빠르게 쿼리할 수 있는 저장소 역할을 한다. 각 컴포넌트가 실패해도 재처리(Kafka offset 되감기 + Flink Checkpoint)로 데이터 유실 없이 복구 가능하다.</p>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Columnar Storage</span>
+        <span class="related-tag">Window Function</span>
+        <span class="related-tag">Watermark</span>
+        <span class="related-tag">Exactly-Once Semantics</span>
+        <span class="related-tag">Checkpoint / Savepoint</span>
+        <span class="related-tag">CDC (Change Data Capture)</span>
+        <span class="related-tag">Lambda Architecture</span>
+        <span class="related-tag">Kappa Architecture</span>
+        <span class="related-tag">Data Warehouse</span>
+        <span class="related-tag">ClickHouse MergeTree</span>
+        <span class="related-tag">CEP (Complex Event Processing)</span>
+        <span class="related-tag">Backpressure</span>
+        <span class="related-tag">Kafka Consumer Group</span>
+        <span class="related-tag">State Backend (RocksDB)</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="nav.js"></script>
+</body>
+</html>
