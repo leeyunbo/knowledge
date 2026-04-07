@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base href="https://leeyunbo.github.io/knowledge/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Batch 핵심 개념 총정리 — Spring Batch · Spring 내부 동작</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Spring Batch 핵심 개념 총정리</h1>
+      <p class="meta">Spring 내부 동작 · Spring Batch · 2026-04-07</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Spring Batch는 <strong>대량 데이터를 안전하게 처리</strong>하기 위한 프레임워크다.
+        핵심 추상화는 <code>Job → Step → chunk(Reader/Processor/Writer)</code> 3단 구조이고,
+        chunk 단위로 트랜잭션을 끊어 메모리/실패 영향 범위를 통제한다.
+      </div>
+      <p>
+        Job은 "한 번의 배치 작업 단위", Step은 그 안의 처리 단계, chunk는 Step 안에서 N개씩 묶어
+        커밋하는 트랜잭션 단위다. Reader가 1건 꺼내고, Processor가 변환/필터링하고,
+        Writer가 chunk만큼 모인 결과를 한 번에 저장한다.
+      </p>
+      <p>
+        Spring Batch가 빛나는 진짜 이유는 단순히 chunk 처리만이 아니다.
+        <strong>실행 이력(BATCH_* 메타테이블)을 DB에 영속화</strong>해서 재시작/멱등성/모니터링까지
+        지원한다는 점이다. 다만 모든 기능이 모든 배치에 필요하지는 않다 — 도구의 가치는
+        "내 문제에 어느 부분이 필요한가"를 판단하는 데서 나온다.
+      </p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h3>1. Job · Step · chunk</h3>
+      <p>
+        <strong>Job</strong>은 배치 1회 실행 단위. <code>JobBuilder("settlementJob", jobRepository).start(step).build()</code>
+        형태로 만든다. Job 이름은 그저 라벨일 뿐, 식별자 역할은 <em>JobInstance</em>가 한다.
+      </p>
+      <p>
+        <strong>Step</strong>은 Job 안의 처리 단계. 한 Job에 여러 Step을 두고 흐름을 분기시킬 수도 있다.
+        Step 안에서는 chunk 단위로 일이 돈다.
+      </p>
+      <p>
+        <strong>chunk</strong>는 "N개씩 끊어서 트랜잭션 처리하라"는 의미. 1만 건을 한 번에 처리하면
+        메모리가 폭발하고, 9999번째에서 죽으면 전부 롤백된다. chunk 100이면 100개씩 commit이라
+        메모리도 안전하고 실패 영향도 그 chunk로 한정된다.
+      </p>
+
+      <h3>2. JobInstance vs JobExecution</h3>
+      <p>
+        <strong>JobInstance</strong> = <code>Job 이름 + JobParameters</code>의 조합.
+        같은 조합으로 실행하면 같은 JobInstance로 본다. 한 JobInstance가 한 번 성공(COMPLETED)하면
+        같은 조합으로 다시는 못 돌린다 (<code>JobInstanceAlreadyCompleteException</code>).
+      </p>
+      <p>
+        <strong>JobExecution</strong>은 그 JobInstance를 실제로 실행한 한 번의 이벤트.
+        하나의 JobInstance에 대해 실패 → 재시작 → 성공 식의 여러 JobExecution이 붙을 수 있다.
+        <code>execution.getStatus()</code>로 BatchStatus를 받아 실제 성공/실패를 판별한다.
+      </p>
+
+      <h3>3. ItemReader · ItemProcessor · ItemWriter</h3>
+      <p>
+        Reader는 1건씩 꺼내고, Processor는 1건을 받아 1건으로 변환(또는 null로 필터링),
+        Writer는 chunk size만큼 모인 결과를 한꺼번에 저장한다. 이 셋을 표준 인터페이스로
+        통일한 게 Spring Batch 구조의 핵심이다.
+      </p>
+
+      <h3>4. @StepScope</h3>
+      <p>
+        Reader/Processor를 빈으로 등록할 때 <code>@StepScope</code>를 붙이면, Step이 시작될 때
+        빈이 생성되어 <code>jobParameters</code>를 SpEL(<code>@Value("#{jobParameters['date']}")</code>)로
+        주입받을 수 있다. 일반 빈은 앱 시작 시점에 만들어지므로 Job 파라미터를 모른다.
+      </p>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h3>JpaCursorItemReader vs JpaPagingItemReader — 메모리 안전한 두 길</h3>
+      <p>
+        대량 데이터를 한 번에 메모리에 올리면 안 된다는 건 자명하다. Spring Batch는 두 가지
+        방식을 제공한다.
+      </p>
+      <ul>
+        <li>
+          <strong>JpaCursorItemReader</strong>: JDBC 커서를 이용해 결과를 1건씩 스트리밍.
+          쿼리 1번으로 끝나지만, 커서가 살아있는 동안 <strong>커넥션 1개를 Step 끝까지 점유</strong>한다.
+          GROUP BY/JOIN 등 무거운 집계와 잘 어울린다.
+        </li>
+        <li>
+          <strong>JpaPagingItemReader</strong>: 페이지마다 LIMIT/OFFSET 쿼리를 새로 날리고
+          커넥션을 빌렸다 놓는다. 커넥션 점유는 짧지만 <strong>OFFSET이 깊어질수록 느려지고</strong>,
+          GROUP BY 쿼리에서는 매 페이지마다 전체 GROUP BY를 다시 돌려야 해 비효율적이다.
+        </li>
+      </ul>
+      <p>
+        선택은 <em>실행 시간대(낮/새벽), 결과 row 수, GROUP BY 유무, 커넥션 풀 여유</em>에 따라
+        다르다. 정답은 없고 트레이드오프 판단이다.
+      </p>
+
+      <h3>N+1과 LEFT JOIN 안티조인 트릭</h3>
+      <p>
+        흔한 실수: Reader는 ID 목록만 가져오고, Processor가 ID마다 SUM/exists 쿼리를 또 날리는 패턴.
+        ID가 N개면 쿼리가 1+2N번 발생한다. "N+1"이라 부르지만 본질은
+        <strong>왕복 비용(round-trip)이 곱해지는 것</strong>이다.
+      </p>
+      <p>
+        해결책 중 가장 우아한 형태는 <strong>LEFT JOIN + WHERE right.id IS NULL</strong> 패턴이다.
+        대부분의 DB가 이 패턴을 <em>Anti-Join</em>으로 최적화해, "오른쪽에 매칭이 없는 왼쪽 row만"
+        한 방에 가져온다. 정산 배치에서 "이미 정산된 가맹점은 제외하고 미처리분만 처리" 같은
+        멱등성 보장이 자연스럽게 풀린다.
+      </p>
+
+      <h3>멱등성 3겹 방어</h3>
+      <p>
+        실무 배치는 보통 3겹으로 멱등성을 보장한다.
+      </p>
+      <ol>
+        <li><strong>Spring Batch JobInstance 차단</strong> (1차) — 같은 (Job + Parameters) 재실행 금지</li>
+        <li><strong>도메인 쿼리 (LEFT JOIN/exists 체크)</strong> (2차) — 이미 처리된 건은 Reader가 안 내려보냄</li>
+        <li><strong>DB Unique Constraint</strong> (3차) — 1, 2를 모두 뚫어도 INSERT 단계에서 막힘</li>
+      </ol>
+      <p>
+        요구사항이 "재실행 가능 + 중복 없음"이면 1차 방어선을 일부러 우회해야 한다. 흔히 쓰는
+        트릭이 JobParameters에 <code>run.id = System.currentTimeMillis()</code>를 끼워 매번
+        새 JobInstance를 만드는 것. 이건 멱등성을 도메인 레벨(2, 3차)에 위임한다는 명시적 결정이다.
+      </p>
+
+      <h3>JPQL의 함정 — new 표현식과 FQN</h3>
+      <p>
+        JPQL은 SQL이 아니다. <strong>엔티티/필드 기반</strong>이고, Hibernate가 DB 방언으로 번역한다.
+        집계 결과를 DTO로 받고 싶으면 <code>SELECT new com.example.Dto(...)</code> 형태의
+        생성자 표현식을 쓰는데, <strong>풀 패키지 경로가 필수</strong>다. JPQL은 문자열이라
+        Java의 import 컨텍스트를 모른다.
+      </p>
+
+      <h3>Spring Boot 3 + Spring Batch 5의 함정</h3>
+      <p>
+        Spring Boot 2까지는 <code>@EnableBatchProcessing</code>이 필요했지만, Spring Boot 3 + Spring Batch 5에서는
+        <strong>정반대</strong>다. 이 어노테이션을 붙이면 <code>BatchAutoConfiguration</code>이 비활성화되어
+        <code>BATCH_*</code> 메타테이블 초기화 빈(<code>JobRepositoryDataSourceScriptDatabaseInitializer</code>)이
+        등록되지 않는다. 결과적으로 <em>BATCH_JOB_INSTANCE 테이블이 없다</em>는 에러로 모든 테스트가 깨진다.
+      </p>
+      <p>
+        해결: <strong>Spring Boot 3에서는 <code>@EnableBatchProcessing</code>을 붙이지 말 것.</strong>
+        <code>spring-boot-starter-batch</code>만 의존성에 있으면 자동설정이 알아서 한다.
+      </p>
+
+      <h3>"왜 Spring Batch를 쓰는가" — 정직한 답</h3>
+      <p>
+        하루 한 번 도는 작은 정산 배치라면 사실 손으로 짜도 된다. Spring Batch가 진짜로 빛나는
+        시나리오는:
+      </p>
+      <ul>
+        <li>수시간~수일 걸리는 배치 (실패 시 재시작 필수)</li>
+        <li>수천만~수억 건 처리 (메모리/페이징/트랜잭션 직접 관리하면 버그 천국)</li>
+        <li>실패 row를 따로 모아 재처리 (Skip/Retry 정책)</li>
+        <li>여러 서버에 분산 처리 (Partition Step)</li>
+        <li>Step 분기/조건부 흐름이 복잡한 ETL</li>
+      </ul>
+      <p>
+        반대로 작은 배치에서 쓰는 이유는 <em>표준 구조 · 학습 자산 · 미래 확장성 · 운영 모니터링</em>이지,
+        "배치니까 당연히"가 아니다. 도구를 의심할 줄 아는 것이 시니어의 시작이다.
+      </p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+
+      <h3>Job · Step · chunk 흐름</h3>
+      <div class="diagram-wrap">
+        <pre>
+[runSettlement(date) 호출]
+        ↓
+JobLauncher.run(job, params)
+        ↓
+┌──────────────── Job ────────────────┐
+│                                      │
+│  ┌────────── Step ──────────┐        │
+│  │                          │        │
+│  │  @StepScope 빈 생성      │        │
+│  │  (jobParameters 주입)    │        │
+│  │                          │        │
+│  │  ┌── chunk loop ──┐      │        │
+│  │  │                │      │        │
+│  │  │  Reader.read() │ ×N   │        │
+│  │  │       ↓        │      │        │
+│  │  │  Processor     │      │        │
+│  │  │       ↓        │      │        │
+│  │  │  (모이면)      │      │        │
+│  │  │  Writer.write()│      │        │
+│  │  │       ↓        │      │        │
+│  │  │     COMMIT     │      │        │
+│  │  └────────────────┘      │        │
+│  │  (다음 chunk 반복)        │        │
+│  │                          │        │
+│  └──────────────────────────┘        │
+│                                      │
+└──────────────────────────────────────┘
+        ↓
+JobExecution 리턴
+(getStatus(): COMPLETED/FAILED)
+        </pre>
+      </div>
+
+      <h3>Cursor vs Paging Reader 비교</h3>
+      <div class="diagram-wrap">
+        <pre>
+[Cursor Reader]
+앱 ─── 쿼리 1번 ───→ DB
+앱 ←── 1건 ──── DB    (커넥션 점유)
+앱 ←── 1건 ──── DB    (커넥션 점유)
+앱 ←── 1건 ──── DB    (커넥션 점유)
+       ...
+앱 ←── 끝 ──── DB
+   (Step 끝까지 커넥션 1개 묶임)
+
+
+[Paging Reader]
+앱 ─── 쿼리(LIMIT 100 OFFSET 0) ───→ DB → 100건 → 반납
+앱 ─── 쿼리(LIMIT 100 OFFSET 100) ──→ DB → 100건 → 반납
+앱 ─── 쿼리(LIMIT 100 OFFSET 200) ──→ DB → 100건 → 반납
+       ...
+   (커넥션은 짧게 빌렸다 놓음, OFFSET 비용 ↑)
+        </pre>
+      </div>
+
+      <h3>LEFT JOIN Anti-Join 동작</h3>
+      <div class="diagram-wrap">
+        <pre>
+SELECT new MerchantAggregation(p.merchantId, SUM(...), ...)
+FROM Payment p
+LEFT JOIN Settlement s
+  ON s.merchantId = p.merchantId
+ AND s.settlementDate = :date
+WHERE p.status = 'APPROVED'
+  AND p.approvedAt BETWEEN ... AND ...
+  AND s.id IS NULL          ← anti-join 트리거
+GROUP BY p.merchantId
+
+      Payment            Settlement(today)
+      ┌─────┐             ┌─────┐
+      │M001 │ ──→ 매칭 ──→ │M001 │   → 이미 정산됨, 제외
+      │M002 │ ──→ 매칭 X        ─    → 미정산, 채택 ✅
+      │M003 │ ──→ 매칭 ──→ │M003 │   → 이미 정산됨, 제외
+      │M004 │ ──→ 매칭 X        ─    → 미정산, 채택 ✅
+      └─────┘             └─────┘
+
+      → DB는 매칭 row를 만들지도 않고 패스 (성능 이득)
+        </pre>
+      </div>
+
+      <h3>JobInstance · JobExecution 관계</h3>
+      <div class="diagram-wrap">
+        <pre>
+JobInstance #1 (settlementJob + {date=2026-03-30})
+   ├── JobExecution #1  : 2026-03-30 01:00  → FAILED
+   ├── JobExecution #2  : 2026-03-30 01:30  → FAILED (재시도)
+   └── JobExecution #3  : 2026-03-30 02:00  → COMPLETED ✅
+         ↑
+         이 시점 이후 같은 (Job + Parameters) 조합은 차단됨
+
+JobInstance #2 (settlementJob + {date=2026-03-31})
+   └── JobExecution #4  : 2026-03-31 01:00  → COMPLETED
+        </pre>
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">Job</span>
+        <span class="related-tag">Step</span>
+        <span class="related-tag">chunk</span>
+        <span class="related-tag">ItemReader</span>
+        <span class="related-tag">ItemProcessor</span>
+        <span class="related-tag">ItemWriter</span>
+        <span class="related-tag">JpaCursorItemReader</span>
+        <span class="related-tag">JpaPagingItemReader</span>
+        <span class="related-tag">@StepScope</span>
+        <span class="related-tag">JobParameters</span>
+        <span class="related-tag">JobInstance</span>
+        <span class="related-tag">JobExecution</span>
+        <span class="related-tag">BatchStatus</span>
+        <span class="related-tag">JobRepository</span>
+        <span class="related-tag">ExecutionContext</span>
+        <span class="related-tag">SkipListener</span>
+        <span class="related-tag">Retry 정책</span>
+        <span class="related-tag">Tasklet</span>
+        <span class="related-tag">Partition Step</span>
+        <span class="related-tag">JPQL</span>
+        <span class="related-tag">생성자 표현식 (new)</span>
+        <span class="related-tag">Anti-Join</span>
+        <span class="related-tag">N+1 문제</span>
+        <span class="related-tag">LEFT JOIN</span>
+        <span class="related-tag">GROUP BY</span>
+        <span class="related-tag">멱등성</span>
+        <span class="related-tag">DB Cursor</span>
+        <span class="related-tag">Connection Pool</span>
+        <span class="related-tag">@EnableBatchProcessing 함정</span>
+        <span class="related-tag">Spring Boot 3</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="nav.js"></script>
+</body>
+</html>
