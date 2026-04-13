@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base href="https://leeyunbo.github.io/knowledge/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Data JPA existsBy 쿼리에서 LEFT JOIN이 발생하는 이유 — JPA 실전 패턴 · 설계</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="breadcrumb"></nav>
+
+    <header class="page-header">
+      <div class="tag">💡 개념 정리</div>
+      <h1>Spring Data JPA existsBy 쿼리에서 LEFT JOIN이 발생하는 이유</h1>
+      <p class="meta">설계 · JPA 실전 패턴 · 2026-04-13</p>
+    </header>
+
+    <!-- 핵심 답변 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-answer">✦</div>
+        핵심 답변
+      </div>
+      <div class="highlight-box">
+        Spring Data JPA의 쿼리 메서드 파서는 <code>existsByUserIdAndCouponId</code>에서 <code>user</code>와 <code>coupon</code>을 <strong>엔티티 연관관계(객체 그래프)</strong>로 해석하기 때문에, FK 컬럼이 이미 같은 테이블에 있음에도 불구하고 연관 테이블로 JOIN하여 id를 조회한다.
+      </div>
+      <p>예를 들어 <code>CouponIssue</code> 엔티티에 <code>@ManyToOne User user</code>가 있으면, JPA는 <code>"user → User 엔티티로 이동 → id 접근"</code>이라는 객체 탐색 경로를 생성하고, 이를 SQL로 번역할 때 <code>LEFT JOIN users</code>가 붙게 된다.</p>
+    </div>
+
+    <!-- 배경 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-background">◈</div>
+        알아야 할 배경 개념
+      </div>
+
+      <h3>1. Spring Data JPA 쿼리 메서드 파싱</h3>
+      <p>Spring Data JPA는 메서드 이름에서 쿼리를 자동 생성한다. 이때 <strong>엔티티의 프로퍼티 경로</strong>를 기준으로 파싱한다.</p>
+      <div class="code-block">
+        <pre><code>// Repository 메서드
+boolean existsByUserIdAndCouponId(Long userId, Long couponId);
+
+// Spring Data JPA의 파싱 과정
+// "User" → CouponIssue.user (엔티티 프로퍼티)
+// "Id"   → User.id (연관 엔티티의 id)
+// "Coupon" → CouponIssue.coupon (엔티티 프로퍼티)
+// "Id"    → Coupon.id (연관 엔티티의 id)</code></pre>
+      </div>
+
+      <h3>2. JPA의 세계관: 테이블이 아니라 객체</h3>
+      <p>JPA(Hibernate)는 <strong>객체 관계 매핑(ORM)</strong>이다. SQL을 직접 다루는 게 아니라 엔티티 객체 그래프를 탐색해서 쿼리를 만든다. 따라서 <code>user.id</code>에 접근하려면 <code>user</code> 엔티티를 먼저 거쳐야 한다고 판단한다.</p>
+
+      <h3>3. FK 컬럼 vs 엔티티 참조</h3>
+      <p>테이블 관점에서 <code>coupon_issue.user_id</code>는 이미 FK 컬럼으로 존재한다. JOIN 없이도 값을 알 수 있다. 하지만 JPA는 이를 "컬럼"이 아니라 "엔티티 참조의 id"로 인식한다.</p>
+      <div class="code-block">
+        <pre><code>// 테이블 관점 (컬럼)
+coupon_issue.user_id    ← 이미 여기 있음, JOIN 불필요
+
+// JPA 관점 (객체 그래프)
+CouponIssue.user → User.id  ← User 엔티티로 이동해야 id 접근 가능</code></pre>
+      </div>
+    </div>
+
+    <!-- 깊이 파고들기 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-deep">◉</div>
+        더 깊이 파고들기
+      </div>
+
+      <h3>실제 생성되는 SQL 비교</h3>
+
+      <h4>❌ 자동 생성 쿼리 (LEFT JOIN 발생)</h4>
+      <div class="code-block">
+        <pre><code>-- existsByUserIdAndCouponId가 생성하는 SQL
+SELECT COUNT(*) > 0
+FROM coupon_issue ci
+LEFT JOIN users u ON ci.user_id = u.id        -- 불필요한 JOIN
+LEFT JOIN coupons c ON ci.coupon_id = c.id     -- 불필요한 JOIN
+WHERE u.id = ? AND c.id = ?</code></pre>
+      </div>
+
+      <h4>✅ 직접 작성한 JPQL (JOIN 없음)</h4>
+      <div class="code-block">
+        <pre><code>-- @Query로 직접 작성하면
+@Query("SELECT COUNT(ci) > 0 FROM CouponIssue ci " +
+       "WHERE ci.user.id = :userId AND ci.coupon.id = :couponId")
+
+-- 생성되는 SQL
+SELECT COUNT(*) > 0
+FROM coupon_issue ci
+WHERE ci.user_id = ? AND ci.coupon_id = ?      -- FK 컬럼 직접 참조</code></pre>
+      </div>
+      <p>JPQL에서 <code>ci.user.id</code>라고 쓰면 Hibernate는 <strong>FK 컬럼이 이미 같은 테이블에 있다</strong>는 것을 알고 JOIN을 생략하는 최적화를 적용한다. 하지만 Spring Data JPA의 메서드 이름 파서는 이 최적화를 하지 않는다.</p>
+
+      <h3>또 다른 해결법: Native Query</h3>
+      <div class="code-block">
+        <pre><code>@Query(value = "SELECT EXISTS(" +
+       "SELECT 1 FROM coupon_issue " +
+       "WHERE user_id = :userId AND coupon_id = :couponId)",
+       nativeQuery = true)
+boolean existsByUserIdAndCouponIdNative(
+    @Param("userId") Long userId,
+    @Param("couponId") Long couponId);</code></pre>
+      </div>
+      <p>Native Query는 SQL을 직접 쓰기 때문에 JPA의 객체 그래프 탐색을 완전히 우회한다. <code>EXISTS + SELECT 1</code>은 <code>COUNT(*) > 0</code>보다 성능이 좋다 — 첫 번째 매칭 행을 찾으면 즉시 반환하기 때문.</p>
+
+      <h3>성능 차이가 중요한 이유</h3>
+      <p>단일 요청에서는 LEFT JOIN의 비용이 미미하다. 하지만 <strong>쿠폰 발급처럼 동시 요청이 많은 상황</strong>에서는 이야기가 다르다.</p>
+      <ul>
+        <li>LEFT JOIN → DB가 3개 테이블을 읽음 → 실행 시간 증가</li>
+        <li>실행 시간 증가 → 커넥션 점유 시간 증가</li>
+        <li>커넥션 점유 증가 → 풀 고갈 → connection timeout</li>
+        <li>200 스레드 환경에서 쿼리 하나 30ms 줄이면 → 전체 처리량 수십% 향상</li>
+      </ul>
+
+      <h3>왜 Hibernate가 메서드 파서에서 최적화 안 하나?</h3>
+      <p>JPQL의 <code>ci.user.id</code> 최적화는 Hibernate ORM 레벨에서 처리하는 것이고, 메서드 이름 파싱은 <strong>Spring Data JPA 레벨</strong>에서 처리하는 것이다. 두 레이어가 다르기 때문에 Spring Data가 생성한 쿼리 구조에 Hibernate의 FK 최적화가 적용되지 않는 것이다.</p>
+    </div>
+
+    <!-- 시각화 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-visual">◆</div>
+        시각화
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
+          <!-- 배경 -->
+          <rect width="720" height="400" fill="#0f1117" rx="12"/>
+
+          <!-- 제목 -->
+          <text x="360" y="35" text-anchor="middle" fill="#e2e8f0" font-size="15" font-weight="700">existsByUserIdAndCouponId — 쿼리 생성 경로 비교</text>
+
+          <!-- LEFT: 메서드 파싱 (JOIN 발생) -->
+          <text x="180" y="70" text-anchor="middle" fill="#f87171" font-size="12" font-weight="600">❌ 메서드 이름 자동 파싱</text>
+
+          <!-- coupon_issue 테이블 -->
+          <rect x="50" y="90" width="260" height="40" rx="8" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="180" y="115" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">CouponIssue</text>
+
+          <!-- user 프로퍼티 탐색 -->
+          <line x1="120" y1="130" x2="120" y2="165" stroke="#f87171" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="140" y="155" fill="#f87171" font-size="10">.user →</text>
+
+          <!-- users 테이블 -->
+          <rect x="50" y="165" width="120" height="35" rx="8" fill="#1a1d27" stroke="#f87171"/>
+          <text x="110" y="187" text-anchor="middle" fill="#f87171" font-size="11">LEFT JOIN users</text>
+
+          <!-- .id 접근 -->
+          <line x1="110" y1="200" x2="110" y2="225" stroke="#f87171" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="130" y="218" fill="#94a3b8" font-size="10">.id</text>
+
+          <!-- coupon 프로퍼티 탐색 -->
+          <line x1="240" y1="130" x2="240" y2="165" stroke="#f87171" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="215" y="155" fill="#f87171" font-size="10">.coupon →</text>
+
+          <!-- coupons 테이블 -->
+          <rect x="190" y="165" width="120" height="35" rx="8" fill="#1a1d27" stroke="#f87171"/>
+          <text x="250" y="187" text-anchor="middle" fill="#f87171" font-size="11">LEFT JOIN coupons</text>
+
+          <!-- .id 접근 -->
+          <line x1="250" y1="200" x2="250" y2="225" stroke="#f87171" stroke-width="1.5" stroke-dasharray="4"/>
+          <text x="270" y="218" fill="#94a3b8" font-size="10">.id</text>
+
+          <!-- 결과 SQL -->
+          <rect x="50" y="230" width="260" height="30" rx="6" fill="#2a1520" stroke="#f87171" stroke-opacity="0.4"/>
+          <text x="180" y="250" text-anchor="middle" fill="#f87171" font-size="10">WHERE u.id = ? AND c.id = ?  (3 테이블 읽기)</text>
+
+          <!-- 구분선 -->
+          <line x1="360" y1="60" x2="360" y2="280" stroke="#2e3250" stroke-width="1" stroke-dasharray="6"/>
+
+          <!-- RIGHT: JPQL 직접 작성 -->
+          <text x="540" y="70" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">✅ @Query JPQL 직접 작성</text>
+
+          <!-- coupon_issue 테이블 -->
+          <rect x="410" y="90" width="260" height="40" rx="8" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="540" y="115" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">CouponIssue</text>
+
+          <!-- FK 직접 참조 -->
+          <line x1="480" y1="130" x2="480" y2="175" stroke="#34d399" stroke-width="1.5"/>
+          <text x="500" y="155" fill="#34d399" font-size="10">ci.user_id (FK)</text>
+
+          <line x1="600" y1="130" x2="600" y2="175" stroke="#34d399" stroke-width="1.5"/>
+          <text x="580" y="155" fill="#34d399" font-size="10" text-anchor="end">ci.coupon_id (FK)</text>
+
+          <!-- JOIN 없음 표시 -->
+          <rect x="430" y="175" width="220" height="30" rx="6" fill="#0f2920" stroke="#34d399" stroke-opacity="0.4"/>
+          <text x="540" y="195" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600">JOIN 없음 — FK 컬럼 직접 사용</text>
+
+          <!-- 결과 SQL -->
+          <rect x="410" y="230" width="260" height="30" rx="6" fill="#0f2920" stroke="#34d399" stroke-opacity="0.4"/>
+          <text x="540" y="250" text-anchor="middle" fill="#34d399" font-size="10">WHERE ci.user_id = ? AND ci.coupon_id = ?  (1 테이블)</text>
+
+          <!-- 하단 요약 -->
+          <rect x="50" y="290" width="620" height="90" rx="10" fill="#1a1d27" stroke="#2e3250"/>
+          <text x="360" y="315" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">왜 이런 차이가 생기는가?</text>
+          <text x="360" y="338" text-anchor="middle" fill="#94a3b8" font-size="11">Spring Data JPA 메서드 파서: "user"를 엔티티 참조로 해석 → JOIN 생성</text>
+          <text x="360" y="358" text-anchor="middle" fill="#94a3b8" font-size="11">Hibernate JPQL 최적화: ci.user.id에서 FK가 같은 테이블에 있으면 → JOIN 생략</text>
+          <text x="360" y="375" text-anchor="middle" fill="#fbbf24" font-size="10">두 레이어가 다르기 때문에 자동 생성 쿼리에는 FK 최적화가 적용되지 않음</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 연관 개념 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="icon icon-related">◇</div>
+        함께 알면 좋은 개념
+      </div>
+      <div class="related-tags">
+        <span class="related-tag">N+1 문제</span>
+        <span class="related-tag">LAZY 로딩과 프록시</span>
+        <span class="related-tag">Fetch Join</span>
+        <span class="related-tag">@EntityGraph</span>
+        <span class="related-tag">JPA 쿼리 메서드 파싱 규칙</span>
+        <span class="related-tag">커버링 인덱스</span>
+        <span class="related-tag">HikariCP 커넥션 풀</span>
+      </div>
+    </div>
+
+    <nav class="bottom-nav"></nav>
+
+  </div>
+<script src="nav.js"></script>
+</body>
+</html>
