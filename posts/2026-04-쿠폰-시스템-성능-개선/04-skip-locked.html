@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급 시스템의 성능 한계 (4) SKIP LOCKED · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.14 · 시리즈 4/5</div>
+        <h1>쿠폰 발급 시스템의 성능 한계 (4)<br>SKIP LOCKED의 발견</h1>
+        <p class="subtitle">
+          쿼리 한 줄 바꿨더니 70에서 259로 올랐다. 진짜 어이없는 한 방이었다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
+        <ol>
+          <li><a href="./01-문제-정의.html">문제 정의와 환경 재현</a></li>
+          <li><a href="./02-쿼리-수-줄이기.html">쿼리 수 줄이기, JPA가 숨기는 쿼리들</a></li>
+          <li><a href="./03-lock-sharding.html">Lock Sharding으로 경합 분산 시도</a></li>
+          <li class="current">SKIP LOCKED의 발견</li>
+          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>SKIP LOCKED이 뭘까?</h2>
+        <p>
+          <code>SELECT ... FOR UPDATE</code>는 조회한 행에 쓰기 락을 걸어두는 구문이다.
+          근데 여기 옵션을 두 개 더 붙일 수 있다.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>구문</th><th>동작</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>FOR UPDATE</code></td>
+              <td>락이 걸린 행이면 <strong>대기</strong>한다 (기본 동작)</td>
+            </tr>
+            <tr>
+              <td><code>FOR UPDATE NOWAIT</code></td>
+              <td>락이 걸려 있으면 <strong>즉시 예외</strong></td>
+            </tr>
+            <tr>
+              <td><code>FOR UPDATE SKIP LOCKED</code></td>
+              <td>락이 걸린 행은 <strong>건너뛰고</strong> 다음 행을 찾는다</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          우리가 원하던 게 정확히 이거였다. <strong>락이 걸린 앞쪽 행은 버리고 다음 AVAILABLE 행을 가져가는</strong> 동작.
+        </p>
+
+        <div class="callout blue">
+          <strong>SKIP LOCKED 동작</strong><br>
+          스레드 A → 1번 행 잡음<br>
+          스레드 B → 1번 잠겨있으니 skip, 2번 행 잡음<br>
+          스레드 C → 1, 2 skip, 3번 행 잡음<br>
+          ...<br>
+          대기 없음. 각자 다른 행을 바로 들고간다.
+        </div>
+
+        <h2>쿼리 바꾸기</h2>
+        <p>
+          문제는 <code>UPDATE ... FOR UPDATE SKIP LOCKED</code>는 문법 오류다.
+          <code>FOR UPDATE</code>는 SELECT 전용 구문이기 때문이다.
+        </p>
+
+        <p>
+          그래서 두 단계로 분리했다.
+        </p>
+
+        <ol>
+          <li><code>SELECT ... FOR UPDATE SKIP LOCKED</code>로 AVAILABLE 행 하나 확보하고 락 건다</li>
+          <li>그 행의 status를 TAKEN으로 바꾼다 (dirty checking으로 UPDATE)</li>
+        </ol>
+
+        <pre><code>public interface CouponStockRepository extends JpaRepository&lt;CouponStock, Long&gt; {
+
+    @Query(value = "SELECT * FROM coupon_stock " +
+                   "WHERE coupon_id = :couponId AND status = 'AVAILABLE' " +
+                   "LIMIT 1 FOR UPDATE SKIP LOCKED",
+           nativeQuery = true)
+    Optional&lt;CouponStock&gt; findAvailableStock(@Param("couponId") Long couponId);
+}</code></pre>
+
+        <p>
+          서비스 쪽은 이렇게.
+        </p>
+
+        <pre><code>CouponStock stock = couponStockRepository.findAvailableStock(couponId)
+    .orElseThrow(() -&gt; new CouponException("Out of stock"));
+stock.taken();  // dirty checking으로 UPDATE가 커밋 시점에 반영됨</code></pre>
+
+        <p>
+          CouponStock 엔티티에 상태 전이 메서드만 추가.
+        </p>
+
+        <pre><code>public void taken() {
+    this.status = StockStatus.TAKEN;
+}</code></pre>
+
+        <h2>테스트 결과</h2>
+
+        <div class="callout blue">
+          <strong>총 시간: 5690ms / 성공: 259 / 실패: 41</strong><br>
+          70 → 259. 15초 제한을 다 쓰던 테스트가 5.7초 만에 끝난다. 처리량 3배 이상 증가.
+        </div>
+
+        <p>
+          진짜 어이없었다. 한 줄 바꾼 건데 판이 뒤집혔다.
+        </p>
+
+        <h2>왜 이렇게 극적으로 바뀌는가</h2>
+        <p>
+          앞선 편들이 전부 <strong>직렬화 지점 하나</strong>를 붙들고 있었다. 쿼리를 줄이고 캐시를 넣어봤자
+          쿠폰 UPDATE가 한 줄로 서 있으면 소용없는 구조였다.
+        </p>
+
+        <p>
+          SKIP LOCKED는 이 직렬화를 원천적으로 없앤다. 스레드들이 서로 다른 행을 가져가니까 기다릴 일이 없다.
+          실제로 병렬이다. 암달의 법칙에서 말하는 "직렬 구간 자체를 없애는" 해결이다.
+        </p>
+
+        <h2>실무에서 어디 쓰이나</h2>
+        <p>
+          SKIP LOCKED를 찾아보니 실무에서 생각보다 많이 쓰이는 패턴이었다.
+          대표적인 게 <strong>작업 큐(Job Queue)</strong>.
+        </p>
+
+        <pre><code>-- 워커 여러 대가 "처리할 작업 하나 가져와"
+SELECT * FROM jobs WHERE status = 'PENDING'
+LIMIT 1 FOR UPDATE SKIP LOCKED</code></pre>
+
+        <p>
+          워커 10대가 동시에 이 쿼리를 날려도 각자 다른 작업을 가져간다. 대기 없이, 중복 없이.
+          DB를 메시지 큐 비슷하게 쓰는 패턴이다.
+        </p>
+
+        <p>
+          지원 DB는 이렇다.
+        </p>
+        <ul>
+          <li>PostgreSQL 9.5+</li>
+          <li>MySQL 8.0+ (5.7에는 없음)</li>
+          <li>Oracle</li>
+          <li>H2 2.1+</li>
+        </ul>
+
+        <h2>41개는 왜 실패했나</h2>
+        <p>
+          259개는 성공했는데 41개는 실패했다. 목표는 300건 전부였으니 아직 목표 미달이다.
+          로그 찍어보니 역시 커넥션 타임아웃.
+          트랜잭션 안에 남아있는 다른 쿼리들(user 락, existsBy, save, dirty checking)이 차지하는 시간이 누적되면서
+          뒤쪽 스레드들이 3초 안에 커넥션을 못 얻은 거였다.
+        </p>
+
+        <p>
+          300개 전부 통과시키려면 user 락 제거나 트랜잭션 분리 같은 추가 작업이 필요하다.
+          근데 거기서부터는 이 시스템의 근본적인 설계를 바꾸는 영역으로 들어간다. 오늘은 여기까지.
+        </p>
+
+        <h2>정리</h2>
+        <p>
+          쿼리 한 줄로 성능이 5배 뛴다는 건, 거꾸로 말하면 <strong>잘못된 쿼리 한 줄이 5배의 손해를 만들고 있었다</strong>는 뜻이기도 하다.
+        </p>
+
+        <p>
+          <code>UPDATE ... LIMIT 1</code>로 Lock Sharding을 하려고 했던 2편 구현은 "행을 쪼갰으니 당연히 잘 되겠지"라는
+          가정에 기대고 있었다. 실제로는 쿼리 실행 방식이 직렬화 경로를 타고 있었다.
+          <strong>DB가 쿼리를 어떻게 실행하는가를 알아야 한다</strong>는 교훈.
+        </p>
+
+        <p>
+          마지막 편에서는 이 시리즈에서 얻은 것들을 CS 관점으로 정리한다.
+        </p>
+      </section>
+
+      <footer class="post-footer">
+        <a href="./03-lock-sharding.html" class="prev">
+          <span class="label">← Prev</span>
+          <span>Lock Sharding 시도</span>
+        </a>
+        <a href="./05-배운-점.html" class="next">
+          <span class="label">Next →</span>
+          <span>배운 점 정리</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

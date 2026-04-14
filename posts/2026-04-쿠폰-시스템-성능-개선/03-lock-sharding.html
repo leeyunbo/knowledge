@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급 시스템의 성능 한계 (3) Lock Sharding · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.14 · 시리즈 3/5</div>
+        <h1>쿠폰 발급 시스템의 성능 한계 (3)<br>Lock Sharding으로 경합 분산 시도</h1>
+        <p class="subtitle">
+          하나의 핫스팟 행을 여러 행으로 쪼갠다. 될 줄 알았는데 안 됐다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
+        <ol>
+          <li><a href="./01-문제-정의.html">문제 정의와 환경 재현</a></li>
+          <li><a href="./02-쿼리-수-줄이기.html">쿼리 수 줄이기, JPA가 숨기는 쿼리들</a></li>
+          <li class="current">Lock Sharding으로 경합 분산 시도</li>
+          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
+          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>직렬화가 진짜 문제였다</h2>
+        <p>
+          2편에서 쿼리를 7개에서 5개로 줄였는데도 성공률이 65 → 70으로 거의 안 올랐다.
+          이때 깨달았다. 쿠폰 재고 UPDATE가 병목의 전부였던 거다.
+        </p>
+
+        <p>
+          300 스레드가 전부 같은 쿼리를 날린다.
+        </p>
+
+        <pre><code>UPDATE coupons SET remaining_quantity = remaining_quantity - 1
+WHERE id = ? AND remaining_quantity &gt; 0</code></pre>
+
+        <p>
+          이 UPDATE는 atomic 하다. Lost Update 걱정도 없고, 재고 초과도 막힌다.
+          근데 한 쿠폰 행을 놓고 300 스레드가 경쟁하니까 DB가 이들을 한 줄로 세운다.
+        </p>
+
+        <p>
+          행 락 하나에 195개 스레드가 대기하는 구조. 쿼리 수를 줄여봤자 이 직렬화 구간을 못 줄이면 아무 소용이 없었다.
+        </p>
+
+        <h2>암달의 법칙</h2>
+        <p>
+          <strong>Amdahl's Law.</strong> 시스템의 일부가 직렬화되면 나머지를 아무리 병렬화해도
+          전체 속도는 그 직렬 구간에 묶인다.
+        </p>
+
+        <div class="callout blue">
+          프로그램의 10%가 직렬이면, 나머지 90%를 무한히 병렬화해도 전체는 10배 이상 빨라질 수 없다.
+        </div>
+
+        <p>
+          우리 문제는 쿠폰 UPDATE가 그 직렬 구간이었다. 커넥션 풀을 100개로 늘려도, 쿼리를 0개로 줄여도,
+          UPDATE가 한 줄로 서 있는 이상 성공률은 비슷하게 나올 거였다.
+        </p>
+
+        <p>
+          그래서 다음 질문은 이거였다. <strong>저 직렬 구간을 병렬로 쪼갤 수 있을까?</strong>
+        </p>
+
+        <h2>Lock Sharding 아이디어</h2>
+        <p>
+          실무에서 자주 쓰는 패턴이 있다. <strong>Lock Sharding</strong>.
+          하나의 핫스팟 자원을 여러 자원으로 쪼개서 경합을 분산시키는 방법이다.
+        </p>
+
+        <p>
+          영화관 예매를 떠올리면 쉽다. 하나의 "영화관" 행에 "남은 좌석 수: 300"을 들고 있으면
+          모든 예매가 그 한 행으로 몰린다. 반대로 "좌석" 테이블에 300개 행이 있고 각자가 독립된 좌석이면,
+          관객 300명이 동시에 예매해도 서로 다른 행을 잡는다. 경합이 사라진다.
+        </p>
+
+        <p>
+          쿠폰에도 같은 구조를 적용할 수 있다. 쿠폰 재고를 "1개 행에 300 카운트"가 아니라,
+          "300개 행, 각자 1장씩"으로 쪼개는 거다.
+        </p>
+
+        <pre><code>CREATE TABLE coupon_stock (
+    id         BIGINT PRIMARY KEY,
+    coupon_id  BIGINT,
+    status     VARCHAR  -- 'AVAILABLE' | 'TAKEN'
+);</code></pre>
+
+        <p>
+          쿠폰 100장짜리면 stock 100행을 미리 INSERT 해놓는다.
+          발급 요청이 오면 AVAILABLE 상태인 행 하나를 TAKEN으로 바꾼다.
+        </p>
+
+        <pre><code>UPDATE coupon_stock SET status = 'TAKEN'
+WHERE coupon_id = ? AND status = 'AVAILABLE' LIMIT 1</code></pre>
+
+        <p>
+          이러면 행 락이 300개 행에 분산된다. 300 스레드가 각자 다른 행을 잡으니까 직렬화가 사라질 거라 생각했다.
+        </p>
+
+        <div class="callout">
+          <strong>기대한 그림</strong><br>
+          스레드 A → 1번 행 잡고 UPDATE<br>
+          스레드 B → 2번 행 잡고 UPDATE<br>
+          스레드 C → 3번 행 잡고 UPDATE<br>
+          경합 없음. 완전 병렬.
+        </div>
+
+        <h2>구현</h2>
+        <p>
+          CouponStock 엔티티와 Repository를 만들었다.
+        </p>
+
+        <pre><code>@Entity
+public class CouponStock {
+    @Id @GeneratedValue
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    private Coupon coupon;
+
+    @Enumerated(EnumType.STRING)
+    private StockStatus status = StockStatus.AVAILABLE;
+}
+
+public interface CouponStockRepository extends JpaRepository&lt;CouponStock, Long&gt; {
+
+    @Modifying
+    @Query(value = "UPDATE coupon_stock SET status = 'TAKEN' " +
+                   "WHERE coupon_id = :couponId AND status = 'AVAILABLE' LIMIT 1",
+           nativeQuery = true)
+    int claimStock(@Param("couponId") Long couponId);
+}</code></pre>
+
+        <p>
+          DataInitializer에서 쿠폰 생성할 때 stock 300행을 같이 INSERT 하게 했다.
+        </p>
+
+        <pre><code>Coupon coupon = couponRepository.save(new Coupon("Limited", ...));
+
+List&lt;CouponStock&gt; stocks = new ArrayList&lt;&gt;();
+for (int i = 0; i &lt; 300; i++) {
+    stocks.add(new CouponStock(coupon, StockStatus.AVAILABLE));
+}
+couponStockRepository.saveAll(stocks);</code></pre>
+
+        <p>
+          그리고 기존 <code>decreaseQuantity</code> 호출을 <code>claimStock</code>으로 교체.
+          코드 자체는 깔끔하게 정리됐다. 이제 돌려본다.
+        </p>
+
+        <h2>테스트 결과</h2>
+
+        <div class="callout">
+          <strong>총 시간: 15003ms / 성공: 75 / 실패: 225</strong><br>
+          ... 75개. 70에서 5개 늘었다. 사실상 제자리다.
+        </div>
+
+        <p>
+          처음엔 구현이 잘못된 줄 알았다. 근데 실패한 요청들의 예외를 까보니까 이상했다.
+        </p>
+
+        <pre><code>Caused by: org.hibernate.PessimisticLockException:
+    JDBC exception executing SQL
+    [UPDATE coupon_stock SET status = 'TAKEN' WHERE coupon_id = ? AND status = 'AVAILABLE' LIMIT 1]
+    [Timeout trying to lock table "COUPON_STOCK"]</code></pre>
+
+        <p>
+          <code>Timeout trying to lock <strong>table</strong></code>. 테이블 락이다.
+          행 단위 경합이 아니라 테이블 전체가 잠기고 있었다.
+        </p>
+
+        <h2>왜 테이블 락이 걸리는가</h2>
+        <p>
+          H2 2.x는 MVStore 엔진이 기본이고, 이론상 행 락을 지원한다. 그래서 처음엔
+          "왜 테이블 락이 잡히지?" 싶었다.
+        </p>
+
+        <p>
+          실제로 확인해보니 에러 메시지가 과장된 측면이 있었다. H2는 <strong>행 락 타임아웃도
+          "Timeout trying to lock table"이라는 메시지로 내뱉는다.</strong> 실제로는 행 락 대기로 타임아웃이 난 거다.
+        </p>
+
+        <p>
+          그럼 왜 행 락이 대기 상태로 쌓이는가? 문제는 <code>UPDATE ... LIMIT 1</code>의 실행 방식에 있다.
+        </p>
+
+        <div class="callout">
+          <strong>UPDATE ... LIMIT 1이 동작하는 방식</strong><br>
+          DB는 테이블 처음부터 스캔하면서 WHERE 조건(<code>status = 'AVAILABLE'</code>)에 맞는 행을 찾는다.
+          찾으면 그 행에 락을 걸고 UPDATE 한다.<br><br>
+          300 스레드가 동시에 이 쿼리를 날리면, 모두 <strong>테이블 앞쪽부터 스캔</strong>을 시작한다.
+          맨 앞 행에 락을 잡은 스레드가 있으면, 나머지는 그 락이 풀릴 때까지 대기한다. 앞에 걸려 있으면 뒤로 넘어가지 못한다.
+        </div>
+
+        <p>
+          결국 <code>UPDATE ... LIMIT 1</code>은 스캔 시작점이 같기 때문에 락 경합이 사라지지 않는다.
+          Lock Sharding으로 행은 쪼갰는데, <strong>쿼리 실행 방식이 여전히 직렬화 경로를 타고 있었다.</strong>
+        </p>
+
+        <h2>구조는 맞았는데 쿼리가 틀렸다</h2>
+        <p>
+          이 시점에서 결론은 명확했다.
+        </p>
+        <ul>
+          <li>Lock Sharding 아이디어 자체는 맞다</li>
+          <li>행을 300개로 쪼갠 것도 맞다</li>
+          <li>근데 <code>UPDATE ... LIMIT 1</code>이 순차 스캔하면서 앞쪽 행에서 대기를 만든다</li>
+          <li>필요한 건 "<strong>잠긴 행은 건너뛰고 다음 행을 찾아가는</strong>" 쿼리</li>
+        </ul>
+
+        <p>
+          "잠긴 행을 건너뛰는" 기능이 DB에 있다면? 찾아보니 있었다.
+          <strong><code>SKIP LOCKED</code></strong>. 이름을 들어본 적은 있는데 실제로 써본 적은 없었다.
+        </p>
+
+        <p>
+          다음 편에서 SKIP LOCKED가 뭔지, 그리고 75에서 259로 바뀌는 한 줄을 본다.
+        </p>
+      </section>
+
+      <footer class="post-footer">
+        <a href="./02-쿼리-수-줄이기.html" class="prev">
+          <span class="label">← Prev</span>
+          <span>쿼리 수 줄이기</span>
+        </a>
+        <a href="./04-skip-locked.html" class="next">
+          <span class="label">Next →</span>
+          <span>SKIP LOCKED의 발견</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

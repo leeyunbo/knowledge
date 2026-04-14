@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급 시스템의 성능 한계 (1) 문제 정의와 환경 재현 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.14 · 시리즈 1/5</div>
+        <h1>쿠폰 발급 시스템의 성능 한계 (1)<br>문제 정의와 환경 재현</h1>
+        <p class="subtitle">
+          300명이 동시에 쿠폰을 받는데 65명만 성공한다. 15초 안에 전부 받게 하고 싶었고, 어디까지 갈 수 있는지 파봤다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
+        <ol>
+          <li class="current">문제 정의와 환경 재현</li>
+          <li><a href="./02-쿼리-수-줄이기.html">쿼리 수 줄이기, JPA가 숨기는 쿼리들</a></li>
+          <li><a href="./03-lock-sharding.html">Lock Sharding으로 경합 분산 시도</a></li>
+          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
+          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>시작</h2>
+        <p>
+          대용량 쿠폰 발급 시스템을 공부해보려고 가상의 요구사항을 만들어 풀어봤다.
+          요구사항 자체는 단순하다.
+        </p>
+        <ul>
+          <li>쿠폰마다 재고(<code>totalQuantity</code>)가 정해져 있다</li>
+          <li>한 유저는 같은 쿠폰을 한 번만 받을 수 있다</li>
+          <li>재고가 소진되면 발급 실패</li>
+          <li>발급할 때 유저 포인트 차감</li>
+        </ul>
+        <p>
+          부하 시나리오는 이렇게 잡았다.
+        </p>
+        <div class="callout blue">
+          <strong>부하 시나리오</strong><br>
+          재고 300장짜리 쿠폰. 유저 300명이 <strong>동시에</strong> 발급 요청.
+          목표는 15초 안에 전부 성공 처리.
+        </div>
+
+        <p>
+          처음엔 "재고 300, 유저 300이면 그냥 다 받는 거 아님?" 싶었다. 풀어보니 이게 함정이었다.
+          <strong>정합성은 맞는데 성능이 안 나온다.</strong>
+        </p>
+
+        <h2>왜 어려운가</h2>
+        <p>
+          병목이 세 군데 있다.
+        </p>
+
+        <h3>1. 쿠폰 재고 차감</h3>
+        <p>
+          300 스레드가 같은 쿠폰 행을 UPDATE 한다. DB 행 락 때문에 자연스럽게 직렬화된다.
+          가장 크고 골때리는 벽이다.
+        </p>
+
+        <h3>2. 커넥션 풀</h3>
+        <p>
+          HikariCP 커넥션이 20개뿐인데, <code>connection-timeout</code>이 3초로 짧다.
+          트랜잭션이 길어지면 대기 중인 280개 중 상당수가 타임아웃으로 터진다.
+        </p>
+
+        <h3>3. 중복 발급 체크</h3>
+        <p>
+          같은 유저가 같은 쿠폰을 두 번 받으면 안 된다. 근데 유니크 인덱스는 못 건다는 제약이 있었다.
+          그럼 락이든 쿼리든 다른 장치가 필요해진다.
+        </p>
+
+        <p>
+          해결은 다음 편부터 시작한다. 이 글은 환경 세팅까지만 다룬다.
+        </p>
+
+        <h2>실험 환경</h2>
+
+        <h3>기술 스택</h3>
+        <ul>
+          <li>Spring Boot 3.2, JPA (Hibernate 6)</li>
+          <li>H2 Database, TCP 모드</li>
+          <li>HikariCP 커넥션 풀</li>
+        </ul>
+
+        <h3>HikariCP 설정</h3>
+        <pre><code>spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 20
+      connection-timeout: 3000
+      idle-timeout: 3000</code></pre>
+        <p>
+          핵심은 <code>connection-timeout: 3000</code>이다. 커넥션을 3초 안에 못 얻으면 예외가 터진다.
+          이거 하나 때문에 트랜잭션을 짧게 유지해야 한다는 압박이 엄청나다.
+        </p>
+
+        <h3>쿼리에 인위적 지연을 주고 싶었다</h3>
+        <p>
+          로컬에서 돌리면 쿼리가 너무 빨라서 경합이 재현되질 않았다. 쿼리 실행에 인위적 지연을 넣어야 했다.
+        </p>
+        <p>
+          처음엔 DataSource 자체를 프록시로 감싸서 쿼리 직전에 <code>Thread.sleep()</code>을 넣었다.
+          이게 문제였다.
+        </p>
+
+        <pre><code>Caused by: java.sql.SQLException: Connection is closed
+    at com.zaxxer.hikari.pool.ProxyConnection$ClosedConnection...</code></pre>
+
+        <p>
+          HikariCP가 sleep 중인 커넥션을 idle로 판단해서 닫아버린다.
+          <code>idle-timeout: 3000</code>이 있으니, 3초 넘게 뭔가 하고 있으면 회수 대상이 된다.
+          DataSource 프록시 방식은 커넥션 생명주기랑 계속 부딪힌다.
+        </p>
+
+        <p>
+          그래서 방향을 바꿨다. Repository 레벨에서 AOP로 지연을 주입하면 커넥션 관리는 HikariCP가 그대로 하고,
+          지연은 Repository 메서드 호출 시점에만 발생한다. 커넥션 생명주기랑 완전히 분리된다.
+        </p>
+
+        <pre><code>@Aspect
+@Component
+public class SlowRepositoryAspect {
+
+    @Around("execution(* com.toss.coupon.repository..*(..))")
+    public Object delay(ProceedingJoinPoint pjp) throws Throwable {
+        String methodName = pjp.getSignature().getName();
+        long delay = isReadMethod(methodName)
+                ? ThreadLocalRandom.current().nextLong(30, 60)   // SELECT
+                : ThreadLocalRandom.current().nextLong(150, 250); // UPDATE/INSERT
+        Thread.sleep(delay);
+        return pjp.proceed();
+    }
+}</code></pre>
+
+        <p>
+          SELECT는 30~60ms, UPDATE/INSERT는 150~250ms. 쿼리 하나에 평균 150ms 정도 먹는 환경이 됐다.
+        </p>
+
+        <h2>그래서 어떻게 실패하는가</h2>
+        <p>
+          제일 직관적인 구현은 이런 모양이다.
+        </p>
+        <pre><code>@Transactional
+public CouponIssue issueCoupon(Long userId, Long couponId) {
+    // 1. 유저 락 (중복 발급 방지)
+    User user = userRepository.findByIdWithLock(userId)
+        .orElseThrow(...);
+
+    // 2. 중복 발급 체크
+    if (couponIssueRepository.existsByUserIdAndCouponId(userId, couponId)) {
+        throw new CouponException("Already issued");
+    }
+
+    // 3. 쿠폰 조회 + 재고 체크
+    Coupon coupon = couponRepository.findById(couponId)
+        .orElseThrow(...);
+    if (!coupon.isAvailable()) throw new CouponException("Not available");
+
+    // 4. 재고 차감 (atomic UPDATE)
+    couponRepository.decreaseQuantity(couponId);
+
+    // 5. 포인트 차감 (dirty checking)
+    user.usePoint(coupon.getPointCost());
+
+    // 6. 발급 이력 저장
+    return couponIssueRepository.save(new CouponIssue(user, coupon));
+}</code></pre>
+
+        <p>
+          이걸로 300 동시 요청을 돌리면 결과가 이렇다.
+        </p>
+
+        <div class="callout">
+          <strong>총 시간: 15002ms / 성공: 65 / 실패: 235</strong><br>
+          15초를 다 쓰고도, 235개가 <code>Connection is not available, request timed out after 3001ms</code>로 터진다.
+          성공률 약 22%. 한참 모자라다.
+        </div>
+
+        <p>
+          왜 65개만 되는지, 쿼리를 어떻게 줄여야 하는지는 <a href="./02-쿼리-수-줄이기.html">다음 편</a>에서 본다.
+        </p>
+
+        <h2>이 시리즈에서 다룰 것</h2>
+        <p>
+          목표는 15초 안에 300건 전부 성공. 결론부터 말하면 <strong>여기까지는 못 갔다.</strong>
+          최종적으로 259건까지 끌어올렸고, 나머지 41건은 여전히 타임아웃으로 실패한다.
+          다만 65건에서 259건까지의 변화는 제법 극적이었고, 그 과정에서 배운 게 많았다.
+          시리즈는 거기까지의 기록이다.
+        </p>
+        <ul>
+          <li>JPA의 <code>existsBy</code>가 몰래 만드는 LEFT JOIN</li>
+          <li>Lock Sharding을 도입했는데 왜 효과가 없었나</li>
+          <li>H2의 <code>UPDATE ... LIMIT 1</code>이 직렬화되는 함정</li>
+          <li>결국 답이 된 <code>SELECT FOR UPDATE SKIP LOCKED</code></li>
+        </ul>
+        <p>
+          CS 수업에서 "동시성 문제엔 락을 걸자"까지는 알려주는데, "락을 쪼개자"나
+          "걸린 락은 건너뛰자"까지는 잘 안 다룬다. 이 시리즈는 거기까지 내려가는 이야기다.
+        </p>
+      </section>
+
+      <footer class="post-footer">
+        <a href="../../index.html" class="prev">
+          <span class="label">← Index</span>
+          <span>전체 글 목록</span>
+        </a>
+        <a href="./02-쿼리-수-줄이기.html" class="next">
+          <span class="label">Next →</span>
+          <span>쿼리 수 줄이기</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

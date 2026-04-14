@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급 시스템의 성능 한계 (5) 배운 점 정리 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.14 · 시리즈 5/5</div>
+        <h1>쿠폰 발급 시스템의 성능 한계 (5)<br>배운 점 정리</h1>
+        <p class="subtitle">
+          Spring 문제가 아니라 CS 문제였다. 이 시리즈를 통해 얻은 것들.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
+        <ol>
+          <li><a href="./01-문제-정의.html">문제 정의와 환경 재현</a></li>
+          <li><a href="./02-쿼리-수-줄이기.html">쿼리 수 줄이기, JPA가 숨기는 쿼리들</a></li>
+          <li><a href="./03-lock-sharding.html">Lock Sharding으로 경합 분산 시도</a></li>
+          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
+          <li class="current">배운 점 정리</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>결국 이건 CS 문제였다</h2>
+        <p>
+          Spring, JPA, Hibernate는 그냥 도구였다. 이 문제의 본질은 CS 교과서에 나오는 내용이었다.
+        </p>
+        <ul>
+          <li><strong>임계 영역 (Critical Section)</strong> — 여러 스레드가 동시에 접근하면 문제가 생기는 코드/자원 구간</li>
+          <li><strong>락 경합 (Lock Contention)</strong> — 여러 스레드가 같은 락을 놓고 다투는 상황</li>
+          <li><strong>암달의 법칙 (Amdahl's Law)</strong> — 직렬 구간이 전체 성능을 결정한다는 법칙</li>
+          <li><strong>핫스팟 (Hot Spot)</strong> — 부하가 한 지점으로 몰리는 현상</li>
+          <li><strong>락 단위 (Lock Granularity)</strong> — 락을 테이블 단위로 거느냐, 행 단위로 거느냐의 문제</li>
+        </ul>
+        <p>
+          쿠폰 1행이 임계 영역이었고, 300 스레드가 이 자원을 놓고 경쟁했다. 해결책은 락을 "거는"
+          수준을 넘어 락을 "쪼개고", "건너뛰는" 수준의 이해가 필요했다.
+        </p>
+
+        <h2>1. 쿼리 수가 곧 트랜잭션 시간이다</h2>
+        <p>
+          트랜잭션이 길면 커넥션 점유 시간이 길어지고, 그만큼 뒷 스레드가 커넥션을 못 얻는다.
+          쿼리 하나 줄이는 게 생각보다 크다.
+        </p>
+        <p>
+          특히 JPA 쓸 때 <strong>숨은 쿼리</strong>를 조심해야 한다.
+        </p>
+        <ul>
+          <li><code>existsBy</code> 같은 메서드 이름 파싱 쿼리에서 엔티티 연관관계를 따라 JOIN이 붙는다</li>
+          <li>Dirty checking은 편하지만, 쓰려면 엔티티를 영속성 컨텍스트에 먼저 올려야 한다.
+              결과적으로 SELECT(로드) + UPDATE(dirty check)가 된다. 값 하나만 바꾸고 싶으면 native UPDATE가 쿼리 1개로 끝난다.</li>
+          <li>연관 엔티티 조회 시 <code>getReferenceById</code>를 쓰면 FK만으로 충분할 때 SELECT를 생략할 수 있다</li>
+        </ul>
+
+        <h2>2. 트랜잭션 안에서 외부 I/O 하지 말 것</h2>
+        <p>
+          푸시 알림이나 외부 API 호출을 <code>@Transactional</code> 안에서 동기로 하면
+          응답 시간에 그대로 얹힌다. 게다가 롤백이 나도 외부 호출은 이미 나가 있다.
+        </p>
+        <p>
+          <code>@TransactionalEventListener(AFTER_COMMIT)</code> + <code>@Async</code> 조합이 정답이다.
+        </p>
+        <ul>
+          <li><code>AFTER_COMMIT</code>: 커밋이 성공한 뒤에만 리스너 실행. 롤백 시 외부 호출 방지.</li>
+          <li><code>@Async</code>: 다른 스레드에서 실행. 요청 스레드가 대기 안 함.</li>
+        </ul>
+        <p>
+          둘 중 하나만 쓰면 안 된다. 각자 해결하는 문제가 다르다.
+        </p>
+
+        <h2>3. Amdahl's Law를 체감한다</h2>
+        <p>
+          직렬화 구간 하나가 전체 처리량을 결정한다는 말을 책으로 읽는 것과, 실제로 돌려보는 건 완전히 다르다.
+        </p>
+        <p>
+          2편에서 쿼리를 2개 줄였는데 처리량이 거의 안 올랐다. 원인은 쿠폰 UPDATE가 여전히 한 줄로 서 있었기 때문이다.
+          <strong>병렬 자원을 아무리 늘려도 직렬 구간이 남아있으면 의미 없다</strong>는 걸 수치로 봤다.
+        </p>
+        <p>
+          "느린 곳을 찾아서 개선하라"는 말보다 더 정확한 건, "직렬 구간을 찾아서 병렬로 바꿀 수 있는지 먼저 보라"다.
+        </p>
+
+        <h2>4. Lock Sharding은 아이디어, 쿼리는 실행 방식</h2>
+        <p>
+          쿠폰 1행을 300행으로 쪼개는 아이디어 자체는 맞았다. 근데 <code>UPDATE ... LIMIT 1</code>이라는
+          쿼리가 그 쪼개진 구조를 활용하지 못했다.
+        </p>
+        <p>
+          DB는 UPDATE를 "앞에서부터 스캔하면서 조건 맞는 행을 찾는" 방식으로 실행한다.
+          스캔 시작점이 모두 같으니까 앞 행에서 경합이 쌓인다. 결과적으로 Lock Sharding이 무력화됐다.
+        </p>
+        <p>
+          <strong>구조(스키마)가 아무리 좋아도 쿼리가 그 구조를 활용하지 못하면 소용없다.</strong>
+          DB가 쿼리를 어떻게 실행하는지 알아야 하는 이유다.
+        </p>
+
+        <h2>5. SKIP LOCKED는 꼭 기억할 것</h2>
+        <p>
+          이번에 건진 가장 큰 것. 락이 걸린 행을 건너뛰는 이 한 줄이 70 → 259라는 차이를 만들었다.
+        </p>
+        <pre><code>SELECT * FROM table WHERE ... LIMIT 1 FOR UPDATE SKIP LOCKED</code></pre>
+        <p>
+          실무에서는 <strong>작업 큐(Job Queue)</strong> 패턴으로 자주 쓰인다. 워커 여러 대가 DB에서 일감을 가져갈 때
+          각자 다른 작업을 대기 없이 집어가는 구조.
+        </p>
+        <p>
+          Redis 같은 외부 큐 시스템을 못 쓰는 환경에서 DB만으로 큐를 구현해야 할 때,
+          이게 없으면 전부 직렬화된다.
+        </p>
+
+        <h2>6. 에러 메시지를 곧이곧대로 믿지 말 것</h2>
+        <p>
+          3편에서 "Timeout trying to lock table"이라는 에러를 보고 "테이블 락이구나" 했는데,
+          실제로는 행 락 대기 타임아웃이었다. H2는 행 락 타임아웃도 이 메시지로 내뱉는다.
+        </p>
+        <p>
+          DB 에러 메시지는 종종 구현 내부 용어로 나오기 때문에 표면 그대로 해석하면 잘못된 결론에 도달한다.
+          의심스러우면 공식 문서나 소스로 파고들어야 한다.
+        </p>
+
+        <h2>7. 수학으로 먼저 확인하기</h2>
+        <p>
+          이 시리즈에서 가장 유용했던 접근은 <strong>계산으로 가능성을 먼저 따져본 것</strong>이었다.
+        </p>
+        <p>
+          "커넥션 20개, 타임아웃 3초, 쿼리당 170ms면 트랜잭션 1.2초. 그럼 10라운드에 12초 걸린다.
+          최소 트랜잭션을 850ms 이하로 줄여야 통과한다. 그럼 쿼리를 7개에서 5개로 줄여야 한다."
+        </p>
+        <p>
+          이 계산을 안 했으면 "일단 해보자" 하면서 삽질했을 거다. 수학은 방향을 알려준다.
+        </p>
+
+        <h2>앞으로</h2>
+        <p>
+          이런 종류의 문제를 다시 만나면 이 순서대로 갈 것 같다.
+        </p>
+        <ol>
+          <li>병목이 어디인가 (쿼리 수인가, 직렬화인가, 커넥션인가)</li>
+          <li>수학으로 가능성 검증</li>
+          <li>직렬 구간을 병렬로 바꿀 수 있나</li>
+          <li>DB가 쿼리를 실제로 어떻게 실행하는지 확인</li>
+          <li>측정하고 다시 계산</li>
+        </ol>
+        <p>
+          Spring/JPA 기능이 아니라 DB 동시성 제어, 락 구현, 쿼리 실행 계획 같은 게 훨씬 더 중요하다는 걸 체감했다.
+          다음에 대용량 동시성 문제 만났을 때는 좀 더 침착하게 풀 수 있을 것 같다.
+        </p>
+      </section>
+
+      <footer class="post-footer">
+        <a href="./04-skip-locked.html" class="prev">
+          <span class="label">← Prev</span>
+          <span>SKIP LOCKED의 발견</span>
+        </a>
+        <a href="../../index.html" class="next">
+          <span class="label">Index →</span>
+          <span>전체 글 목록</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

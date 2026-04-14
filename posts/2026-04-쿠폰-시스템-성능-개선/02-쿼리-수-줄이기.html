@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급 시스템의 성능 한계 (2) 쿼리 수 줄이기 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.14 · 시리즈 2/5</div>
+        <h1>쿠폰 발급 시스템의 성능 한계 (2)<br>쿼리 수 줄이기, JPA가 숨기는 쿼리들</h1>
+        <p class="subtitle">
+          커넥션 타임아웃이 나는 진짜 이유는 쿼리 개수다. 하나 줄일 때마다 성공률이 바뀐다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
+        <ol>
+          <li><a href="./01-문제-정의.html">문제 정의와 환경 재현</a></li>
+          <li class="current">쿼리 수 줄이기, JPA가 숨기는 쿼리들</li>
+          <li><a href="./03-lock-sharding.html">Lock Sharding으로 경합 분산 시도</a></li>
+          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
+          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 쿼리 수가 중요한가</h2>
+        <p>
+          계산해보면 답이 나온다.
+        </p>
+        <p>
+          커넥션 20개, 트랜잭션 1건에 쿼리 7개, 쿼리당 평균 170ms라고 치자. 그러면 트랜잭션 하나에
+          <strong>7 × 170ms = 1.19초</strong> 걸린다. 커넥션 타임아웃이 3초니까, 스레드가 3초 안에 커넥션을 못 얻으면 터진다.
+        </p>
+        <p>
+          3초 / 1.19초 = 약 2.5라운드. 즉 20개 커넥션이 2.5번 돌아가는 동안 못 들어온 스레드는 전부 타임아웃이다.
+          이론상 타임아웃 구간 내 최대 처리량은 <strong>약 50건</strong>.
+          이후 라운드들에서 추가 처리가 되면서 15초 안에 65건까지 찍힌 거다.
+        </p>
+
+        <div class="callout blue">
+          <strong>수학</strong><br>
+          쿼리 7개면 트랜잭션 1.19초. 타임아웃 3초 안에 2.5라운드밖에 못 돈다.<br>
+          쿼리 5개면 트랜잭션 850ms. 3.5라운드 돌 수 있다. 처리량이 늘어난다.
+        </div>
+
+        <p>
+          즉 <strong>쿼리를 줄이면 성공 건수가 따라 올라간다.</strong>
+          그래서 쿼리를 하나씩 까봤다.
+        </p>
+
+        <h2>쿼리 셈 해보기</h2>
+        <p>
+          초기 구현에서 트랜잭션 하나에 나가는 쿼리를 전부 뽑아봤다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>쿼리</th>
+              <th>성격</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td><code>findByIdWithLock(userId)</code></td><td>SELECT FOR UPDATE</td></tr>
+            <tr><td>2</td><td><code>existsByUserIdAndCouponId</code></td><td>SELECT (LEFT JOIN)</td></tr>
+            <tr><td>3</td><td><code>findById(couponId)</code></td><td>SELECT</td></tr>
+            <tr><td>4</td><td><code>decreaseQuantity</code></td><td>UPDATE</td></tr>
+            <tr><td>5</td><td>dirty checking: <code>user.usePoint</code></td><td>UPDATE</td></tr>
+            <tr><td>6</td><td><code>save(CouponIssue)</code></td><td>INSERT</td></tr>
+            <tr><td>7</td><td><code>pushNotificationService.send</code></td><td>트랜잭션 내부 동기 호출</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          총 7개. 이 중에서 줄일 만한 것들을 하나씩 봤다.
+        </p>
+
+        <h2>1) existsBy가 숨긴 LEFT JOIN</h2>
+        <p>
+          <code>existsByUserIdAndCouponId</code>는 이름만 보면 단순한 <code>SELECT COUNT</code>여야 한다.
+          근데 실제로 나가는 SQL은 이렇다.
+        </p>
+
+        <pre><code>SELECT COUNT(*) &gt; 0
+FROM coupon_issue ci
+LEFT JOIN users u  ON ci.user_id = u.id
+LEFT JOIN coupons c ON ci.coupon_id = c.id
+WHERE u.id = ? AND c.id = ?</code></pre>
+
+        <p>
+          왜 JOIN이 낀 걸까? Spring Data JPA 메서드 이름 파서가 <code>user</code>, <code>coupon</code>을
+          <strong>엔티티 참조로 해석</strong>하기 때문이다.
+        </p>
+
+        <p>
+          CouponIssue 엔티티에는 <code>@ManyToOne User user</code>, <code>@ManyToOne Coupon coupon</code>이 있다.
+          JPA 입장에서 <code>user</code>는 컬럼이 아니라 엔티티다. "user 엔티티로 이동한 뒤 id에 접근"이라는
+          객체 그래프 탐색 경로를 생성하고, SQL로 번역할 때 JOIN이 붙는다.
+        </p>
+
+        <p>
+          테이블 관점에서는 <code>coupon_issue.user_id</code>가 FK 컬럼으로 이미 있으니 JOIN이 필요 없다.
+          근데 Spring Data 메서드 파서는 이 최적화를 안 한다. 직접 JPQL로 써줘야 한다.
+        </p>
+
+        <pre><code>@Query("SELECT COUNT(ci) > 0 FROM CouponIssue ci " +
+       "WHERE ci.user.id = :userId AND ci.coupon.id = :couponId")
+boolean existsByUserIdAndCouponId(
+    @Param("userId") Long userId,
+    @Param("couponId") Long couponId);</code></pre>
+
+        <p>
+          JPQL에서 <code>ci.user.id</code>라고 쓰면 Hibernate는 FK 컬럼이 같은 테이블에 있다는 걸 알고 JOIN을 생략한다.
+        </p>
+
+        <pre><code>SELECT COUNT(*) &gt; 0
+FROM coupon_issue ci
+WHERE ci.user_id = ? AND ci.coupon_id = ?</code></pre>
+
+        <p>
+          쿼리 실행 시간이 줄어든다. 쿼리 "개수"는 그대로 7개지만, 하나당 비용이 내려갔다.
+        </p>
+
+        <h2>2) 쿠폰 조회를 로컬 캐시로</h2>
+        <p>
+          <code>findById(couponId)</code>는 쿠폰 발급 때마다 매번 쿠폰 행을 가져온다.
+          근데 쿠폰 정보(<code>startDate</code>, <code>endDate</code>, <code>pointCost</code>)는
+          발급 중에 변하지 않는다. 로컬 캐시로 빼도 된다.
+        </p>
+
+        <pre><code>@Component
+public class CouponCache {
+    private final Map&lt;Long, CouponCacheData&gt; cache = new ConcurrentHashMap&lt;&gt;();
+
+    public boolean contains(Long couponId) { return cache.containsKey(couponId); }
+    public CouponCacheData get(Long couponId) { return cache.get(couponId); }
+    public void put(Long couponId, CouponCacheData data) { cache.put(couponId, data); }
+
+    public record CouponCacheData(
+        LocalDateTime startDate,
+        LocalDateTime endDate,
+        Long pointCost
+    ) {
+        public boolean couponIsAvailable() {
+            LocalDateTime now = LocalDateTime.now();
+            return now.isAfter(startDate) && now.isBefore(endDate);
+        }
+    }
+}</code></pre>
+
+        <p>
+          첫 요청에서만 DB 가고 이후는 캐시에서 읽는다. 300 동시 요청에서는 사실상 첫 1건만 DB 조회고
+          나머지 299건은 쿼리 없이 처리된다.
+        </p>
+
+        <p>
+          잠깐, 서버가 2대 이상이면 캐시 깨지지 않나? 네, 깨진다. 근데 각 서버가 각자 첫 요청에서 한 번씩 DB 가서
+          채우면 되니까 문제없다. 분산 캐시가 필요한 데이터가 아니다.
+        </p>
+
+        <h2>3) save할 때 Coupon은 프록시로</h2>
+        <p>
+          <code>CouponIssue</code>를 저장할 때 쿠폰 엔티티가 필요하다. 근데 INSERT 시에는
+          <code>coupon_id</code> FK 값만 있으면 된다. 굳이 쿠폰 전체를 SELECT 할 필요가 없다.
+        </p>
+
+        <p>
+          JPA의 <code>getReferenceById</code>를 쓰면 DB 조회 없이 <strong>id만 가진 프록시 객체</strong>를 만들어준다.
+        </p>
+
+        <pre><code>// 기존: findById → SELECT 1번
+Coupon coupon = couponRepository.findById(couponId).orElseThrow(...);
+
+// 개선: getReferenceById → 쿼리 0번
+Coupon couponRef = couponRepository.getReferenceById(couponId);</code></pre>
+
+        <p>
+          프록시에서 실제 필드(<code>coupon.getName()</code> 같은 거)를 접근하는 순간 SELECT가 나간다.
+          근데 <code>new CouponIssue(user, couponRef)</code>처럼 FK 연결용으로만 쓰면 쿼리가 안 나간다.
+        </p>
+
+        <p>
+          처음 이거 알았을 때 "아 이런 게 있었구나" 싶었다. JPA 쓰면서도 프록시를 안 쓰고 매번 SELECT를 날리고 있었다.
+        </p>
+
+        <h2>4) 푸시 알림을 트랜잭션 밖으로</h2>
+        <p>
+          원래 코드에서는 푸시 알림 호출이 트랜잭션 내부에서 동기로 돌았다. 푸시 API가 느리면
+          그만큼 트랜잭션이 길어진다. 게다가 <strong>DB 롤백이 나면 푸시는 이미 나간 상태</strong>라는 문제도 있다.
+        </p>
+
+        <p>
+          이벤트 + <code>@TransactionalEventListener</code> + <code>@Async</code> 조합으로 바꿨다.
+        </p>
+
+        <pre><code>// 서비스에서 이벤트 발행
+applicationEventPublisher.publishEvent(
+    new CouponIssuedEvent(userId, couponId)
+);
+
+// 리스너
+@Async
+@TransactionalEventListener(phase = AFTER_COMMIT)
+public void sendIssueNotification(CouponIssuedEvent event) {
+    // 실제 푸시 발송
+}</code></pre>
+
+        <p>
+          두 애노테이션이 각자 다른 문제를 해결한다.
+        </p>
+        <ul>
+          <li><code>@TransactionalEventListener(phase = AFTER_COMMIT)</code>: DB 커밋이 성공한 뒤에만 실행.
+              롤백 시 푸시 안 나감. <strong>정합성 보장.</strong></li>
+          <li><code>@Async</code>: 다른 스레드에서 실행. 요청 스레드가 푸시 완료를 기다리지 않음.
+              <strong>응답 시간 단축.</strong></li>
+        </ul>
+
+        <p>
+          <code>@EnableAsync</code>를 애플리케이션 클래스에 붙여야 <code>@Async</code>가 동작한다는 점도 기억해둘 것.
+        </p>
+
+        <h2>정리: 쿼리 7개 → 5개</h2>
+        <p>
+          최적화 후에 남은 쿼리는 이렇다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>쿼리</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td><code>findByIdWithLock(userId)</code></td><td>유지 (중복 발급 방지 락)</td></tr>
+            <tr><td>2</td><td><code>existsByUserIdAndCouponId</code></td><td>JPQL로 JOIN 제거</td></tr>
+            <tr><td>3</td><td><code>couponStock UPDATE</code></td><td>재고 차감</td></tr>
+            <tr><td>4</td><td><code>save(CouponIssue)</code></td><td>getReferenceById 사용</td></tr>
+            <tr><td>5</td><td>dirty checking UPDATE</td><td>포인트 차감</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          쿼리 5개, 트랜잭션 평균 850ms. 이론상 처리량이 늘어나야 한다.
+        </p>
+
+        <h2>테스트 결과</h2>
+
+        <div class="callout">
+          <strong>총 시간: 15003ms / 성공: 70 / 실패: 230</strong><br>
+          ... 65개에서 70개로 늘었다. 겨우 5개 늘었다.
+        </div>
+
+        <p>
+          뭐지? 쿼리를 그렇게 줄였는데 효과가 거의 없다. 이때까지는 "커넥션 풀이 문제인가" 싶었는데
+          실제 원인은 다른 데 있었다. <strong>쿠폰 재고 UPDATE가 직렬화되고 있었다.</strong>
+        </p>
+
+        <p>
+          300 스레드가 같은 쿠폰 행을 UPDATE 하려고 몰려드니까, DB 행 락이 이들을 한 줄로 세운다.
+          쿼리 수를 줄여도 이 구간이 살아있으면 의미가 없다.
+        </p>
+
+        <p>
+          그래서 다음 편에서는 <strong>Lock Sharding</strong>을 도입한다. 하나의 쿠폰 행에 몰리는 경합을
+          여러 행으로 쪼개보는 시도다. 결론부터 말하면, 예상대로 되진 않았다.
+        </p>
+      </section>
+
+      <footer class="post-footer">
+        <a href="./01-문제-정의.html" class="prev">
+          <span class="label">← Prev</span>
+          <span>문제 정의와 환경 재현</span>
+        </a>
+        <a href="./03-lock-sharding.html" class="next">
+          <span class="label">Next →</span>
+          <span>Lock Sharding 시도</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
