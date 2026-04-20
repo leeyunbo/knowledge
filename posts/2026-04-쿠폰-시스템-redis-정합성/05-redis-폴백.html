@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (5) Redis가 아예 죽을 때 & 남은 숙제 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.20 · 시리즈 5/5</div>
+        <h1>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (5)<br>Redis가 아예 죽을 때 & 남은 숙제</h1>
+        <p class="subtitle">
+          "서비스가 죽지 않게 버티는 설계"를 고민하다가, 오히려 "깔끔하게 실패하는 게 낫다"는 결론에 도달한 이야기.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
+        <ol>
+          <li><a href="./01-redis-도입.html">Redis 도입과 새 문제</a></li>
+          <li><a href="./02-장애-시나리오.html">장애 시나리오 4개를 테이블에 올리기</a></li>
+          <li><a href="./03-2-phase-reservation.html">2-phase Reservation과 pending 큐</a></li>
+          <li><a href="./04-스케줄러-3종.html">세 개의 스케줄러, 세 개의 방어선</a></li>
+          <li class="current">Redis가 아예 죽을 때 & 남은 숙제</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Redis가 죽으면 우리는 죽는가</h2>
+        <p>
+          지금까지 한 설계는 "Redis는 살아있는데 우리 앱이 죽는 경우" 혹은 "둘 사이가 잠깐 어긋나는 경우"를 다뤘다.
+          근데 Redis 자체가 아예 다운되면 상황이 달라진다.
+        </p>
+        <pre><code>reservationStore.reserve(couponId, userId);
+// 💥 RedisConnectionFailureException
+// → 모든 발급 요청이 여기서 터짐
+</code></pre>
+
+        <p>
+          우리 앱은 멀쩡한데 <strong>기능 전체가 죽는다.</strong> 전면 장애다.
+          처음엔 이걸 어떻게든 버티게 만들어야 한다고 생각했다.
+          "느리더라도 살아있는 게 낫다"고 생각했다.
+          그런데 파고들수록 그 판단이 틀렸다는 결론에 도달했다.
+        </p>
+
+        <h2>첫 시도: DB 폴백</h2>
+        <p>
+          직관적인 방향은 이거다. Redis 연결이 실패하면 DB로 우회한다.
+        </p>
+
+        <pre><code>try {
+    return issueCouponWithRedis(userId, couponId);
+} catch (DataAccessResourceFailureException e) {
+    return issueCouponWithDb(userId, couponId);  // 폴백
+}
+
+private CouponIssue issueCouponWithDb(Long userId, Long couponId) {
+    Coupon coupon = couponRepository.findByIdWithLock(couponId).orElseThrow(...);
+    if (couponIssueRepository.existsByUserIdAndCouponId(userId, couponId)) throw ...;
+    long count = couponIssueRepository.countByCouponId(couponId);
+    if (count &gt;= coupon.getTotalQuantity()) throw ...;
+    // ... DB로 전부 처리
+}</code></pre>
+
+        <p>
+          Redis가 하던 두 가지 일(중복 체크, 재고 차감)을 전부 DB로 돌린다.
+          <code>SELECT FOR UPDATE</code> + <code>existsBy</code> + <code>COUNT</code>.
+          전편 시리즈에서 지긋지긋하게 봤던 그 구조다.
+          느리지만 동작은 한다.
+        </p>
+
+        <h2>그런데 이게 정말 안전한가</h2>
+        <p>
+          폴백 경로는 한참 고민하다 보니 <strong>지뢰에 가깝다</strong>는 생각이 들었다.
+        </p>
+
+        <h3>1. 평소에 안 타는 코드는 고장나기 쉽다</h3>
+        <p>
+          Redis 장애는 드문 일이다. 드물다는 건 <strong>폴백 경로가 평소엔 실행 안 된다</strong>는 뜻이기도 하다.
+          리팩토링 중에 뭔가 깨져도 평소 테스트에선 안 잡힌다. 정작 Redis가 죽은 순간에 폴백까지 죽으면
+          <strong>두 번 죽는 꼴</strong>이다.
+        </p>
+
+        <h3>2. DB가 그 트래픽을 받아낼 수 있나</h3>
+        <p>
+          Redis를 앞에 둔 이유 자체가 <strong>DB가 감당 못 해서</strong>였다.
+          그런데 Redis가 죽어서 폴백으로 빠지면 그 트래픽이 전부 DB로 꽂힌다.
+          <code>SELECT FOR UPDATE</code>까지 걸리니까 평소보다 훨씬 무겁다.
+          Redis 장애가 <strong>DB까지 끌고 들어가는 대형 장애</strong>로 번질 수 있다.
+        </p>
+
+        <h3>3. 정합성이 오히려 꼬인다</h3>
+        <p>
+          Redis와 DB 사이에 데이터가 오락가락하는 상황에서,
+          이 요청은 Redis로 저 요청은 DB로 빠진다면 재고 카운터가 어디를 봐야 맞는지 모호해진다.
+          <strong>"그나마 살려보려고" 한 폴백이 상태를 더 더럽히는 것</strong>이다.
+        </p>
+
+        <h3>4. "느리더라도 응답"이 진짜 더 나은가</h3>
+        <p>
+          폴백으로 응답이 나가긴 하지만 3~5초씩 걸린다면, 유저 입장에선 이미 포기한 요청이다.
+          차라리 빠른 503 에러 + "잠시 후 다시 시도해주세요" 메시지가 UX적으로도 깔끔하다.
+        </p>
+
+        <h2>그래서 방향을 바꿨다: Fail fast</h2>
+
+        <div class="callout blue">
+          <strong>Redis 장애 시 폴백 없음. 503으로 빠르게 실패 처리.</strong><br>
+          운영팀에 알람. Redis 복구가 최우선. 복구되면 서비스도 자연 재개.
+        </div>
+
+        <p>
+          완벽한 자동 복구는 애초에 불가능하다. 시스템이 둘 이상 얽힌 순간부터
+          <strong>100% 정합성 보장이라는 목표 자체가 환상</strong>이다.
+          그렇다면 <strong>실패가 명확해서 복구가 빠른 쪽이 낫다</strong>.
+        </p>
+
+        <p>
+          실제 코드는 이렇게 단순해진다.
+        </p>
+
+        <pre><code>@Transactional
+public CouponIssue issueCoupon(Long userId, Long couponId) {
+    // Redis 장애는 그대로 던짐 → ControllerAdvice에서 503 변환
+    CouponCache.CouponCacheData couponData = loadCouponCacheData(couponId);
+    if (!couponData.couponIsAvailable()) throw new CouponException("Not available");
+
+    ReserveResult result = reservationStore.reserve(couponId, userId);
+    switch (result) {
+        case ALREADY_ISSUED -> throw new CouponException("Already issued");
+        case OUT_OF_STOCK   -> throw new CouponException("Out of stock");
+    }
+
+    try {
+        User user = userRepository.findById(userId).orElseThrow(...);
+        user.usePoint(couponData.pointCost());
+        CouponIssue issue = couponIssueRepository.save(new CouponIssue(user, coupon));
+        reservationStore.commit(couponId, userId);
+        return issue;
+    } catch (Exception e) {
+        reservationStore.revert(couponId, userId);
+        throw e;
+    }
+}</code></pre>
+
+        <p>
+          try-catch로 Redis 예외를 잡아내지 않는다. 스프링의 <code>DataAccessResourceFailureException</code>이
+          그대로 올라가서 <code>ControllerAdvice</code>가 받아 503으로 변환한다.
+        </p>
+
+        <pre><code>@ExceptionHandler(DataAccessResourceFailureException.class)
+public ResponseEntity&lt;Map&lt;String, String&gt;&gt; handleRedisUnavailable(DataAccessResourceFailureException e) {
+    log.error("Redis unavailable: {}", e.getMessage());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(Map.of("message", "쿠폰 시스템이 일시적으로 원활하지 않습니다. 잠시 후 다시 시도해주세요."));
+}</code></pre>
+
+        <h2>실무는 어디까지 하나</h2>
+        <p>
+          "이 정도 설계면 충분한가? 실무에선 뭘 더 할까?" 궁금해서 몇 가지 자료를 찾아봤다.
+          결론부터 말하면 <strong>애플리케이션 코드 레벨의 정합성 로직은 크게 다르지 않다</strong>는 인상을 받았다.
+          차이는 그 주변의 인프라/복원력 패턴 쪽이었다.
+        </p>
+
+        <h3>1) Redis 자체를 안 죽게 만든다 — Sentinel / Cluster</h3>
+        <p>
+          우리 글은 "Redis가 죽으면 어떡할까"에서 출발했는데,
+          <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/" target="_blank">Redis Sentinel</a>이나
+          <a href="https://www.letmecompile.com/redis-cluster-sentinel-overview/" target="_blank">Redis Cluster</a>를 쓰면
+          단일 인스턴스가 죽어도 자동 failover가 일어난다.
+          프로덕션에서 바로 "Redis가 통째로 죽는 상황" 자체가 훨씬 드물어진다는 얘기다.
+          우리가 "극단적"이라 부르던 시나리오가 실무에선 다층 HA 구성으로 상당 부분 걸러진다.
+        </p>
+
+        <h3>2) Circuit Breaker로 Fail fast를 자동화한다</h3>
+        <p>
+          Fail fast라는 철학 자체는 맞는데, 단순히 예외 던지는 걸로 끝내지 않는다.
+          <a href="https://resilience4j.readme.io/docs/circuitbreaker" target="_blank">Resilience4j</a>
+          같은 라이브러리의 Circuit Breaker 패턴을 쓰면
+          <strong>일시적 장애엔 재시도, 지속 장애엔 회로를 열어서 빠르게 차단</strong>한다.
+          한국에서는
+          <a href="https://medium.com/@taesulee93/%EC%9E%A5%EC%95%A0-%EC%A0%84%ED%8C%8C%EB%A5%BC-%EB%B0%A9%EC%A7%80%ED%95%98%EA%B8%B0-%EC%9C%84%ED%95%9C-circuitbreaker-pattern-%EB%8F%84%EC%9E%85-with-resilience4j-dc67ed7569d2" target="_blank">장애 전파를 방지하기 위한 Circuit Breaker 도입기</a>
+          같은 실전 후기를 쉽게 찾을 수 있다.
+        </p>
+        <p>
+          중요한 건 <strong>장애가 번져나가는 걸 막는 "전파 차단"</strong>이다.
+          Redis 하나 죽었을 때 그걸 기다리느라 앱 스레드가 전부 묶이면 연쇄 장애로 번진다. Circuit Breaker가 그걸 잘라준다.
+        </p>
+
+        <h3>3) 실제 쿠폰 시스템 사례: Redis Pub/Sub 기반 비동기 처리</h3>
+        <p>
+          쿠폰 발급 도메인에 한해서는 분산 상태를 아예 다른 축으로 푸는 접근도 있다.
+          <a href="https://oliveyoung.tech/2023-08-07/async-process-of-coupon-issuance-using-redis/" target="_blank">올리브영 테크블로그의 Redis Pub/Sub 쿠폰 발급 글</a>을 보면,
+          동기 발급 대신 <strong>요청 접수 → Redis Pub/Sub으로 이벤트 발행 → Worker가 비동기로 발급</strong>하는 구조로 간다.
+          트래픽 몰리는 순간엔 DB를 직접 치지 않고 Redis에 일단 쌓아두는 식이다.
+        </p>
+        <p>
+          우리는 이 시리즈에서 동기 발급에 집중했지만, 대규모 선착순 쿠폰에선 이런 비동기 구조가 더 자연스럽다.
+        </p>
+
+        <h3>4) 동시성 제어는 분산락을 쓰기도 한다</h3>
+        <p>
+          <a href="https://s-core.co.kr/insight/view/redis%EB%A5%BC-%ED%99%9C%EC%9A%A9%ED%95%9C-%EC%95%88%EC%A0%84%ED%95%98%EA%B2%8C-%EB%8F%99%EC%8B%9C%EC%84%B1-%EC%9D%B4%EC%8A%88-%EC%A0%9C%EC%96%B4%ED%95%98%EA%B8%B0/" target="_blank">에스코어의 Redis 동시성 제어 글</a>을 보면
+          여러 서버에서 공유 자원 접근을 직렬화하기 위해 Redis 기반 분산락을 쓴다.
+          우리는 Redis SADD/DECR의 원자성을 이용해 락 없이 풀었지만, 락이 더 어울리는 도메인도 있다.
+        </p>
+
+        <h3>그래도 앱 안쪽 로직은 크게 다르지 않다</h3>
+        <p>
+          정합성 관리 로직 자체는 우리가 짠 것 — 2-phase + <code>pending</code> Hash + cleanupPending — 과 구조적으로 비슷해 보였다.
+          큰 회사라고 마법 같은 로직이 있는 게 아니라, <strong>같은 뼈대 위에 HA / Circuit Breaker / 모니터링 / Chaos 테스트를 더 두껍게 쌓는 것</strong>에 가까웠다.
+        </p>
+        <p>
+          결국 분산 시스템에서 중요한 건 <strong>"어떻게 장애를 안 나게 하냐"가 아니라 "장애가 났을 때 어떻게 빨리 알아차리고 복구하느냐"</strong>다.
+          코드는 Fail fast로 명확히, 나머지는 인프라와 운영이 받쳐주는 구조가 실무의 기본인 것 같다.
+        </p>
+
+        <h2>그래도 DB 폴백이 맞는 경우도 있다</h2>
+        <p>
+          Fail fast가 기본이라는 말이 "폴백은 절대 쓰지 말자"라는 건 아니다.
+          아래 세 조건을 전부 만족한다면 고려할 수 있다.
+        </p>
+        <ul>
+          <li><strong>비즈니스 요구사항</strong>: 잠깐이라도 기능이 죽으면 안 되는 수준으로 중요한가</li>
+          <li><strong>DB 용량</strong>: 폴백 트래픽이 전부 DB로 쏠려도 DB가 버틸 수 있는가</li>
+          <li><strong>테스트 환경</strong>: 폴백 경로를 주기적으로 실전처럼 돌려볼 체계가 있는가</li>
+        </ul>
+        <p>
+          하나라도 "아니오"면 폴백을 넣는 순간 <strong>장애 시 오히려 일을 키우는 코드</strong>가 된다.
+          쿠폰 발급 정도의 비즈니스에선 대부분 Fail fast가 정답이다.
+        </p>
+
+        <h2>이 시리즈에서 의도적으로 피한 것</h2>
+        <p>
+          처음엔 "Outbox 패턴 + Kafka"까지 가보고 싶었다.
+          근데 하다 보니 <strong>이건 다른 문제에 대한 답</strong>이라는 걸 깨달았다.
+        </p>
+
+        <h3>Outbox가 해결하는 건 다른 문제다</h3>
+        <p>
+          Outbox는 보통 이렇게 쓴다.
+        </p>
+        <ul>
+          <li>DB 트랜잭션 안에서 <code>CouponIssue</code>와 함께 <code>coupon_outbox</code> 테이블에 이벤트 기록</li>
+          <li>별도 프로세스(스케줄러 또는 CDC)가 <code>coupon_outbox</code>를 읽어서 Kafka로 발행</li>
+          <li>다른 서비스들이 Kafka를 구독해서 후속 처리 (푸시 알림, 분석 집계, 마케팅 등)</li>
+        </ul>
+
+        <p>
+          즉 Outbox가 푸는 문제는 <strong>"DB 저장은 성공했는데 후속 이벤트 발행이 실패할 때"</strong>다.
+          우리가 고민하던 <strong>"Redis 작업은 성공했는데 DB 저장이 실패할 때"</strong>와는 방향이 다르다.
+        </p>
+
+        <div class="callout blue">
+          Outbox는 <strong>DB → 외부 시스템</strong>으로 가는 파이프라인의 안정성을 보장한다.<br>
+          우리가 푼 건 <strong>Redis ↔ DB</strong> 사이의 정합성이다.<br>
+          둘은 다른 문제고, 해결 도구도 다르다.
+        </div>
+
+        <h2>다음 시리즈에서 다룰 것</h2>
+        <p>
+          그래서 Kafka + Outbox는 다음 시리즈로 뺐다.
+          쿠폰이 발급되면 푸시 서비스가 사용자에게 알림을 보내고, 분석 서비스가 발급 지표를 집계하고, 마케팅 서비스가 리텐션 캠페인을 트리거한다.
+          이런 <strong>서비스 간 이벤트 전파</strong>를 견고하게 만드는 게 Outbox + Kafka가 제대로 빛나는 자리다.
+          거기서 왜 Debezium(CDC) 같은 도구가 등장하고, 왜 Polling 방식으로 먼저 시작해야 하는지,
+          그리고 Kafka Consumer의 at-least-once 보장이 멱등성과 어떻게 맞물리는지를 풀어본다.
+        </p>
+
+        <h2>정리</h2>
+
+        <h3>설계 전체를 한 장으로</h3>
+
+        <pre><code>정상 경로:
+  reserve (Lua: SADD + DECR + HSET pending)
+  → DB INSERT
+  → commit (HDEL pending)
+
+DB 실패:
+  → revert (Lua: SREM + INCR + HDEL pending)
+
+Redis 장애:
+  → 그대로 전파 → 503 응답 (Fail fast)
+
+잔여 정리:
+  syncFromDb (60초)      — DB → Redis 채우기
+  cleanupPending (30초)  — 미확정 건 판정
+  reverseSweep (수동)    — pending 유실 대비 최후 보루
+</code></pre>
+
+        <h3>배운 것</h3>
+        <ul>
+          <li>
+            <strong>완벽한 정합성은 환상이다.</strong> 시스템이 둘 이상이면 어딘가는 약점이 생긴다.
+            자동 복구에 매달리기보다 <strong>실패가 빠르고 명확하게 드러나는 설계</strong>가 운영상 낫다.
+          </li>
+          <li>
+            <strong>분산 상태에서 보상 트랜잭션은 약하다.</strong> 보상 자체가 실패할 수 있기 때문에,
+            실패한 걸 나중에 찾아낼 <strong>흔적</strong>을 남겨야 한다. <code>pending</code>이 그 흔적이다.
+          </li>
+          <li>
+            <strong>원자성의 범위를 설계로 정한다.</strong> Redis의 Lua 스크립트가 하는 일은 "여러 명령을 한 덩어리로 묶는 것".
+            그 덩어리 안에 무엇을 넣느냐는 설계 결정이고, 우리는 "Redis 상태 변화 = pending 기록"이 같이 일어나도록 묶었다.
+          </li>
+          <li>
+            <strong>방어선을 겹쳐놓는다.</strong> 한 방법으로 전부 막으려 하지 않는다.
+            빠르고 싼 방어선(<code>cleanupPending</code>)과 무겁지만 확실한 방어선(<code>reverseSweep</code>)을 각각 둔다.
+          </li>
+          <li>
+            <strong>폴백은 공짜가 아니다.</strong> 평소 안 타는 코드는 고장나기 쉽고,
+            장애 시 폴백이 더 큰 장애를 부를 수 있다. 안 넣는 게 맞는 경우가 생각보다 많다.
+          </li>
+          <li>
+            <strong>도구는 문제를 선택한다.</strong> Outbox / Kafka / Lua는 전부 좋은 도구지만,
+            우리가 푸는 문제가 <strong>Redis-DB 정합성</strong>인지, <strong>서비스 간 이벤트 전파</strong>인지에 따라
+            어울리는 도구가 다르다. 섞어 쓰면 혼란만 커진다.
+          </li>
+        </ul>
+
+        <p>
+          처음엔 "Redis 넣으면 끝" 같은 느낌이었는데, 정작 재미있는 부분은 Redis를 넣고 <strong>난 뒤부터</strong>였다.
+          분산 상태를 어떻게 다룰지가 본게임이었고, DB 한 놈이 해주던 일들을 우리가 직접 설계해서 책임져야 했다.
+          그 과정에서 의외로 중요한 교훈은 <strong>"무리해서 살리려 하지 말고, 실패를 명확히 하자"</strong>였다.
+        </p>
+        <p>
+          다음 시리즈에서 Kafka 쪽으로 넘어가본다.
+        </p>
+
+      </section>
+
+      <footer class="post-footer">
+        <a href="./04-스케줄러-3종.html" class="prev">
+          <span class="label">← Prev</span>
+          <span>세 개의 스케줄러, 세 개의 방어선</span>
+        </a>
+        <a href="../../index.html" class="next">
+          <span class="label">Index →</span>
+          <span>전체 글 목록</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (4) 세 개의 스케줄러, 세 개의 방어선 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.20 · 시리즈 4/5</div>
+        <h1>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (4)<br>세 개의 스케줄러, 세 개의 방어선</h1>
+        <p class="subtitle">
+          자주 돌리는 것, 가끔 돌리는 것, 사람 불러서 돌리는 것. 비용과 커버 범위를 다르게 잡아서 겹쳐놓는다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
+        <ol>
+          <li><a href="./01-redis-도입.html">Redis 도입과 새 문제</a></li>
+          <li><a href="./02-장애-시나리오.html">장애 시나리오 4개를 테이블에 올리기</a></li>
+          <li><a href="./03-2-phase-reservation.html">2-phase Reservation과 pending 큐</a></li>
+          <li class="current">세 개의 스케줄러, 세 개의 방어선</li>
+          <li>Redis가 아예 죽을 때 & 남은 숙제</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>하나로 퉁치지 않는 이유</h2>
+        <p>
+          가장 나이브한 설계는 스케줄러 하나 만들어서 "주기적으로 전부 검사" 돌리는 거다.
+          근데 "전부 검사"는 비용이 크고, 트래픽이 도는 시간대엔 위험하다.
+          반대로 가벼운 것만 하면 놓치는 케이스가 생긴다.
+        </p>
+        <p>
+          그래서 <strong>다른 주기, 다른 비용, 다른 커버 범위</strong>의 스케줄러 세 개를 겹쳐놓는 게 맞다는 결론이 났다.
+        </p>
+
+        <h2>1) syncFromDb — DB를 기준으로 Redis 채우기</h2>
+        <pre><code>@Scheduled(fixedDelay = 60_000)
+@Transactional(readOnly = true)
+public void syncFromDb() {
+    for (Coupon coupon : couponRepository.findAll()) {
+        Long couponId = coupon.getId();
+        List&lt;Long&gt; userIds = couponIssueRepository.findUserIdsByCouponId(couponId);
+        userIds.forEach(userId -> issueRedisStore.tryRecordIssue(couponId, userId));
+    }
+}</code></pre>
+
+        <p>
+          <strong>역할</strong>: DB <code>CouponIssue</code> 전체를 읽어서 Redis Set에 <code>SADD</code>로 밀어넣는다.<br>
+          <strong>주기</strong>: 60초.<br>
+          <strong>비용</strong>: 매번 전체 조회라 DB 쪽 부담이 좀 있다. 대신 로직은 단순.
+        </p>
+
+        <p>
+          이 스케줄러가 해결하는 건 <strong>Redis 쪽이 비거나 일부 유실됐을 때</strong>다.
+          AOF가 깨지거나 인스턴스가 교체돼서 Set이 비었다면, <code>SADD</code>는 멱등이라 다시 채워주면 그만이다.
+          이미 있으면 0 반환하고 넘어가니까 중복 걱정도 없다.
+        </p>
+
+        <div class="callout">
+          주의: 재고 카운터를 절대값으로 덮어씌우는 <code>initStock</code>은 여기 넣으면 안 된다.
+          운영 중에 <code>DECR</code>과 <code>SET</code>이 경쟁하면 재고가 엉뚱하게 틀어진다.
+          재고 복구는 <strong>재시작 직후 트래픽 받기 전</strong>에만 한다.
+        </div>
+
+        <h2>2) cleanupPending — 미확정 건 떨이</h2>
+        <pre><code>@Scheduled(fixedDelay = 30_000)
+public void cleanupPending() {
+    long now = System.currentTimeMillis();
+    for (Coupon coupon : couponRepository.findAll()) {
+        Map&lt;Object, Object&gt; pending = reservationStore.findAllPending(coupon.getId());
+        for (var entry : pending.entrySet()) {
+            Long userId = Long.parseLong(entry.getKey().toString());
+            long timestamp = Long.parseLong(entry.getValue().toString());
+            if (now - timestamp &lt; 30_000) continue;  // 아직 처리 중일 수 있음
+
+            if (couponIssueRepository.existsByUserIdAndCouponId(userId, coupon.getId())) {
+                reservationStore.commit(coupon.getId(), userId);    // 지연 commit
+            } else {
+                reservationStore.revert(coupon.getId(), userId);    // 보상 못 한 것 revert
+            }
+        }
+    }
+}</code></pre>
+
+        <p>
+          <strong>역할</strong>: <code>pending</code> Hash에 30초 이상 남아있는 항목을 DB와 대조해서 정리.<br>
+          <strong>주기</strong>: 30초.<br>
+          <strong>비용</strong>: <code>pending</code> 자체가 작기 때문에 거의 공짜.
+        </p>
+
+        <p>
+          정상적일 땐 <code>pending</code>은 수십 ms 안에 들어왔다 나간다.
+          30초 이상 남아있다는 건 <strong>확실히 뭔가 끊긴 것</strong>이다.
+          이 스케줄러가 실제 일을 하는 경우는 드물고, 대부분은 빈 Hash만 보고 넘어간다.
+          장애 때만 바빠지는 구조다.
+        </p>
+
+        <p>
+          이 스케줄러 덕분에 1편에서 말한 "보상의 보상" 문제가 풀린다.
+          보상이 실패해도 <code>pending</code>에 남아있고, 30초 후 스케줄러가 와서 치워준다.
+        </p>
+
+        <h2>3) reverseSweep — SSCAN 전수 조사</h2>
+        <pre><code>public void reverseSweep() {
+    for (Coupon coupon : couponRepository.findAll()) {
+        List&lt;Long&gt; issuedInRedis = reservationStore.scanIssuedUserIds(coupon.getId(), 100);
+        for (Long userId : issuedInRedis) {
+            if (!couponIssueRepository.existsByUserIdAndCouponId(userId, coupon.getId())) {
+                reservationStore.revert(coupon.getId(), userId);
+            }
+        }
+    }
+}</code></pre>
+
+        <p>
+          <strong>역할</strong>: Redis Set을 <code>SSCAN</code>으로 전부 순회하면서 DB에 없는 건 revert.<br>
+          <strong>주기</strong>: 자동 실행 안 함. <strong>운영자가 수동으로 실행.</strong><br>
+          <strong>비용</strong>: 발급 이력 전체를 훑는다. 트래픽 적은 시간에 돌려야 안전.
+        </p>
+
+        <p>
+          솔직히 이 스케줄러는 <strong>실무에선 거의 안 탄다.</strong>
+          위의 <code>cleanupPending</code>이 <code>pending</code> 흔적만 있으면 전부 정리해주기 때문이다.
+          이게 필요해지는 건 <strong>그 <code>pending</code> Hash마저 유실된 희귀 상황</strong>이다.
+          Redis 인스턴스가 통째로 교체됐는데 AOF 스냅샷이 깨졌거나, 특정 키만 골라서 날아갔거나.
+        </p>
+
+        <p>
+          이런 건 보통 1년에 한 번 있을까 말까다. 자동 스케줄로 매시간 <code>SSCAN</code> 전수 조사 + DB 대조를
+          돌리면 <strong>얻는 거의 없고 비용만 꾸준히 나간다.</strong>
+          평소 안 타는 코드라 버그가 숨어있기도 쉽다.
+        </p>
+
+        <div class="callout blue">
+          <strong>"이상 징후가 감지됐을 때 운영자가 누르는 버튼"</strong>으로 두는 게 맞다.<br>
+          어드민 엔드포인트로 빼놓고, 평소엔 잠자고 있다가 필요할 때만 깨운다.
+        </div>
+
+        <pre><code>// @Scheduled 떼고 수동 호출 전용
+@PostMapping("/admin/reconciliation/sweep")
+public void triggerReverseSweep() {
+    reconciliationScheduler.reverseSweep();
+}</code></pre>
+
+        <h2>세 스케줄러의 포지션</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>이름</th>
+              <th>주기</th>
+              <th>커버</th>
+              <th>비용</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>syncFromDb</strong></td>
+              <td>60초</td>
+              <td>Redis 유실 (Set)</td>
+              <td>DB 전체 조회 (중)</td>
+            </tr>
+            <tr>
+              <td><strong>cleanupPending</strong></td>
+              <td>30초</td>
+              <td>보상 실패 / 미확정</td>
+              <td>pending만 (작음)</td>
+            </tr>
+            <tr>
+              <td><strong>reverseSweep</strong></td>
+              <td>수동</td>
+              <td>pending마저 유실</td>
+              <td>SSCAN 전수 (큼)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          자주 터지는 문제는 싸고 빠르게 잡고, 드문 문제는 비싸더라도 확실히 잡는다.
+          각자 커버 범위가 다르기 때문에 <strong>셋을 겹쳐놓는 게 하나 크게 만드는 것보다 낫다.</strong>
+        </p>
+
+        <h2>재고 총합을 맞춰주는 스케줄러는 왜 없나</h2>
+        <p>
+          글 순서대로 보면 자연스럽게 떠오르는 질문이다. "DB <code>totalQuantity - COUNT</code>로
+          Redis 재고를 주기적으로 덮어씌워주면 되지 않나?" 처음엔 나도 그렇게 하려고 했다. 근데
+          <strong>운영 중에 재고 값을 절대값으로 덮어씌우는 건 위험하다.</strong>
+        </p>
+
+        <pre><code>배치: DB COUNT → 50 → Redis SET "stock" 50
+동시에 발급 요청: DECR → stock 49
+배치가 계산하던 순간의 값으로 덮어씌우면 → stock 50 (방금 나간 발급 건이 증발)
+</code></pre>
+
+        <p>
+          <code>DECR</code>이랑 <code>SET</code>이 경쟁하면 재고가 오히려 틀어진다. 그래서 전용 스케줄러 대신
+          <strong>이벤트별로 그 자리에서 INCR 해주는 방식</strong>을 택했다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>상황</th>
+              <th>누가 INCR</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Phase 1에서 재고 부족</td>
+              <td>Lua 스크립트 안에서 (reserve 실패 시)</td>
+            </tr>
+            <tr>
+              <td>Phase 2b revert</td>
+              <td>Lua 스크립트 안에서</td>
+            </tr>
+            <tr>
+              <td>cleanupPending revert</td>
+              <td>Lua 스크립트 호출</td>
+            </tr>
+            <tr>
+              <td>reverseSweep revert</td>
+              <td>Lua 스크립트 호출</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          "재고가 감소했는데 취소된 경우"마다 그 자리에서 <code>INCR</code>로 원복한다.
+          총합을 맞추는 배치 없이도 자연히 수렴한다.
+        </p>
+
+        <div class="callout">
+          재고 값 자체가 유실된 경우(AOF 전체 유실 등)는 <strong>재시작 직후 트래픽 받기 전</strong>에
+          <code>initStock</code>으로 한 번 덮어씌우는 <strong>startup reconciliation</strong>으로 처리한다.
+          그땐 경쟁하는 요청이 없어서 안전하다.
+        </div>
+
+        <h2>한 가지 한계</h2>
+        <p>
+          이 스케줄러들은 전부 <strong>DB를 정답지로 두고 Redis를 맞추는</strong> 방향이다.
+          그래서 5편에서 볼 "Redis 자체가 죽었을 때"는 해결해주지 않는다.
+          그건 별도의 방어가 필요하다.
+        </p>
+
+        <h2>다음 편</h2>
+        <p>
+          <a href="./05-redis-폴백.html">5편</a>에서는 Redis가 통째로 안 뜨는 상황을 다룬다.
+          처음엔 DB 폴백으로 버텨보려고 했는데, 파고들다 보니 <strong>오히려 깔끔하게 실패시키는 게 낫다</strong>는 결론에 도달했다.
+          왜 그랬는지, 완벽한 자동 복구라는 목표 자체가 왜 환상인지 정리하면서 시리즈를 마무리한다.
+        </p>
+
+      </section>
+
+      <footer class="post-footer">
+        <a href="./03-2-phase-reservation.html" class="prev">
+          <span class="label">← Prev</span>
+          <span>2-phase Reservation과 pending 큐</span>
+        </a>
+        <a href="./05-redis-폴백.html" class="next">
+          <span class="label">Next →</span>
+          <span>Redis가 아예 죽을 때 & 남은 숙제</span>
+        </a>
+      </footer>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

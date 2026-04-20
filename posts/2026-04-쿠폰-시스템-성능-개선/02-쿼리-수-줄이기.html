@@ -60,7 +60,7 @@
         <div class="callout blue">
           <strong>수학</strong><br>
           쿼리 7개면 트랜잭션 1.19초. 타임아웃 3초 안에 2.5라운드밖에 못 돈다.<br>
-          쿼리 5개면 트랜잭션 850ms. 3.5라운드 돌 수 있다. 처리량이 늘어난다.
+          쿼리 6개면 트랜잭션 약 735ms. 4라운드 돌 수 있다. 처리량이 늘어난다.
         </div>
 
         <p>
@@ -240,7 +240,7 @@ public void sendIssueNotification(CouponIssuedEvent event) {
           <code>@EnableAsync</code>를 애플리케이션 클래스에 붙여야 <code>@Async</code>가 동작한다는 점도 기억해둘 것.
         </p>
 
-        <h2>정리: 쿼리 7개 → 5개</h2>
+        <h2>정리: 쿼리 7개 → 6개</h2>
         <p>
           최적화 후에 남은 쿼리는 이렇다.
         </p>
@@ -254,16 +254,18 @@ public void sendIssueNotification(CouponIssuedEvent event) {
             </tr>
           </thead>
           <tbody>
-            <tr><td>1</td><td><code>findByIdWithLock(userId)</code></td><td>유지 (중복 발급 방지 락)</td></tr>
+            <tr><td>1</td><td><code>findByIdWithLock(userId)</code></td><td>SELECT FOR UPDATE, 중복 발급 방지 락</td></tr>
             <tr><td>2</td><td><code>existsByUserIdAndCouponId</code></td><td>JPQL로 JOIN 제거</td></tr>
-            <tr><td>3</td><td><code>couponStock UPDATE</code></td><td>재고 차감</td></tr>
-            <tr><td>4</td><td><code>save(CouponIssue)</code></td><td>getReferenceById 사용</td></tr>
-            <tr><td>5</td><td>dirty checking UPDATE</td><td>포인트 차감</td></tr>
+            <tr><td>3</td><td>쿠폰 stock 조회</td><td>SELECT</td></tr>
+            <tr><td>4</td><td>쿠폰 stock UPDATE</td><td>dirty checking (TAKEN으로 상태 전이)</td></tr>
+            <tr><td>5</td><td><code>save(CouponIssue)</code></td><td>INSERT, getReferenceById로 FK만</td></tr>
+            <tr><td>6</td><td>user UPDATE</td><td>dirty checking, 포인트 차감</td></tr>
           </tbody>
         </table>
 
         <p>
-          쿼리 5개, 트랜잭션 평균 850ms. 이론상 처리량이 늘어나야 한다.
+          쿼리 6개. 평균 시간은 SELECT 3개(~135ms) + UPDATE/INSERT 3개(~600ms) = 약 735ms.
+          이론상 처리량이 늘어나야 한다.
         </p>
 
         <h2>테스트 결과</h2>
