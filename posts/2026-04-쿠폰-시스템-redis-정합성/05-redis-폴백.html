@@ -174,62 +174,82 @@ public ResponseEntity&lt;Map&lt;String, String&gt;&gt; handleRedisUnavailable(Da
 
         <h2>실무는 어디까지 하나</h2>
         <p>
-          "이 정도 설계면 충분한가? 실무에선 뭘 더 할까?" 궁금해서 몇 가지 자료를 찾아봤다.
-          결론부터 말하면 <strong>애플리케이션 코드 레벨의 정합성 로직은 크게 다르지 않다</strong>는 인상을 받았다.
-          차이는 그 주변의 인프라/복원력 패턴 쪽이었다.
+          여기까지 오고 나니 반대로 궁금해진다. <strong>이 설계는 어디서 한계를 만나고, 실무는 그걸 어떻게 넘길까.</strong>
+          대충 자료를 훑어보니 답은 세 단계로 쌓여있었다.
+          <em>Redis를 덜 죽게 만들고 → 죽어도 피해가 번지지 않게 하고 → 아예 구조를 바꿔서 동기를 벗어난다.</em>
         </p>
 
-        <h3>1) Redis 자체를 안 죽게 만든다 — Sentinel / Cluster</h3>
+        <h3>1단계 — Redis 자체가 덜 죽게 만든다</h3>
         <p>
-          우리 글은 "Redis가 죽으면 어떡할까"에서 출발했는데,
+          우리 글은 "Redis가 죽으면 어떡할까"부터 출발했다. 근데 실무에선 일단
+          <strong>그 "죽는 상황"의 빈도를 떨어뜨리는 것</strong>부터 시작한다.
+        </p>
+        <p>
           <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/" target="_blank">Redis Sentinel</a>이나
-          <a href="https://www.letmecompile.com/redis-cluster-sentinel-overview/" target="_blank">Redis Cluster</a>를 쓰면
-          단일 인스턴스가 죽어도 자동 failover가 일어난다.
-          프로덕션에서 바로 "Redis가 통째로 죽는 상황" 자체가 훨씬 드물어진다는 얘기다.
-          우리가 "극단적"이라 부르던 시나리오가 실무에선 다층 HA 구성으로 상당 부분 걸러진다.
+          <a href="https://www.letmecompile.com/redis-cluster-sentinel-overview/" target="_blank">Redis Cluster</a>로 HA를 구성하면
+          단일 인스턴스가 죽어도 자동 failover가 돈다. 한 대가 내려가도 복제본이 즉시 올라와 서비스는 거의 끊기지 않는다.
+          우리가 "극단적"이라 불렀던 시나리오가 1차로 걸러지는 셈이다.
         </p>
 
-        <h3>2) Circuit Breaker로 Fail fast를 자동화한다</h3>
+        <h3>2단계 — 죽더라도 전파되지 않게 막는다</h3>
         <p>
-          Fail fast라는 철학 자체는 맞는데, 단순히 예외 던지는 걸로 끝내지 않는다.
-          <a href="https://resilience4j.readme.io/docs/circuitbreaker" target="_blank">Resilience4j</a>
-          같은 라이브러리의 Circuit Breaker 패턴을 쓰면
-          <strong>일시적 장애엔 재시도, 지속 장애엔 회로를 열어서 빠르게 차단</strong>한다.
-          한국에서는
-          <a href="https://medium.com/@taesulee93/%EC%9E%A5%EC%95%A0-%EC%A0%84%ED%8C%8C%EB%A5%BC-%EB%B0%A9%EC%A7%80%ED%95%98%EA%B8%B0-%EC%9C%84%ED%95%9C-circuitbreaker-pattern-%EB%8F%84%EC%9E%85-with-resilience4j-dc67ed7569d2" target="_blank">장애 전파를 방지하기 위한 Circuit Breaker 도입기</a>
-          같은 실전 후기를 쉽게 찾을 수 있다.
+          그래도 Redis가 응답 안 하는 순간은 온다. 문제는 그 순간 앱 스레드들이 전부 Redis 응답을 기다리느라 묶이면
+          <strong>Redis 장애 하나가 앱 전체를 같이 끌어내린다</strong>는 점이다. 연쇄 장애.
         </p>
         <p>
-          중요한 건 <strong>장애가 번져나가는 걸 막는 "전파 차단"</strong>이다.
-          Redis 하나 죽었을 때 그걸 기다리느라 앱 스레드가 전부 묶이면 연쇄 장애로 번진다. Circuit Breaker가 그걸 잘라준다.
-        </p>
-
-        <h3>3) 실제 쿠폰 시스템 사례: Redis Pub/Sub 기반 비동기 처리</h3>
-        <p>
-          쿠폰 발급 도메인에 한해서는 분산 상태를 아예 다른 축으로 푸는 접근도 있다.
-          <a href="https://oliveyoung.tech/2023-08-07/async-process-of-coupon-issuance-using-redis/" target="_blank">올리브영 테크블로그의 Redis Pub/Sub 쿠폰 발급 글</a>을 보면,
-          동기 발급 대신 <strong>요청 접수 → Redis Pub/Sub으로 이벤트 발행 → Worker가 비동기로 발급</strong>하는 구조로 간다.
-          트래픽 몰리는 순간엔 DB를 직접 치지 않고 Redis에 일단 쌓아두는 식이다.
-        </p>
-        <p>
-          우리는 이 시리즈에서 동기 발급에 집중했지만, 대규모 선착순 쿠폰에선 이런 비동기 구조가 더 자연스럽다.
+          이걸 막는 도구가
+          <a href="https://resilience4j.readme.io/docs/circuitbreaker" target="_blank">Circuit Breaker 패턴</a>이다.
+          일시적 장애엔 재시도하고, 에러율이 임계를 넘으면 회로를 열어 <strong>호출 자체를 잘라내 버린다.</strong>
+          우리가 코드에서 한 Fail fast를 프레임워크 레벨로 끌어올린 버전이라고 보면 된다.
+          한국 개발자 글 중엔
+          <a href="https://medium.com/@taesulee93/%EC%9E%A5%EC%95%A0-%EC%A0%84%ED%8C%8C%EB%A5%BC-%EB%B0%A9%EC%A7%80%ED%95%98%EA%B8%B0-%EC%9C%84%ED%95%9C-circuitbreaker-pattern-%EB%8F%84%EC%9E%85-with-resilience4j-dc67ed7569d2" target="_blank">장애 전파를 방지하기 위한 Circuit Breaker 도입기</a>처럼
+          실전 후기가 많다.
         </p>
 
-        <h3>4) 동시성 제어는 분산락을 쓰기도 한다</h3>
+        <h3>3단계 — 동기로 감당 안 되는 규모에선 구조 자체가 달라진다</h3>
         <p>
-          <a href="https://s-core.co.kr/insight/view/redis%EB%A5%BC-%ED%99%9C%EC%9A%A9%ED%95%9C-%EC%95%88%EC%A0%84%ED%95%98%EA%B2%8C-%EB%8F%99%EC%8B%9C%EC%84%B1-%EC%9D%B4%EC%8A%88-%EC%A0%9C%EC%96%B4%ED%95%98%EA%B8%B0/" target="_blank">에스코어의 Redis 동시성 제어 글</a>을 보면
-          여러 서버에서 공유 자원 접근을 직렬화하기 위해 Redis 기반 분산락을 쓴다.
-          우리는 Redis SADD/DECR의 원자성을 이용해 락 없이 풀었지만, 락이 더 어울리는 도메인도 있다.
+          여기까지가 <strong>동기 요청-응답 구조</strong>에서 할 수 있는 방어의 끝이다.
+          근데 트래픽이 "블랙프라이데이 선착순 쿠폰 1억 장" 같은 규모가 되면 동기 구조로는 절대 못 버틴다.
+          Redis가 아무리 빨라도 1억 요청이 동시에 <code>DECR + SADD</code>를 때리면 앞단 자체가 병목이 된다.
+        </p>
+        <p>
+          <a href="https://oliveyoung.tech/2023-08-07/async-process-of-coupon-issuance-using-redis/" target="_blank">올리브영의 Redis Pub/Sub 쿠폰 발급 글</a>처럼
+          이 규모에선 구조 자체를 바꾼다.
+        </p>
+        <pre><code>요청 → Redis에서 빠른 검증 (재고, 중복)
+     → 통과하면 Redis 큐에 "접수됨" 쌓기
+     → 유저에겐 즉시 "신청 접수" 응답
+
+Worker가 큐를 천천히 소비
+     → DB INSERT + 포인트 차감
+     → 푸시 알림 발송
+     → 통계 집계</code></pre>
+        <p>
+          앞단은 트래픽을 빠르게 받아내기만 하고, 실제 DB 작업은 Worker가 뒤에서 천천히 소화한다.
+          <strong>Redis가 트래픽 스파이크의 완충재</strong>가 되는 구조다.
         </p>
 
-        <h3>그래도 앱 안쪽 로직은 크게 다르지 않다</h3>
+        <h3>그런데 Worker 안쪽을 열어보면</h3>
         <p>
-          정합성 관리 로직 자체는 우리가 짠 것 — 2-phase + <code>pending</code> Hash + cleanupPending — 과 구조적으로 비슷해 보였다.
-          큰 회사라고 마법 같은 로직이 있는 게 아니라, <strong>같은 뼈대 위에 HA / Circuit Breaker / 모니터링 / Chaos 테스트를 더 두껍게 쌓는 것</strong>에 가까웠다.
+          이 비동기 구조가 대단해 보이지만,
+          <strong>Worker가 큐에서 이벤트 하나 꺼내서 처리하는 그 안쪽 로직은 우리가 오늘 만든 거랑 거의 같다.</strong>
+          중복 처리 방지(멱등성), 실패 시 보상, 크래시 복구, 정합성 맞추기 — 같은 문제를 같은 방식으로 푼다.
         </p>
+        <p>
+          비동기 구조는 <strong>우리 설계를 대체하는 게 아니라, 그 위에 "트래픽 흡수 레이어"를 얹는 것</strong>에 가깝다.
+          2-phase + <code>pending</code> + 보상 + 스케줄러는 어떤 규모에서도 base layer로 살아남는다.
+        </p>
+
+        <div class="callout blue">
+          <strong>실무의 정합성 설계는 우리 설계 + 그 바깥의 방어층.</strong><br>
+          HA로 덜 죽게 만들고, Circuit Breaker로 번지지 않게 하고, 비동기 큐로 트래픽을 흡수한다.<br>
+          그 모든 레이어 아래엔 여전히 "2-phase + pending + 보상 + 스케줄러"가 깔려있다.
+        </div>
+
         <p>
           결국 분산 시스템에서 중요한 건 <strong>"어떻게 장애를 안 나게 하냐"가 아니라 "장애가 났을 때 어떻게 빨리 알아차리고 복구하느냐"</strong>다.
-          코드는 Fail fast로 명확히, 나머지는 인프라와 운영이 받쳐주는 구조가 실무의 기본인 것 같다.
+          코드는 Fail fast로 명확히, 그 바깥은 인프라와 운영이 받쳐주는 구조.
+          오늘 우리가 만든 건 그 제일 안쪽 블록이었다.
         </p>
 
         <h2>그래도 DB 폴백이 맞는 경우도 있다</h2>
@@ -276,11 +296,21 @@ public ResponseEntity&lt;Map&lt;String, String&gt;&gt; handleRedisUnavailable(Da
 
         <h2>다음 시리즈에서 다룰 것</h2>
         <p>
-          그래서 Kafka + Outbox는 다음 시리즈로 뺐다.
-          쿠폰이 발급되면 푸시 서비스가 사용자에게 알림을 보내고, 분석 서비스가 발급 지표를 집계하고, 마케팅 서비스가 리텐션 캠페인을 트리거한다.
-          이런 <strong>서비스 간 이벤트 전파</strong>를 견고하게 만드는 게 Outbox + Kafka가 제대로 빛나는 자리다.
-          거기서 왜 Debezium(CDC) 같은 도구가 등장하고, 왜 Polling 방식으로 먼저 시작해야 하는지,
-          그리고 Kafka Consumer의 at-least-once 보장이 멱등성과 어떻게 맞물리는지를 풀어본다.
+          그래서 비동기와 Kafka는 다음 시리즈로 뺐다. 주제는 두 축이다.
+        </p>
+        <ul>
+          <li>
+            <strong>대규모 트래픽용 비동기 쿠폰 시스템</strong> — 위에서 스케치한 "앞단 빠른 검증 + 큐 + Worker" 구조를 실제로 Kafka 기반으로 구현.
+            동기 발급이 뚫리는 임계점부터, 앞단을 가볍게 만드는 방법, Worker의 멱등성 처리, Consumer Lag 관리까지.
+          </li>
+          <li>
+            <strong>서비스 간 이벤트 전파로서의 Outbox + Kafka</strong> — 쿠폰이 발급되면 푸시/분석/마케팅 서비스가 각자 따라붙는 구조.
+            Polling Outbox부터 시작해서, Debezium(CDC)으로 가는 이유, Kafka Consumer의 at-least-once 보장과 멱등성이 어떻게 맞물리는지.
+          </li>
+        </ul>
+        <p>
+          이번 시리즈가 <strong>"하나의 서비스 안에서 Redis-DB 정합성"</strong>에 집중했다면,
+          다음 시리즈는 <strong>"대규모 트래픽을 비동기로 풀어내고, 서비스 경계 밖으로 이벤트를 안전하게 흘려보내는"</strong> 쪽으로 넘어간다.
         </p>
 
         <h2>정리</h2>
