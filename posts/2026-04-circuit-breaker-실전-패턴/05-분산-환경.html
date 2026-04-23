@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>분산 환경에서 CircuitBreaker (5) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.22 · 시리즈 5/5</div>
+        <h1>분산 환경에서 CircuitBreaker</h1>
+        <p class="subtitle">
+          Resilience4j CircuitBreaker는 JVM 메모리에 상태를 저장한다.
+          Pod가 10개면 CircuitBreaker도 10개다. 서로 상태를 모른다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CircuitBreaker 깊게 파기</div>
+        <ol>
+          <li><a href="./01-왜-필요한가.html">CircuitBreaker는 왜 필요한가</a></li>
+          <li><a href="./02-3-state-완전-이해.html">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</a></li>
+          <li><a href="./03-어노테이션-하나로는-부족하다.html">@CircuitBreaker 어노테이션 하나로는 부족하다</a></li>
+          <li><a href="./04-retry-bulkhead-조합.html">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</a></li>
+          <li class="current">분산 환경에서 CircuitBreaker</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Pod마다 독립적인 CircuitBreaker</h2>
+
+        <p>
+          Resilience4j CircuitBreaker는 상태를 JVM 인스턴스 메모리에 저장한다.
+          외부 저장소가 없다. 빠르고 단순하다.
+        </p>
+
+        <p>
+          그런데 Kubernetes 환경에서 Pod가 10개라면 CircuitBreaker도 10개가 된다.
+          각자 독립적으로 실패율을 측정하고, 상태를 가진다.
+        </p>
+
+        <pre><code>외부 API 장애 발생
+
+Pod A: 실패 5건 → CircuitBreaker OPEN → 차단
+Pod B: 실패 2건 → CircuitBreaker CLOSED → 아직 외부 API 호출 중
+Pod C: 실패 0건 → CircuitBreaker CLOSED → 아직 외부 API 호출 중
+...
+Pod J: 실패 0건 → CircuitBreaker CLOSED → 아직 외부 API 호출 중</code></pre>
+
+        <p>
+          Pod A가 OPEN됐어도 나머지 9개 Pod는 여전히 죽어있는 외부 API를 때린다.
+          한 Pod가 장애를 감지해도 전체가 보호받지 못한다.
+        </p>
+
+        <h2>RabbitMQ fanout으로 상태 전파</h2>
+
+        <p>
+          ALIO-GW에서 택한 방법은 RabbitMQ fanout exchange로 OPEN 이벤트를 브로드캐스트하는 것이다.
+          한 Pod가 OPEN을 감지하면 전체 Pod에 알린다.
+        </p>
+
+        <pre><code>// 이벤트 발행 — CbEventListener 안에서
+circuitBreaker.getEventPublisher().onStateTransition(event -> {
+    if (toState == CircuitBreaker.State.OPEN) {
+        rabbitTemplate.convertAndSend(
+            "circuitbreaker.fanout", "",
+            new CircuitBreakerOpenEvent("kakaoApi")
+        );
+    }
+});</code></pre>
+
+        <pre><code>// 이벤트 수신 — 모든 Pod가 구독
+@RabbitListener(queues = "circuitbreaker.open.queue")
+public void onCircuitBreakerOpen(CircuitBreakerOpenEvent event) {
+    log.warn("[분산 CircuitBreaker] {} OPEN 이벤트 수신. 강제 전이.", event.getName());
+    registry.circuitBreaker(event.getName()).transitionToOpenState();
+}</code></pre>
+
+        <p>
+          fanout exchange는 연결된 모든 큐에 메시지를 복사한다.
+          Pod마다 큐를 하나씩 바인딩해두면 Pod A의 OPEN 이벤트가
+          B~J 전체에 전달되고, 각 Pod가 자신의 CircuitBreaker를 강제로 OPEN 상태로 전이시킨다.
+        </p>
+
+        <h2>"Redis에 상태를 중앙화하면 안 되나?"</h2>
+
+        <p>가능하다. 그런데 트레이드오프가 있다.</p>
+
+        <pre><code>Redis 중앙화 방식:
+  장점: 모든 Pod가 동일한 상태를 실시간으로 공유
+  단점: Redis 장애 시 CircuitBreaker 자체가 동작 불가
+       → CircuitBreaker가 SPOF(Single Point of Failure)가 됨
+       → 외부 API 장애 + Redis 장애가 동시에 나면 보호 장치가 사라짐</code></pre>
+
+        <pre><code>RabbitMQ fanout 방식:
+  장점: MQ가 잠시 죽어도 각 Pod의 로컬 상태는 유지됨
+       → 느슨한 결합, 독립적으로 동작 가능
+  단점: 전파에 약간의 지연이 있음 (수십 ms 수준)</code></pre>
+
+        <p>
+          CircuitBreaker는 외부 시스템 장애로부터 내 서버를 보호하는 장치다.
+          그 보호 장치가 또 다른 외부 시스템(Redis)에 의존하면
+          Redis가 죽는 순간 보호 장치도 같이 죽는다.
+          MQ 방식이 더 안전하다.
+        </p>
+
+        <h2>동적 임계값 — Resilience4j에는 없다</h2>
+
+        <p>
+          새벽엔 트래픽이 적어서 임계값을 80%로 올리고,
+          피크 타임엔 30%로 낮추고 싶은 경우가 있다.
+          Resilience4j는 런타임에 임계값을 변경하는 API를 제공하지 않는다.
+        </p>
+
+        <p>수동으로 구현했다.</p>
+
+        <pre><code>// 시간대별 CircuitBreakerConfig를 미리 빌드해서 Registry에 등록
+CircuitBreakerConfig nightConfig = CircuitBreakerConfig.custom()
+    .failureRateThreshold(80)
+    .build();
+
+CircuitBreakerConfig peakConfig = CircuitBreakerConfig.custom()
+    .failureRateThreshold(30)
+    .build();
+
+// 스케줄러가 시간대를 보고 해당 CircuitBreaker 인스턴스로 라우팅
+public String send(String message) {
+    String cbName = isPeakHour() ? "kakaoApi-peak" : "kakaoApi-night";
+    return registry.circuitBreaker(cbName).executeSupplier(
+        () -> kakaoApi.send(message)
+    );
+}</code></pre>
+
+        <p>
+          라이브러리가 지원하지 않으면 직접 만들어야 한다.
+          자동화된 API가 없다는 걸 알고 수동으로 설계한 것이 오히려 면접에서 더 설득력 있는 이야기가 된다.
+        </p>
+
+        <h2>마무리 — 실전 체크리스트</h2>
+
+        <pre><code>✅ ignoreExceptions 설정했나? (비즈니스 예외 분리)
+✅ fallback 메서드 예외 타입별로 오버로딩했나?
+✅ 이벤트 리스너 달아서 OPEN 시 알림 연결했나?
+✅ @Retry 쓴다면 CircuitBreaker 바깥에 뒀나?
+✅ 트래픽 폭주 구간에 @Bulkhead 함께 쓰고 있나?
+✅ 분산 환경이라면 상태 전파 전략 있나?</code></pre>
+
+        <p>
+          전체 예제 코드는 <a href="https://github.com/leeyunbo/architecture-study" target="_blank">cb-study</a>에서 확인할 수 있다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

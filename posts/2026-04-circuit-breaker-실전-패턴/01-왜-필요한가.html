@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CircuitBreaker는 왜 필요한가 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.22 · 시리즈 1/5</div>
+        <h1>CircuitBreaker는 왜 필요한가</h1>
+        <p class="subtitle">
+          외부 API 하나가 느려지는 순간, 내 서버 전체가 멈추는 과정.
+          그리고 CircuitBreaker가 그 사이에서 하는 일.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CircuitBreaker 깊게 파기</div>
+        <ol>
+          <li class="current">CircuitBreaker는 왜 필요한가</li>
+          <li><a href="./02-3-state-완전-이해.html">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</a></li>
+          <li><a href="./03-어노테이션-하나로는-부족하다.html">@CircuitBreaker 어노테이션 하나로는 부족하다</a></li>
+          <li><a href="./04-retry-bulkhead-조합.html">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</a></li>
+          <li><a href="./05-분산-환경.html">분산 환경에서 CircuitBreaker</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>외부 API를 쓰는 순간 생기는 새로운 위험</h2>
+
+        <p>
+          서비스가 커지면 외부 API 의존성이 생긴다. 카카오 알림톡, 결제 PG, 지도 API 같은 것들.
+          내 코드가 아니니까 언제 죽을지 모른다. 보통은 이렇게 처리하고 넘어간다.
+        </p>
+
+        <pre><code>try {
+    kakaoApi.send(message);
+} catch (Exception e) {
+    log.error("카카오 발송 실패", e);
+}</code></pre>
+
+        <p>
+          이 코드에는 보이지 않는 문제가 있다.
+          예외를 잡는 건 맞는데, 그 전에 <strong>얼마나 기다렸는지</strong>는 잡지 않는다.
+        </p>
+
+        <h2>외부 API가 느려질 때 무슨 일이 생기나</h2>
+
+        <p>카카오 API가 갑자기 응답에 5초씩 걸리기 시작했다고 가정하자.</p>
+
+        <pre><code>요청 1 → kakaoApi.send() ── 5초 대기 중...
+요청 2 → kakaoApi.send() ── 5초 대기 중...
+요청 3 → kakaoApi.send() ── 5초 대기 중...
+...
+요청 N → kakaoApi.send() ── 5초 대기 중...</code></pre>
+
+        <p>
+          각 요청은 스레드를 점유한 채로 응답을 기다린다.
+          초당 100건 요청이 들어오면 5초 만에 스레드 500개가 카카오 API 응답만 기다리고 있다.
+          Tomcat 기본 스레드 풀은 200개다.
+        </p>
+
+        <p>
+          스레드 풀이 꽉 찬 순간부터 <strong>카카오 API와 전혀 관계없는 요청들도 처리 못 한다.</strong>
+          로그인, 상품 조회, 결제 — 전부 멈춘다.
+          카카오 API 하나가 서버 전체를 먹통으로 만든 것이다.
+          이걸 <strong>Cascading Failure(장애 전파)</strong>라고 한다.
+        </p>
+
+        <h2>"그럼 타임아웃 짧게 걸면 되지 않나?"</h2>
+
+        <p>
+          맞다. 타임아웃을 1초로 걸면 스레드 고갈은 막을 수 있다.
+          그런데 이번엔 다른 문제가 생긴다.
+        </p>
+
+        <pre><code>요청 1 → 1초 후 TimeoutException → 재시도
+요청 2 → 1초 후 TimeoutException → 재시도
+요청 3 → 1초 후 TimeoutException → 재시도</code></pre>
+
+        <p>
+          카카오 API가 이미 느린데 거기에 재시도까지 쏟아붓는다.
+          이미 힘든 서버에 요청을 몇 배로 늘리는 꼴이다.
+          이걸 <strong>Retry Storm(재시도 폭풍)</strong>이라고 한다.
+          회복할 시간을 주지 않으니 더 오래 죽어있게 된다.
+        </p>
+
+        <h2>CircuitBreaker의 핵심 아이디어</h2>
+
+        <p>
+          전기 차단기(Circuit Breaker)를 생각해보자.
+          과전류가 흐르면 차단기가 내려가고 회로가 끊긴다.
+          불이 나기 전에 먼저 막는 것이다.
+          고치고 나면 차단기를 올려서 다시 연결한다.
+        </p>
+
+        <p>소프트웨어 CircuitBreaker도 똑같은 역할이다.</p>
+
+        <pre><code>외부 API 실패가 일정 비율 초과
+  → CircuitBreaker가 열린다 (OPEN)
+  → 이후 요청은 외부 API에 닿지도 않고 즉시 차단
+  → 외부 API는 회복할 시간을 얻는다
+  → 잠시 후 소수의 요청만 통과시켜 회복 확인 (HALF_OPEN)
+  → 정상이면 다시 열어준다 (CLOSED)</code></pre>
+
+        <p>
+          핵심은 <strong>"실패하고 있을 때 계속 시도하지 않는다"</strong>는 것이다.
+          외부 시스템이 죽어있다는 걸 알면, 회복될 때까지 요청을 막아서
+          내 서버의 스레드와 커넥션을 지키고, 외부 시스템이 숨 쉴 틈을 준다.
+        </p>
+
+        <h2>ALIO-GW에서 도입한 배경</h2>
+
+        <p>
+          ALIO-GW는 카카오 API를 통해 알림을 발송하는 게이트웨이다.
+          카카오 API 장애가 발생했을 때 기존 방식으로는 7~8분 동안 수동으로 확인하고 개입해야 했다.
+        </p>
+
+        <p>
+          CircuitBreaker를 도입하고 나서는 실패율이 임계값을 넘는 순간 자동으로 차단되고,
+          회복되면 자동으로 재개된다. 장애 대응 시간이 10~30초로 줄었다.
+        </p>
+
+        <p>
+          다음 편에서는 CircuitBreaker의 3가지 상태가 어떻게 전이되는지,
+          그 내부 메커니즘을 실험과 함께 파헤친다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

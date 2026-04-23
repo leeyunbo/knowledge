@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.22 · 시리즈 2/5</div>
+        <h1>CLOSED → OPEN → HALF_OPEN<br>3-state 완전 이해</h1>
+        <p class="subtitle">
+          CircuitBreaker가 언제 열리고, 언제 닫히는지.
+          Sliding Window와 minimum-number-of-calls가 오탐을 어떻게 막는지.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CircuitBreaker 깊게 파기</div>
+        <ol>
+          <li><a href="./01-왜-필요한가.html">CircuitBreaker는 왜 필요한가</a></li>
+          <li class="current">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</li>
+          <li><a href="./03-어노테이션-하나로는-부족하다.html">@CircuitBreaker 어노테이션 하나로는 부족하다</a></li>
+          <li><a href="./04-retry-bulkhead-조합.html">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</a></li>
+          <li><a href="./05-분산-환경.html">분산 환경에서 CircuitBreaker</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>3가지 상태</h2>
+
+        <pre><code>CLOSED ──실패율 초과──► OPEN ──wait-duration 후──► HALF_OPEN
+  ▲                                                      │
+  └──────────────── 복구 성공 ──────────────────────────┘
+                                         │ 복구 실패
+                                      다시 OPEN</code></pre>
+
+        <ul>
+          <li><strong>CLOSED</strong>: 정상 동작. 모든 요청을 통과시키며 실패율을 측정한다.</li>
+          <li><strong>OPEN</strong>: 차단 상태. 요청이 들어오면 외부 API에 닿지도 않고 즉시 <code>CallNotPermittedException</code>을 던진다.</li>
+          <li><strong>HALF_OPEN</strong>: 복구 테스트 중. 제한된 수의 요청만 통과시켜 외부 시스템이 살아났는지 확인한다.</li>
+        </ul>
+
+        <h2>Sliding Window — 실패율을 어떻게 측정하나</h2>
+
+        <p>CircuitBreaker는 모든 호출을 기억하지 않는다. 최근 N건만 본다.</p>
+
+        <pre><code>sliding-window-type: COUNT_BASED   # 최근 N건 기준
+sliding-window-size: 10            # 최근 10건을 버퍼로 유지
+failure-rate-threshold: 50         # 실패율 50% 초과 시 OPEN</code></pre>
+
+        <p>
+          <code>COUNT_BASED</code>는 최근 10건의 호출 결과를 버퍼로 유지하고,
+          그 안에서 실패 비율이 50%를 넘으면 OPEN된다.
+        </p>
+
+        <p>
+          <code>TIME_BASED</code>도 있다. 최근 N초 안의 호출을 본다.
+          트래픽이 일정하지 않을 때 유용하지만, 새벽처럼 트래픽이 극히 적을 때
+          분모가 작아져서 오탐이 생길 수 있다. 보통은 <code>COUNT_BASED</code>를 기본으로 쓴다.
+        </p>
+
+        <h2>minimum-number-of-calls — 오탐 방지 장치</h2>
+
+        <p>
+          <code>failure-rate-threshold: 50</code>만 있으면 문제가 생긴다.
+          서버가 막 뜬 직후, 첫 번째 요청이 실패하면 실패율이 100%다.
+          CircuitBreaker가 즉시 OPEN된다.
+        </p>
+
+        <pre><code>minimum-number-of-calls: 5   # 5건 이상 쌓여야 통계 시작</code></pre>
+
+        <p>이 설정이 있으면 동작이 달라진다.</p>
+
+        <pre><code>call-1 실패  → buffered=1, minimum(5) 미달 → 통계 시작 안 함
+call-2 실패  → buffered=2 → 미달
+call-3 실패  → buffered=3 → 미달
+call-4 실패  → buffered=4 → 미달
+call-5 실패  → buffered=5, minimum 충족 → 실패율 100% → OPEN</code></pre>
+
+        <p>
+          새벽에 트래픽이 적어서 1~2건 실패해도 CircuitBreaker가 열려버리는 오탐을 막는다.
+          새벽 트래픽이 적은 시간대에 특히 중요한 설정이다.
+        </p>
+
+        <h2>HALF_OPEN은 별도 윈도우를 쓴다</h2>
+
+        <p>
+          OPEN 상태가 <code>wait-duration-in-open-state</code>만큼 지속되면
+          CircuitBreaker는 자동으로 HALF_OPEN으로 전이된다.
+          이때 Sliding Window 설정은 쓰지 않는다.
+        </p>
+
+        <pre><code>permitted-number-of-calls-in-half-open-state: 3</code></pre>
+
+        <p>딱 3건만 통과시킨다. 나머지는 여전히 차단이다.</p>
+
+        <pre><code>HALF_OPEN 진입
+  → call 1: 성공  (아직 판정 안 함)
+  → call 2: 성공  (아직 판정 안 함)
+  → call 3: 성공  → 실패율 0% < 50% → CLOSED 복구
+  → call 3: 실패  (call 1, 2는 성공) → 실패율 33% < 50% → CLOSED 복구
+  → call 3: 실패  (call 1도 실패) → 실패율 67% > 50% → OPEN 복귀</code></pre>
+
+        <p>
+          minimum 조건이 없다. 이미 "회복 테스트 중"임을 알기 때문에
+          3건을 전부 모아서 한 번에 판정한다.
+        </p>
+
+        <h2>실험으로 확인한 전이 흐름</h2>
+
+        <p>SLOW 모드(응답 3초)로 8번 연속 호출했을 때의 실제 결과다.</p>
+
+        <pre><code>call-1: SENT(slow): hello  |  state=CLOSED fail=-1.0% buffered=1
+call-2: SENT(slow): hello  |  state=CLOSED fail=-1.0% buffered=2
+call-3: SENT(slow): hello  |  state=CLOSED fail=-1.0% buffered=3
+call-4: SENT(slow): hello  |  state=CLOSED fail=-1.0% buffered=4
+call-5: SENT(slow): hello  |  state=OPEN   fail=100%  buffered=5
+call-6: FALLBACK(cb-open)  |  state=OPEN   fail=100%  buffered=5
+call-7: FALLBACK(cb-open)  |  state=OPEN   fail=100%  buffered=5
+call-8: FALLBACK(cb-open)  |  state=OPEN   fail=100%  buffered=5</code></pre>
+
+        <p>
+          <code>fail=-1.0%</code>는 "아직 통계 없음"이다. minimum(5) 미달이라 집계하지 않는다.
+          call-5에서 minimum을 채우는 순간 slow-call-rate가 100%로 계산되어 즉시 OPEN.
+          call-6부터는 외부 API에 닿지도 않고 fallback으로 즉시 빠진다.
+        </p>
+
+        <p>10초 후 HALF_OPEN으로 자동 전이, 정상 모드로 3번 성공하면 CLOSED로 복구된다.</p>
+
+        <pre><code>call-1: SENT: recover-1  |  state=HALF_OPEN
+call-2: SENT: recover-2  |  state=HALF_OPEN
+call-3: SENT: recover-3  |  state=CLOSED</code></pre>
+
+        <p>
+          다음 편에서는 이 기본 구조 위에서
+          <code>@CircuitBreaker</code> 어노테이션만으로는 놓치게 되는 실전 설정들을 다룬다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

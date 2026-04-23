@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>@Retry + @Bulkhead 조합, 순서가 왜 중요한가 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.22 · 시리즈 4/5</div>
+        <h1>@Retry + @Bulkhead 조합<br>순서가 왜 중요한가</h1>
+        <p class="subtitle">
+          @Retry와 @CircuitBreaker를 같이 쓸 때 순서를 바꾸면 CircuitBreaker가 제대로 동작하지 않는다.
+          @Bulkhead는 CircuitBreaker와 역할이 다르다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CircuitBreaker 깊게 파기</div>
+        <ol>
+          <li><a href="./01-왜-필요한가.html">CircuitBreaker는 왜 필요한가</a></li>
+          <li><a href="./02-3-state-완전-이해.html">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</a></li>
+          <li><a href="./03-어노테이션-하나로는-부족하다.html">@CircuitBreaker 어노테이션 하나로는 부족하다</a></li>
+          <li class="current">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</li>
+          <li><a href="./05-분산-환경.html">분산 환경에서 CircuitBreaker</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>@Retry + @CircuitBreaker — 순서가 결과를 바꾼다</h2>
+
+        <p>
+          일시적인 네트워크 오류라면 재시도가 맞다.
+          그래서 <code>@Retry</code>와 <code>@CircuitBreaker</code>를 같이 쓰고 싶어진다.
+          그런데 두 어노테이션의 순서에 따라 CircuitBreaker가 보는 세계가 달라진다.
+        </p>
+
+        <h3>올바른 순서: Retry가 바깥</h3>
+
+        <pre><code>@Retry(name = "kakaoApi")
+@CircuitBreaker(name = "kakaoApi", fallbackMethod = "fallback")
+public String sendWithRetry(String message) {
+    return kakaoApi.send(message);
+}</code></pre>
+
+        <p>Spring AOP는 어노테이션을 바깥에서 안쪽으로 프록시를 쌓는다.</p>
+
+        <pre><code>호출자 → [Retry Proxy] → [CircuitBreaker Proxy] → 실제 메서드</code></pre>
+
+        <p>실패 흐름:</p>
+
+        <pre><code>1차 실패 → CircuitBreaker: 실패 1건 기록 → Retry: 재시도
+2차 실패 → CircuitBreaker: 실패 2건 기록 → Retry: 재시도
+3차: CircuitBreaker가 이미 OPEN → CallNotPermittedException 발생
+    → Retry의 ignoreExceptions에 포함 → 즉시 포기</code></pre>
+
+        <p>
+          재시도할 때마다 CircuitBreaker가 실패를 기록한다.
+          3번 재시도해서 3번 다 실패했다는 건 "이미 3번 찔러봤는데 다 죽어있음"이다.
+          CircuitBreaker도 3건으로 기록해야 빠르게 OPEN되고 이후 요청을 막을 수 있다.
+        </p>
+
+        <h3>순서를 뒤집으면</h3>
+
+        <pre><code>호출자 → [CircuitBreaker Proxy] → [Retry Proxy] → 실제 메서드</code></pre>
+
+        <pre><code>CircuitBreaker가 Retry를 통째로 감싼다.
+
+Retry 내부에서 3번 재시도 → CircuitBreaker에겐 "1번 실패"로만 보임.
+실제로는 3번 다 실패했는데 CircuitBreaker는 1건만 카운트.
+OPEN이 훨씬 늦어진다 → 외부 API가 죽어있어도 보호 반응이 느려진다.</code></pre>
+
+        <blockquote>
+          Resilience4j Spring Boot의 기본 Aspect 우선순위도 Retry가 바깥으로 설정되어 있다.
+          (<code>LOWEST_PRECEDENCE - 3</code> vs CircuitBreaker의 <code>LOWEST_PRECEDENCE - 2</code>)
+          의도를 알고 쓰는 것과 모르고 쓰는 건 다르다.
+        </blockquote>
+
+        <!-- ────────────────────────── -->
+        <h2>@Bulkhead — CircuitBreaker와 역할이 다르다</h2>
+
+        <p>
+          CircuitBreaker는 <strong>실패율</strong>을 보고 차단한다.
+          Bulkhead는 <strong>동시 요청 수</strong>를 보고 차단한다. 역할이 완전히 다르다.
+        </p>
+
+        <pre><code>resilience4j:
+  bulkhead:
+    instances:
+      kakaoApi:
+        max-concurrent-calls: 5     # 동시에 5개까지만 허용
+        max-wait-duration: 0ms      # 초과 시 즉시 BulkheadFullException</code></pre>
+
+        <pre><code>@Bulkhead(name = "kakaoApi", fallbackMethod = "fallback")
+@CircuitBreaker(name = "kakaoApi", fallbackMethod = "fallback")
+public String sendBulkhead(String message) {
+    return kakaoApi.send(message);
+}</code></pre>
+
+        <p>두 가지를 함께 쓰는 이유가 있다.</p>
+
+        <p>
+          요청이 폭주하면 CircuitBreaker의 Sliding Window가 빠르게 채워진다.
+          정상적인 요청들이 단순히 "동시에 너무 많이 들어와서" 타임아웃이 나고,
+          그게 실패로 카운트되어 CircuitBreaker가 OPEN되는 상황이 생긴다.
+          외부 API가 멀쩡한데 CircuitBreaker가 열리는 것이다.
+        </p>
+
+        <p>
+          Bulkhead가 동시 요청을 5개로 제한해주면,
+          CircuitBreaker는 실제로 외부 API가 불안정한지만 보고 판단할 수 있다.
+          역할을 나눠서 각자 제 역할만 하게 한다.
+        </p>
+
+        <h2>정리: 세 가지 조합의 역할</h2>
+
+        <pre><code>@Bulkhead       — 동시 요청 수 제한 (격벽)
+@Retry          — 일시적 오류 재시도
+@CircuitBreaker — 실패율 기반 차단</code></pre>
+
+        <p>
+          셋을 함께 쓴다면 순서는 Bulkhead → Retry → CircuitBreaker (바깥에서 안쪽).
+          Bulkhead가 폭주를 막고, Retry가 일시적 오류를 재시도하고, CircuitBreaker가 실패율을 판단한다.
+        </p>
+
+        <p>
+          다음 편에서는 이 모든 설정이 Pod마다 독립적으로 동작하는 분산 환경에서
+          어떤 문제가 생기고 어떻게 해결하는지 다룬다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
