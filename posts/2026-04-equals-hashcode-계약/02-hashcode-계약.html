@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>hashCode 계약, 세 규칙과 위반 시 일어나는 일 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.29 · 시리즈 2/3</div>
+        <h1>hashCode 계약, 세 규칙과 위반 시 일어나는 일</h1>
+        <p class="subtitle">
+          "두 객체가 같으면 같은 해시여야 한다"는 사실 두 번째 규칙이다.
+          첫 번째를 깨면, 같은 객체조차 HashMap에서 사라진다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">equals와 hashCode의 함정</div>
+        <ol>
+          <li><a href="./01-equals만-오버라이드하면.html">equals만 오버라이드하면 객체가 사라진다</a></li>
+          <li class="current">hashCode 계약, 세 규칙과 위반 시 일어나는 일</li>
+          <li><a href="./03-jpa-엔티티.html">JPA 엔티티의 equals/hashCode — Lombok @Data가 위험한 이유</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>계약은 한 줄이 아니다</h2>
+
+        <p>
+          1편에서 다룬 "<code>equals</code>가 같으면 <code>hashCode</code>도 같아야 한다"는
+          사실 <code>Object</code> 명세의 두 번째 규칙이다.
+          공식 문서에 적힌 <code>hashCode</code> 계약은 세 가지다.
+          하나씩 보면 각 규칙이 어떤 시나리오를 막기 위해 존재하는지 드러난다.
+        </p>
+
+        <h2>규칙 1 — 한 번 결정된 해시는 변하지 않는다</h2>
+
+        <blockquote>
+          Whenever it is invoked on the same object more than once during an execution of a Java application,
+          the hashCode method must consistently return the same integer,
+          provided no information used in equals comparisons on the object is modified.
+          <br><br>
+          (한 번의 애플리케이션 실행 동안, 같은 객체에 <code>hashCode</code>를 여러 번 호출하면
+          항상 같은 정수를 돌려줘야 한다.
+          단, <code>equals</code> 비교에 쓰이는 정보가 변하지 않은 동안만)
+        </blockquote>
+
+        <p>
+          이 규칙을 정면으로 깨는 코드는 잘 안 짠다. 이런 식으로 짤 사람은 없다.
+        </p>
+
+        <pre><code>@Override
+public int hashCode() {
+    return new Random().nextInt();  // 호출마다 다른 값
+}</code></pre>
+
+        <p>
+          문제는 의도하지 않게 깨는 케이스다.
+          가장 흔한 게 <strong>가변 필드를 <code>hashCode</code>에 넣는 경우</strong>.
+          코드만 보면 멀쩡한데, 그 필드가 중간에 바뀌는 순간 같은 객체에서
+          <code>hashCode</code> 결과가 달라진다.
+        </p>
+
+        <pre><code>class User {
+    private String name;
+    private int age;
+
+    public void changeAge(int newAge) {
+        this.age = newAge;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, age);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof User u)) return false;
+        return age == u.age && name.equals(u.name);
+    }
+}</code></pre>
+
+        <p>
+          이 객체를 <code>HashMap</code> 키로 쓰면 끔찍한 일이 벌어진다.
+        </p>
+
+        <pre><code>User u = new User("yunbok", 30);
+Map&lt;User, Integer&gt; scores = new HashMap&lt;&gt;();
+scores.put(u, 100);
+
+u.changeAge(31);                   // age 변경
+scores.get(u);                     // null
+scores.containsKey(u);             // false
+scores.size();                     // 1</code></pre>
+
+        <p>
+          넣은 객체 그 자체로 다시 꺼내려는데 못 꺼낸다.
+          <code>age</code>가 바뀌면서 <code>hashCode</code>가 달라졌고,
+          <code>HashMap</code>은 옛 해시 기준으로 계산된 버킷에 객체를 넣어둔 채
+          새 해시로 다른 버킷을 뒤지고 있다.
+          맵은 그 객체를 잃어버린 게 아니라, 다른 자리에 두고 다른 자리를 찾고 있을 뿐이다.
+        </p>
+
+        <p>
+          그래서 <strong>해시 키로 쓸 객체는 불변이거나, 최소한 <code>equals</code>/<code>hashCode</code>에
+          쓰이는 필드는 키로 사용 중인 동안 절대 바뀌지 않아야 한다.</strong>
+          <code>String</code>, <code>Integer</code> 같은 표준 키 타입이 모두 불변인 데는 이유가 있다.
+        </p>
+
+        <h2>규칙 2 — 같은 객체는 같은 해시</h2>
+
+        <blockquote>
+          If two objects are equal according to the equals method,
+          then calling the hashCode method on each of the two objects must produce the same integer result.
+          <br><br>
+          (<code>equals</code> 메서드 기준으로 두 객체가 같다면,
+          두 객체의 <code>hashCode</code> 호출은 반드시 같은 정수 값을 돌려줘야 한다)
+        </blockquote>
+
+        <p>
+          이게 1편에서 본 그 규칙이다.
+          <code>equals</code>만 오버라이드한 객체는 이걸 자동으로 깬다 —
+          값은 같은데 디폴트 <code>hashCode</code>가 인스턴스마다 다른 값을 돌려주기 때문에.
+          그 결과 <code>HashMap</code>에서 사라진 것처럼 보인다.
+        </p>
+
+        <p>
+          이걸 막으려면 <code>equals</code>에서 비교하는 필드와
+          <code>hashCode</code>에서 쓰는 필드가 완전히 일치해야 한다.
+          한쪽에서 <code>name</code>, <code>age</code>를 보면
+          다른 쪽에서도 똑같이 둘 다 봐야 한다.
+        </p>
+
+        <h2>규칙 3 — 다른 객체가 다른 해시일 필요는 없다</h2>
+
+        <blockquote>
+          It is not required that if two objects are unequal according to the equals method,
+          then calling the hashCode method on each of the two objects must produce distinct integer results.
+          However, the programmer should be aware that producing distinct integer results
+          for unequal objects may improve the performance of hash tables.
+          <br><br>
+          (<code>equals</code> 기준으로 다른 두 객체가 다른 정수를 돌려줄 필요는 없다.
+          다만 다른 객체에 다른 결과를 돌려주는 것이 해시 테이블 성능을 향상시킨다는 점은
+          알고 있어야 한다)
+        </blockquote>
+
+        <p>
+          앞의 두 규칙과 다르게 이건 <em>권장사항</em>이다.
+          깨도 동작은 한다. 다만 비싼 대가가 따라온다.
+          극단적으로 모든 객체가 같은 해시를 돌려주면 어떻게 되는지 보자.
+        </p>
+
+        <pre><code>@Override
+public int hashCode() {
+    return 0;  // 모든 객체가 같은 해시
+}</code></pre>
+
+        <p>
+          이러면 <code>HashMap</code>의 모든 항목이 단 하나의 버킷에 몰린다.
+          <code>get</code>은 그 버킷 안의 모든 항목을 <code>equals</code>로 하나씩 비교해야 한다.
+          <code>HashMap</code>이라는 이름이 무색하게 <strong>O(n) 선형 탐색</strong>이 된다.
+          백 만 건 들어있으면 한 번 조회에 백 만 번 비교다.
+        </p>
+
+        <p>
+          요점은 규칙 3을 안 지키면 망가지는 게 아니라 <em>느려진다</em>는 것.
+          그래서 권장사항이지 강제사항이 아니다.
+          하지만 실무에서 이걸 일부러 깨는 경우는 거의 없고,
+          깨이는 건 보통 hashCode를 너무 단순하게 짠 결과다.
+          예를 들어 필드 하나만 쓰면, 그 필드 값이 같은 객체들이 다 같은 해시가 된다.
+        </p>
+
+        <h2>그럼 hashCode는 어떻게 만들어야 하나</h2>
+
+        <p>
+          IDE가 자동 생성하는 <code>hashCode</code>는 보통 두 형태 중 하나다.
+        </p>
+
+        <pre><code>// 형태 A: 31 누적 패턴 (전통적)
+@Override
+public int hashCode() {
+    int result = name.hashCode();
+    result = 31 * result + age;
+    return result;
+}
+
+// 형태 B: Objects.hash() (간결)
+@Override
+public int hashCode() {
+    return Objects.hash(name, age);
+}</code></pre>
+
+        <p>
+          둘 다 같은 일을 한다 — <code>equals</code>에서 비교하는 필드들의 해시를 조합해
+          하나의 정수로 만든다. <code>31</code>이라는 숫자가 자주 보이는 이유는
+          소수이면서 곱셈을 시프트 연산으로 최적화하기 좋기 때문인데,
+          핵심은 그게 아니라 <strong><code>equals</code>와 똑같은 필드 집합을 쓴다</strong>는 것.
+        </p>
+
+        <p>
+          <code>Objects.hash()</code>는 가변 인자(varargs)를 받기 때문에
+          호출 시 배열 할당이 일어난다. 핫패스에서 수억 번 부르는 게 아니라면 무시할 수준이다.
+          가독성을 우선하는 게 보통 더 현실적인 선택이다.
+        </p>
+
+        <h2>여기까지가 계약의 전부지만</h2>
+
+        <p>
+          세 규칙을 다 지킨 <code>equals</code>/<code>hashCode</code>를 만들 줄 알면
+          순수 자바 객체 다루기는 끝났다. 그런데 JPA 엔티티에서 이게 다 깨진다.
+        </p>
+
+        <p>
+          엔티티의 ID는 영속화 전엔 null이고, Lazy Loading 때문에
+          연관 객체의 필드를 만지면 SQL이 나가고,
+          Lombok <code>@Data</code>가 만들어주는 <code>equals</code>/<code>hashCode</code>는
+          이 모든 함정에 정면으로 빠진다.
+          다음 편에서 이걸 본격적으로 푼다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

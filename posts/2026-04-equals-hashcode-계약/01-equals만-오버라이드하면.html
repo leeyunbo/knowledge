@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>equals만 오버라이드하면 객체가 사라진다 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.29 · 시리즈 1/3</div>
+        <h1>equals만 오버라이드하면 객체가 사라진다</h1>
+        <p class="subtitle">
+          분명히 같은 값을 가진 객체인데 HashMap에서 못 찾는 순간.
+          그리고 그게 왜 자연스러운 결과인지.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">equals와 hashCode의 함정</div>
+        <ol>
+          <li class="current">equals만 오버라이드하면 객체가 사라진다</li>
+          <li><a href="./02-hashcode-계약.html">hashCode 계약 — 같은 객체는 같은 해시여야 한다는 진짜 의미</a></li>
+          <li><a href="./03-jpa-엔티티.html">JPA 엔티티의 equals/hashCode — Lombok @Data가 위험한 이유</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>두 객체를 같다고 보고 싶은 순간</h2>
+
+        <p>
+          값 객체(value object)를 만들 때마다 부딪히는 첫 번째 결정.
+          <code>new User("yunbok", 30)</code>와 <code>new User("yunbok", 30)</code>를
+          같은 객체로 볼 것인가, 다른 객체로 볼 것인가.
+        </p>
+
+        <p>
+          기본 동작은 다른 객체다. <code>Object.equals</code>는 참조 비교라서
+          두 인스턴스가 메모리상 다른 위치면 무조건 false를 돌려준다.
+          값 동등성을 원하면 <code>equals</code>를 오버라이드해야 한다.
+          그래서 다들 IDE 단축키로 이렇게 짠다.
+        </p>
+
+        <pre><code>class User {
+    private final String name;
+    private final int age;
+
+    public User(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof User u)) return false;
+        return age == u.age && name.equals(u.name);
+    }
+}</code></pre>
+
+        <p>
+          이렇게만 해도 일대일 비교는 잘 된다.
+        </p>
+
+        <pre><code>User u1 = new User("yunbok", 30);
+User u2 = new User("yunbok", 30);
+u1.equals(u2);  // true</code></pre>
+
+        <p>
+          여기서 끝났다고 생각하기 쉽다. 그런데 이 객체를 컬렉션에 담는 순간 이상한 일이 일어난다.
+        </p>
+
+        <h2>HashMap에 넣으면 사라진다</h2>
+
+        <p>
+          이 <code>User</code>를 키로 쓰는 <code>HashMap</code>에 점수를 저장한다고 하자.
+          넣을 때와 똑같이 생긴 키로 꺼내본다.
+        </p>
+
+        <pre><code>Map&lt;User, Integer&gt; scores = new HashMap&lt;&gt;();
+scores.put(new User("yunbok", 30), 100);
+
+Integer score = scores.get(new User("yunbok", 30));
+System.out.println(score);  // null</code></pre>
+
+        <p>
+          분명히 <code>equals</code>로는 같다고 판정되는 두 객체인데
+          <code>get</code>은 null을 돌려준다.
+          넣은 적 없는 키처럼 동작한다.
+        </p>
+
+        <p>
+          더 이상한 건 <code>contains</code>도 false다.
+          <code>scores.size()</code>는 1인데 그 키를 꺼낼 수가 없다.
+          마치 객체가 사라진 것처럼 보인다.
+        </p>
+
+        <h2>HashMap이 키를 찾는 두 단계</h2>
+
+        <p>
+          <code>HashMap</code>의 <code>get</code> 동작은 두 단계로 진행된다.
+          첫째, 키의 <code>hashCode</code>로 어느 버킷에 들었는지 결정한다.
+          둘째, 그 버킷 안에서 <code>equals</code>로 정확한 키를 찾는다.
+        </p>
+
+        <pre><code>get(key) 흐름
+
+  1. key.hashCode() → 버킷 인덱스 계산
+  2. 해당 버킷으로 이동
+  3. 버킷 안 항목들과 key.equals() 비교
+  4. 일치하면 value 반환, 없으면 null</code></pre>
+
+        <p>
+          공식 문서가 이 동작을 직접적으로 명시한다.
+          <code>get</code>의 정의는 이렇다.
+        </p>
+
+        <blockquote>
+          if this map contains a mapping from a key k to a value v
+          such that (key==null ? k==null : key.equals(k)),
+          then this method returns v
+          <br><br>
+          (<code>get(key)</code>에 넘긴 key가, 맵에 저장된 어떤 키 k와
+          <code>key.equals(k)</code>로 같다고 판정되면, 그 키에 매핑된 값 v를 돌려준다)
+        </blockquote>
+
+        <p>
+          명세가 변수 이름을 <code>key</code>와 <code>k</code> 둘로 갈라놔서 헷갈리는데, 풀어 쓰면 한 줄이다.
+          <code>key</code>는 내가 <code>get</code>에 넘긴 인자,
+          <code>k</code>는 맵 안에 이미 저장된 키다.
+          그러니까 결국 <strong>"내가 넘긴 키와 <code>equals</code>로 같은 저장된 키가 있으면,
+          그 값을 돌려준다"</strong>가 전부다.
+        </p>
+
+        <p>
+          그리고 성능 보장은 다음 전제 위에서만 성립한다.
+        </p>
+
+        <blockquote>
+          hash function disperses the elements properly among the buckets
+          <br><br>
+          (해시 함수가 원소들을 버킷 사이에 적절히 분산시킨다)
+        </blockquote>
+
+        <p>
+          정리하면 버킷 분배는 <code>hashCode</code>가, 동등성 판정은 <code>equals</code>가 한다.
+        </p>
+
+        <p>
+          이게 핵심이다. <strong>두 객체가 같은 버킷에 들어가지 않으면
+          <code>equals</code> 비교까지 가지도 않는다.</strong>
+        </p>
+
+        <h2>그래서 왜 사라졌는가</h2>
+
+        <p>
+          <code>equals</code>만 오버라이드한 <code>User</code>의 <code>hashCode</code>는
+          <code>Object</code> 디폴트가 그대로 남아있다.
+          이게 무슨 값을 돌려주는지 직접 찍어보면 충격적이다.
+        </p>
+
+        <pre><code>User u1 = new User("yunbok", 30);
+User u2 = new User("yunbok", 30);
+
+System.out.println(u1.hashCode());  // 예: 1554874502
+System.out.println(u2.hashCode());  // 예: 1846274136</code></pre>
+
+        <p>
+          같은 값을 가진 두 객체가 완전히 다른 해시를 돌려준다.
+          그래서 <code>HashMap</code> 입장에선 두 객체가 다른 버킷에 들어가고,
+          <code>get</code>은 다른 버킷을 뒤지다가 못 찾고 null을 반환한다.
+          <code>equals</code> 비교 단계까진 도달하지도 못 한다.
+        </p>
+
+        <div class="callout">
+          <strong>흔한 오해</strong> — <code>Object.hashCode()</code>가 메모리 주소를 반환한다는
+          설명이 자주 보이는데, 정확하지 않다.
+          OpenJDK HotSpot의 기본 옵션 <code>-XX:hashCode=5</code>는
+          Marsaglia Xorshift 기반의 thread-local PRNG로 값을 만들어
+          object header에 저장한다.
+          주소가 아니라 "객체별로 다른 값을 한 번 만들어 박아두는" 구조다.
+          어쨌든 핵심은 <strong>인스턴스마다 다른 값이 나온다</strong>는 것.
+        </div>
+
+        <h2>equals와 hashCode 계약</h2>
+
+        <p>
+          왜 이런 구조가 됐을까. <code>Object</code> 명세에 박혀있는 계약 때문이다.
+          <code>hashCode</code>의 계약 중 두 번째 항목이 결정적이다.
+        </p>
+
+        <blockquote>
+          If two objects are equal according to the equals method,
+          then calling the hashCode method on each of the two objects
+          must produce the same integer result.
+          <br><br>
+          (<code>equals</code> 메서드 기준으로 두 객체가 같다면,
+          두 객체의 <code>hashCode</code> 호출은 반드시 같은 정수 값을 돌려줘야 한다)
+        </blockquote>
+
+        <p>
+          <code>equals</code>로 같다고 한 두 객체는 반드시 같은 <code>hashCode</code>를
+          돌려줘야 한다. 이걸 깨면 해시 기반 자료구조 전체가 망가진다.
+          반대 방향(<code>equals</code>가 다른 객체끼리 다른 해시)은 권장사항일 뿐이다.
+        </p>
+
+        <p>
+          <code>HashMap</code>은 이 계약을 전제로 설계됐다.
+          계약을 어긴 객체를 키로 쓰면 동작이 망가지는 게 정상이다.
+          버그가 아니라 계약 위반의 결과다.
+        </p>
+
+        <h2>HashMap만의 문제가 아니다</h2>
+
+        <p>
+          해시를 쓰는 자료구조는 모두 같은 함정에 빠진다.
+        </p>
+
+        <pre><code>Set&lt;User&gt; users = new HashSet&lt;&gt;();
+users.add(new User("yunbok", 30));
+users.contains(new User("yunbok", 30));  // false
+
+Stream.of(new User("yunbok", 30), new User("yunbok", 30))
+      .distinct()
+      .count();  // 2 (중복 제거 안 됨)
+
+ConcurrentHashMap&lt;User, Integer&gt; cache = new ConcurrentHashMap&lt;&gt;();
+// 마찬가지</code></pre>
+
+        <p>
+          <code>HashSet</code>은 내부적으로 <code>HashMap</code>을 쓰고,
+          <code>Stream.distinct()</code>도 해시 기반 동등성 판정을 쓴다.
+          <code>equals</code>만 오버라이드한 객체는 이 모든 곳에서 조용히 깨진다.
+          예외도 안 던진다. 그냥 동작이 틀어진다.
+        </p>
+
+        <h2>결국 둘은 같이 가야 한다</h2>
+
+        <p>
+          이 시리즈의 출발점이 여기다. <code>equals</code>를 오버라이드했다면
+          <code>hashCode</code>도 반드시 같이 오버라이드해야 한다.
+          IDE가 둘을 묶어서 만들어주는 데는 이유가 있다.
+        </p>
+
+        <p>
+          그런데 "같이 만들어주면 끝나는 거 아니냐"고 하기엔
+          <code>hashCode</code> 계약은 한 줄짜리가 아니다.
+          세 가지 규칙이 있고, 각각 깨면 다른 방식으로 자료구조를 망가뜨린다.
+          다음 편에서 그 세 규칙과 위반 시 일어나는 일들을 하나씩 짚는다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

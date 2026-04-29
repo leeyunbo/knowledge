@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.29 · 시리즈 3/3</div>
+        <h1>JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유</h1>
+        <p class="subtitle">
+          엔티티에 무심코 <code>@Data</code> 붙이는 순간 깔리는 세 가지 함정.
+          ID 기반 해시도, 가변 필드도, Hibernate 프록시도 다 같은 곳에서 깨진다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">equals와 hashCode의 함정</div>
+        <ol>
+          <li><a href="./01-equals만-오버라이드하면.html">equals만 오버라이드하면 객체가 사라진다</a></li>
+          <li><a href="./02-hashcode-계약.html">hashCode 계약, 세 규칙과 위반 시 일어나는 일</a></li>
+          <li class="current">JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>흔한 패턴, 그리고 깨지는 순간</h2>
+
+        <p>
+          Spring Boot + JPA 프로젝트에서 엔티티는 보통 이렇게 시작한다.
+          Lombok이 보일러플레이트를 줄여주니까 자연스럽게 <code>@Data</code>를 붙인다.
+        </p>
+
+        <pre><code>@Entity
+@Data
+@NoArgsConstructor
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    private int age;
+
+    @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+    private List&lt;Order&gt; orders;
+}</code></pre>
+
+        <p>
+          이 코드는 컴파일도 되고, 일반 단위 테스트도 통과한다.
+          그런데 <code>@Data</code>는 <code>@EqualsAndHashCode</code>를 포함하고,
+          그 디폴트가 <strong>모든 필드를 사용해서 <code>equals</code>/<code>hashCode</code>를 만든다</strong>.
+          이게 JPA 엔티티에선 폭탄이 된다.
+        </p>
+
+        <h2>함정 1 — 영속화 전후의 ID 변화</h2>
+
+        <p>
+          <code>@GeneratedValue(strategy = IDENTITY)</code>를 쓰면
+          <code>id</code>는 <strong><code>save()</code> 전엔 null, <code>save()</code> 후엔 DB가 발급한 값</strong>으로 바뀐다.
+          모든 필드를 쓰는 <code>hashCode</code>는 <code>id</code>도 포함하니까
+          그 한 번의 변화로 같은 객체의 <code>hashCode</code>가 달라진다.
+        </p>
+
+        <pre><code>User user = new User();
+user.setName("yunbok");
+user.setAge(30);
+// user.id == null
+
+Set&lt;User&gt; cache = new HashSet&lt;&gt;();
+cache.add(user);                  // null 기반 해시로 저장
+
+userRepository.save(user);
+// user.id == 42 로 변경됨
+
+cache.contains(user);             // false
+// 같은 인스턴스인데 못 찾는다</code></pre>
+
+        <p>
+          이게 2편에서 본 "규칙 1 위반 — 같은 객체에서 호출마다 다른 해시"의
+          현실 버전이다. 코드를 보면 <code>hashCode</code>를 직접 깬 곳이 없는데,
+          DB가 ID를 발급하는 순간 객체 상태가 바뀌면서 자연스럽게 깨진다.
+        </p>
+
+        <p>
+          Vlad Mihalcea가 이 문제를 정리하면서 결론낸 내용이 핵심이다.
+        </p>
+
+        <blockquote>
+          the consistency guarantee breaks if we implemented the equals and hashCode based on the identifier just like for assigned identifiers
+          <br><br>
+          (직접 부여한 식별자와 똑같은 방식으로 자동 생성 식별자에 대해 <code>equals</code>/<code>hashCode</code>를 구현하면, 일관성 보장이 깨진다)
+        </blockquote>
+
+        <h2>함정 2 — Lazy 컬렉션이 끌려 나온다</h2>
+
+        <p>
+          <code>@Data</code>가 만든 <code>equals</code>/<code>hashCode</code>는
+          모든 필드를 건드린다. 위 예시의 <code>orders</code>처럼 <code>@OneToMany(LAZY)</code>로
+          매핑된 컬렉션도 예외가 아니다.
+          <code>equals</code>나 <code>hashCode</code>를 호출하는 순간
+          Hibernate가 그 컬렉션을 로드하려고 SQL을 날린다.
+        </p>
+
+        <pre><code>// 엔티티 하나의 hashCode 호출이
+user.hashCode();
+// → orders 필드 접근
+// → SELECT * FROM orders WHERE user_id = ? 추가 발생</code></pre>
+
+        <p>
+          <code>HashSet</code>에 엔티티 1000개를 넣었다? 1000개의 추가 SELECT가 트리거된다.
+          더 나쁜 건 트랜잭션이 닫힌 상태에서 호출하면
+          <code>LazyInitializationException</code>이 터진다.
+          서비스 레이어 밖에서 무심코 <code>equals</code> 한 번 부른 게 예외로 돌아온다.
+        </p>
+
+        <h2>함정 3 — Hibernate 프록시와 <code>getClass()</code></h2>
+
+        <p>
+          Lombok <code>@EqualsAndHashCode</code>의 디폴트는
+          타입 비교에 <code>getClass()</code>를 쓴다 (정확히 같은 클래스인지 확인).
+          그런데 Hibernate는 Lazy 연관 관계를 가져올 때 엔티티를 <strong>프록시 서브클래스</strong>로 감싼다.
+          그 프록시는 원래 엔티티 클래스가 아니다. 자식 클래스다.
+        </p>
+
+        <pre><code>User user = userRepository.findById(1L).get();
+User userProxy = order.getUser();   // Lazy로 끌려온 프록시
+
+user.getClass();                    // class User
+userProxy.getClass();               // class User$HibernateProxy$abc123
+
+user.equals(userProxy);             // false!
+// 같은 DB row를 가리키는 객체인데도</code></pre>
+
+        <p>
+          그래서 <code>getClass()</code>가 아니라 <code>instanceof</code>를 써야 한다.
+          이건 Lombok의 <code>onlyExplicitlyIncluded</code> 설정으로 우회할 수 있긴 하지만,
+          그 자체로 "엔티티에 <code>@Data</code> 그냥 붙이면 안 된다"는 신호다.
+        </p>
+
+        <h2>그럼 어떻게 짜야 하나</h2>
+
+        <p>
+          정답은 한 줄이다. <strong><code>@Data</code>를 엔티티에 쓰지 않는다.</strong>
+          <code>@Getter</code>, <code>@NoArgsConstructor</code> 정도만 쓰고
+          <code>equals</code>/<code>hashCode</code>는 직접 짠다.
+          짜는 방식은 비즈니스 키 유무에 따라 갈린다.
+        </p>
+
+        <h3>비즈니스 키가 있을 때 (가장 좋은 케이스)</h3>
+
+        <p>
+          이메일, 사용자 핸들, 주문번호처럼 <strong>변하지 않으면서 유일한 자연 키</strong>가 있으면 그걸 쓴다.
+        </p>
+
+        <pre><code>@Override
+public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!(o instanceof User u)) return false;
+    return email.equals(u.email);
+}
+
+@Override
+public int hashCode() {
+    return email.hashCode();
+}</code></pre>
+
+        <p>
+          비즈니스 키는 영속화 전에도 정해져 있고, 한 번 정해지면 안 바뀐다.
+          1편/2편의 모든 계약을 자연스럽게 만족한다.
+        </p>
+
+        <h3>비즈니스 키가 없을 때 (자동 생성 ID만 있을 때)</h3>
+
+        <p>
+          Vlad Mihalcea가 제시한 패턴이 가장 안전하다 —
+          <code>equals</code>는 ID로 비교하되 둘 다 non-null일 때만 같다고 보고,
+          <code>hashCode</code>는 클래스 단위 상수로 고정한다.
+        </p>
+
+        <pre><code>@Override
+public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!(o instanceof User u)) return false;
+    return id != null && id.equals(u.id);
+}
+
+@Override
+public int hashCode() {
+    return getClass().hashCode();
+}</code></pre>
+
+        <p>
+          핵심은 <code>hashCode</code>가 객체 상태와 무관하게 항상 같은 값을 돌려준다는 것.
+          ID가 null이든 아니든, 영속화 전이든 후든 같다.
+          그래서 2편 규칙 1(consistent)을 자동으로 지킨다.
+        </p>
+
+        <p>
+          이러면 같은 클래스의 모든 엔티티가 한 버킷에 몰리는 것 아니냐 싶지만,
+          하나의 <code>HashSet</code>이나 <code>HashMap</code>에 같은 엔티티 종류만 백 만 개 넣고 쓰는 OLTP 시나리오는
+          현실적으로 잘 없다. 한 트랜잭션 안에서 다루는 컬렉션 크기를 생각하면
+          이 트레이드오프가 합리적이다.
+        </p>
+
+        <h2>JPA 엔티티에 한정한 핵심</h2>
+
+        <p>
+          순수 자바 객체에선 1편/2편 규칙만 지키면 충분했다.
+          JPA 엔티티는 거기에 두 가지 추가 제약이 붙는다.
+        </p>
+
+        <ul>
+          <li><strong>객체 상태가 영속화 도중 바뀐다</strong>는 점 — ID, 연관 컬렉션 모두 시점에 따라 달라진다</li>
+          <li><strong>프록시가 끼어든다</strong>는 점 — 비교 방식과 lazy 트리거를 의식해야 한다</li>
+        </ul>
+
+        <p>
+          Lombok <code>@Data</code>는 이 두 제약을 전혀 모르는 채 <code>equals</code>/<code>hashCode</code>를 만든다.
+          그래서 위험하다.
+          엔티티에선 그냥 직접 짜는 게 결과적으로 안전하고 명확하다.
+        </p>
+
+        <p>
+          이걸로 <code>equals</code>/<code>hashCode</code> 시리즈는 마친다.
+          순수 객체 → 계약 → JPA 엔티티 순서로 봤는데,
+          공통 메시지는 하나다.
+          <strong>해시 기반 자료구조에 들어갈 객체는, 한 번 결정된 해시가 객체 수명 동안 변하지 않아야 한다.</strong>
+          이 규칙을 지키지 못하는 객체를 키로 쓰면 어디선가 조용히 깨진다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

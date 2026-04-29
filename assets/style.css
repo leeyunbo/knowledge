@@ -380,6 +380,25 @@ figcaption {
   font-family: var(--font-mono);
 }
 
+/* === CS PAGE === */
+.cs-category {
+  margin-top: 3rem;
+}
+.cs-category:first-of-type {
+  margin-top: 0;
+}
+.cs-category-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
 /* === MOBILE === */
 @media (max-width: 640px) {
   .container { padding: 2.5rem 1.25rem 4rem; }
