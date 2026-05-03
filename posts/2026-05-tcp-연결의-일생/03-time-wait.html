@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TIME_WAIT가 ephemeral port를 잡아먹는다 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 3/3</div>
+        <h1>TIME_WAIT가 ephemeral port를 잡아먹는다</h1>
+        <p class="subtitle">
+          정상 종료한 쪽이 60초 동안 빠져나가지 못하는 이유.
+          그리고 그 60초가 외부 API 호출 많은 클라이언트에게 왜 치명적인지.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">TCP 연결의 일생</div>
+        <ol>
+          <li><a href="./01-연결을-만든다.html">TCP 연결을 만든다는 것</a></li>
+          <li><a href="./02-연결을-끊는다.html">연결을 끊는 데 왜 4번이나 걸리나</a></li>
+          <li class="current">TIME_WAIT가 ephemeral port를 잡아먹는다</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>먼저 끊은 쪽이 마지막에 들르는 곳</h2>
+
+        <p>
+          앞 편에서 TCP 종료 절차를 봤다.
+          먼저 FIN을 보낸 쪽(active close)은 마지막에 ACK를 한 번 더 보내고
+          그 자리에서 60초를 기다린다. 이 상태가 TIME_WAIT다.
+        </p>
+
+        <pre><code>FIN_WAIT_2 ──FIN 받음──▶ TIME_WAIT
+                          │
+                          │ 60초 대기
+                          ▼
+                        CLOSED</code></pre>
+
+        <p>
+          왜 60초나 가만히 있어야 하나.
+          데이터는 다 주고받았고 4-way handshake도 끝났는데, 뭘 더 기다리는 걸까.
+        </p>
+
+        <h2>TIME_WAIT가 존재하는 두 가지 이유</h2>
+
+        <h3>이유 1 — 마지막 ACK가 손실될 수 있다</h3>
+
+        <p>
+          종료 절차의 마지막 패킷은 active close 쪽이 보내는 ACK다.
+          이 ACK가 도중에 사라지면 어떻게 되나.
+        </p>
+
+        <pre><code>[A]                              [B]
+ │ ◀── FIN ─────────────          │   B의 FIN 도착
+ │ ── ACK ─────────────❌          │   A의 ACK가 손실됨
+ │                                 │
+ │   A는 보냈으니 끝났다 생각        │
+ │                                 │   B는 ACK 못 받음
+ │                                 │   "내 FIN이 안 도달했나?" → FIN 재전송
+ │ ◀── FIN ─────────────           │
+ │   ❓                             │</code></pre>
+
+        <p>
+          A가 이미 CLOSED 상태였다면 OS는 "그런 연결 없는데?"라고 판단해서
+          B에게 RST를 보낸다. B 입장에선 비정상 종료로 처리된다.
+          A가 TIME_WAIT 상태로 남아있으면 그 자리에서 ACK를 한 번 더 보내줄 수 있다.
+        </p>
+
+        <h3>이유 2 — 늦게 떠도는 옛 패킷이 새 연결로 흡수된다</h3>
+
+        <p>
+          인터넷에는 라우팅 우회로 늦게 도착하는 패킷이 있다.
+          연결이 끝났는데 옛 패킷이 아직 인터넷에 떠도는 상황이다.
+          이 상태에서 같은 (IP, Port) 조합으로 새 연결을 만들면 어떻게 될까.
+        </p>
+
+        <pre><code>옛 연결: A:50000 ↔ B:443  →  종료
+   ↓ 늦게 떠도는 옛 패킷 (시퀀스 번호 X)이 인터넷 어딘가에 있음
+
+새 연결: A:50000 ↔ B:443  →  같은 4-tuple
+   ↓
+   옛 패킷이 도착 → 시퀀스 번호가 우연히 맞으면 새 연결의 데이터로 흡수
+   → 데이터 오염</code></pre>
+
+        <p>
+          이걸 막으려면 옛 패킷이 인터넷에서 다 사라질 때까지
+          같은 4-tuple을 재사용하지 말아야 한다.
+          MSL(Maximum Segment Lifetime)이 패킷이 인터넷에서 살아남을 수 있는 최대 시간이다.
+          왕복을 고려해서 <strong>2 × MSL</strong>을 기다리면 옛 패킷이 양방향으로 다 소멸한다.
+        </p>
+
+        <p>
+          RFC상 MSL은 2분이지만, 현대 네트워크는 그렇게 오래 떠도는 패킷이 거의 없다.
+          Linux 커널은 실용적으로 <code>TCP_TIMEWAIT_LEN</code>을 60초로 하드코딩해서
+          이 값을 빌드 시점에 박아둔다. 런타임에 sysctl로 조정 불가다.
+        </p>
+
+        <h2>4-tuple — 연결의 정체성</h2>
+
+        <p>
+          여기서 한 가지 짚어야 할 게 있다.
+          OS는 TCP 연결을 어떻게 구분하나. 답은 <strong>4-tuple</strong>이다.
+        </p>
+
+        <pre><code>연결 = (source IP, source Port, destination IP, destination Port)
+        └─────────┘                 └──────────────┘
+        내 쪽                       상대 쪽</code></pre>
+
+        <p>
+          이 네 값 중 하나라도 다르면 OS는 다른 연결로 인식한다.
+          TIME_WAIT는 이 4-tuple 단위로 60초 점유된다.
+          다른 4-tuple로는 같은 시점에 새 연결을 만들 수 있다.
+        </p>
+
+        <h2>서버 측 — TIME_WAIT가 별로 문제 안 되는 이유</h2>
+
+        <p>
+          서버는 한 포트(예: 443)로 listen하고, 여러 클라이언트가 접속한다.
+        </p>
+
+        <pre><code>[Client A: 1.1.1.1:50000] ──▶ [Server: 9.9.9.9:443]   연결 #1
+[Client A: 1.1.1.1:50001] ──▶ [Server: 9.9.9.9:443]   연결 #2
+[Client B: 2.2.2.2:60000] ──▶ [Server: 9.9.9.9:443]   연결 #3</code></pre>
+
+        <p>
+          서버 쪽은 <code>9.9.9.9:443</code>으로 고정이고, 다양성은 클라이언트 쪽
+          (IP + Port)에서 나온다.
+          서버가 연결 #1을 끊고 TIME_WAIT에 들어가도,
+          그 4-tuple <code>(9.9.9.9:443, 1.1.1.1:50000)</code>만 60초 점유될 뿐
+          <code>9.9.9.9:443</code> 자체는 listen socket으로 그대로 살아있다.
+          새 클라이언트가 다른 (IP, Port)로 들어오면 정상 수립된다.
+        </p>
+
+        <p>
+          서버의 listen 포트는 사실상 무한히 많은 동시 연결의 destination이 될 수 있다.
+          그래서 서버 쪽 TIME_WAIT는 메모리 좀 차지하는 정도지 치명적이지 않다.
+        </p>
+
+        <h2>클라이언트 측 — 진짜 문제는 여기</h2>
+
+        <p>
+          반대로 클라이언트가 외부 API를 호출할 때를 보자.
+          우리 GW가 카카오 API를 호출한다고 하자.
+        </p>
+
+        <pre><code>[GW: 192.168.1.10 : ?????] ──▶ [Kakao: 1.2.3.4:443]
+                ↑
+          이 source port는 OS가 ephemeral 풀에서 자동 할당</code></pre>
+
+        <p>
+          이번엔 destination이 <code>카카오:443</code>으로 고정이다.
+          다양성은 우리 source port에서만 나온다.
+          그리고 source port는 OS가 미리 정해둔 ephemeral 풀에서 가져오는데,
+          Linux 기본 범위는 <strong>32768~60999</strong>로 약 28,232개다.
+        </p>
+
+        <p>
+          이 풀이 작은 게 문제가 아니다. 진짜 문제는 TIME_WAIT 상태인 4-tuple도
+          그 풀의 port를 점유한다는 것이다.
+        </p>
+
+        <h2>폭망 시나리오 — 1분 안에 ephemeral port 고갈</h2>
+
+        <p>
+          keep-alive를 안 쓰고 카카오 API를 1초에 500번 호출한다고 해보자.
+          매 호출마다 새 연결을 만들고 끊는다.
+        </p>
+
+        <pre><code>1초:  500개 연결 만들고 끊음 → 500개 TIME_WAIT 누적
+2초:  또 500개 → 1,000개
+...
+56초: 28,000개 → ephemeral 풀 고갈
+57초: 새 연결 시도 → "Cannot assign requested address" 에러
+60초: 1초 차 TIME_WAIT 해제 시작</code></pre>
+
+        <p>
+          시작 후 약 1분 만에 갑자기 외부 API 호출이 줄줄이 실패하기 시작한다.
+          처음엔 멀쩡하다가 갑자기 터지니 진단하기 까다롭다.
+        </p>
+
+        <h2>증상 진단</h2>
+
+        <pre><code>$ ss -s
+Total: 35821
+TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)</code></pre>
+
+        <p>
+          <code>timewait</code>이 <code>estab</code>(현재 활성 연결)보다
+          수십~수백 배 많으면 keep-alive가 작동 안 하고 있다는 강한 신호다.
+          이상적으로는 비슷한 규모이거나 timewait이 한 자릿수 배수여야 한다.
+        </p>
+
+        <pre><code>$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
+   3 CLOSE_WAIT
+  18 ESTABLISHED
+   2 LISTEN
+32099 TIME_WAIT</code></pre>
+
+        <p>
+          TIME_WAIT 수만 개에 ESTABLISHED 두 자릿수면 connection pool이
+          제대로 동작하지 않는 게 거의 확실하다.
+        </p>
+
+        <h2>해결책 — 우선순위 순서로</h2>
+
+        <h3>1순위 — Keep-Alive와 Connection Pool</h3>
+
+        <p>
+          근본 해결은 연결을 끊지 않는 것이다.
+          한 번 만든 연결을 다음 요청에 재사용하면 close()를 거의 안 부르니
+          TIME_WAIT 자체가 거의 안 생긴다.
+          1편에서 본 handshake 비용 절약과 같은 해법이다.
+        </p>
+
+        <p>
+          Spring Boot 환경에서는 <code>RestClient</code>나 <code>WebClient</code>를
+          싱글톤 빈으로 등록하고, Apache HttpClient5를 백엔드로 두면
+          connection pool이 자동으로 keep-alive를 관리한다.
+          매 호출마다 새 클라이언트를 <code>RestClient.create()</code>로 만드는 패턴은
+          pool을 매번 새로 만들고 버리는 거라 keep-alive가 무용지물이 된다.
+        </p>
+
+        <h3>2순위 — net.ipv4.tcp_tw_reuse</h3>
+
+        <pre><code>$ sysctl -w net.ipv4.tcp_tw_reuse=1</code></pre>
+
+        <p>
+          이 옵션은 TIME_WAIT 상태인 source port를 새 outbound 연결에 재사용하도록 허용한다.
+          무작정 재사용하는 게 아니라 TCP timestamp 옵션을 이용해서
+          새 연결의 시작 시점이 옛 연결보다 충분히 뒤라는 걸 확인한 다음 재사용한다.
+        </p>
+
+        <p>
+          중요한 건 이 옵션이 <strong>outbound 연결에만 적용</strong>된다는 점이다.
+          서버 쪽 incoming 연결에는 영향이 없다.
+          클라이언트로 외부 API 호출하는 우리에게 적합한 안전한 옵션이다.
+        </p>
+
+        <h3>3순위 — ephemeral 풀 늘리기</h3>
+
+        <pre><code>$ sysctl -w net.ipv4.ip_local_port_range="10000 65000"</code></pre>
+
+        <p>
+          기본 28,000개를 55,000개로 늘리는 식이다.
+          근본 해결이 아니라 시간을 좀 벌어주는 정도다.
+          1순위 keep-alive를 안 잡고 이것만 늘리면 결국 더 큰 숫자에서 같은 문제가 터진다.
+        </p>
+
+        <h3>절대 켜지 말 것 — net.ipv4.tcp_tw_recycle</h3>
+
+        <p>
+          옛날 자료에 자주 나오지만 이건 함정이다.
+          tw_recycle은 TIME_WAIT를 매우 짧게(보통 RTT의 몇 배) 만드는 옵션인데,
+          NAT 환경에서 같은 출발 IP를 공유하는 다수 클라이언트의 timestamp가 충돌해서
+          연결이 무작위로 거부된다.
+          이 부작용 때문에 <strong>Linux 4.12에서 옵션 자체가 제거됐다</strong>.
+          요즘 커널에는 존재하지도 않는다.
+        </p>
+
+        <h2>시리즈 정리</h2>
+
+        <p>
+          1편에서 연결을 만드는 비용을 봤고,
+          2편에서 그걸 끊는 절차와 CLOSE_WAIT의 함정을 봤다.
+          3편에서는 정상 종료한 쪽이 60초 동안 ephemeral port를 점유한다는 점,
+          그게 외부 API 호출 많은 클라이언트에게는 1분 안에 폭발하는 시한폭탄이라는 점을 봤다.
+        </p>
+
+        <p>
+          세 편을 관통하는 결론은 같다.
+          <strong>TCP 연결을 자주 만들고 끊지 마라.</strong>
+          만드는 데 100ms씩 들고, 끊고 나서도 60초 동안 자원을 잡고 있다.
+          한 번 만든 연결을 재사용하는 게 모든 비용을 한 번에 해결한다.
+          이게 connection pool과 keep-alive가 백엔드 모든 곳에 깔려있는 이유다.
+        </p>
+
+        <p>
+          외부 API를 부르는 코드를 짤 때마다, 그 호출 한 줄 뒤에서
+          어떤 상태들이 흘러가는지 그려보면 평소 안 보이던 함정들이 보인다.
+          느린 첫 호출, 갑자기 늘어나는 TIME_WAIT, 며칠 후 터지는 CLOSE_WAIT.
+          이 시리즈가 그 함정들을 미리 알아채는 데 작은 도움이 됐으면 한다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

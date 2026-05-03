@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>사내망에서 외부망까지 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 2/3</div>
+        <h1>사내망에서 외부망까지</h1>
+        <p class="subtitle">
+          NIC을 떠난 패킷이 회사 데이터센터를 거쳐
+          ISP 전용선으로 빠져나가기까지. 그 사이에 숨어있는 흔한 병목들.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">패킷 한 개의 여정</div>
+        <ol>
+          <li><a href="./01-호스트-안의-여정.html">호스트 안의 여정</a></li>
+          <li class="current">사내망에서 외부망까지</li>
+          <li><a href="./03-인터넷을-건너기.html">인터넷을 건너기</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>케이블 너머에는 무엇이 있나</h2>
+
+        <p>
+          앞 편에서 패킷이 호스트 NIC까지 도달했다.
+          이제 패킷은 케이블을 타고 회사 네트워크로 진입한다.
+          케이블이 꽂혀있는 곳은 우리 서버 위쪽 어딘가에 있는 스위치다.
+        </p>
+
+        <p>
+          이 사내망은 회사마다 구조가 다르지만, 큰 그림은 두 가지로 정리된다.
+          전통적인 <strong>3-tier</strong>와 현대적인 <strong>Spine-Leaf</strong>다.
+          어느 구조든 패킷이 거쳐야 하는 단계는 비슷하다.
+          랙 → 백본 → 방화벽 → NAT → ISP.
+        </p>
+
+        <h2>랙 안 — TOR 스위치</h2>
+
+        <p>
+          서버 한 대는 보통 랙 안에 들어가 있다. 한 랙에 서버 20~40대가 들어가고,
+          랙 맨 위에는 <strong>TOR(Top of Rack) 스위치</strong>가 있다.
+          이름 그대로 랙 꼭대기에 붙어있는 스위치다.
+        </p>
+
+        <pre><code>┌─────────────────────────┐
+│   TOR 스위치 (1~2대 이중화)│  ← 1G/10G/25G 포트 × 48개
+│         │                  │     상위 백본 업링크 40G/100G
+├─────────┼─────────────────┤
+│ 서버 1  │  서버 2  │  ...  │  ← 같은 랙 안의 서버들
+└─────────────────────────┘</code></pre>
+
+        <p>
+          그림에 적힌 1G/10G/25G/40G/100G는 모두 대역폭이다.
+          1G는 1Gbps, 25G는 25Gbps, 100G는 100Gbps.
+          <strong>포트</strong>는 스위치 앞면에 줄지어 박혀있는 케이블 꽂는 구멍이다.
+          서버 NIC와 스위치 포트를 케이블 한 가닥으로 연결한다.
+          TOR 스위치는 보통 랙 한 칸(1U) 높이에 포트 48개가 달려있어서
+          한 대로 서버 48대를 수용한다.
+        </p>
+
+        <p>
+          포트 속도는 NIC 속도와 매칭한다. 서버 NIC이 10G면 10G 포트에 꽂는다.
+          요즘은 1G가 사라지는 추세고 10G가 표준, 빠른 워크로드는 25G로 가는 중이다.
+        </p>
+
+        <p>
+          스위치 위쪽에 따로 표시된 "업링크 40G/100G"는 이 TOR이
+          상위 백본 스위치로 올라가는 <strong>별도 포트</strong>다.
+          한 TOR에 속한 48대 서버의 트래픽이 다른 랙으로 나갈 때 이 업링크 한두 가닥에 합산되어 흐르니,
+          서버용 포트보다 훨씬 빠른 속도가 필요하다.
+          48포트 × 10G면 이론상 480Gbps인데
+          업링크는 보통 100G 한두 개로 처리한다.
+          한 랙의 모든 서버가 동시에 풀가동하지 않는다는 가정 위에서 설계된다.
+        </p>
+
+        <p>
+          랙 안의 모든 서버 NIC는 이 TOR 스위치에 연결된다.
+          같은 랙 안 서버끼리의 통신은 TOR 한 대에서 끝난다.
+          하지만 다른 랙으로 나가야 하는 통신은 TOR 위쪽 업링크를 거쳐야 한다.
+        </p>
+
+        <h2>사내 백본 — 3-tier vs Spine-Leaf</h2>
+
+        <h3>3-tier (전통)</h3>
+
+        <pre><code>            [Core 스위치 ×2]      ← 데이터센터 백본, 외부 연결
+                  │
+        [Distribution ×2]          ← 라우팅, ACL, VLAN 분배
+            │           │
+       [TOR]  [TOR]  [TOR]  [TOR]  ← 랙 단위
+        │     │     │      │
+      [서버] [서버] [서버] [서버]</code></pre>
+
+        <p>
+          Access(TOR) → Distribution → Core 세 단계로 올라가는 구조다.
+          한국 SI 환경이나 금융권에 많이 깔려있는 클래식한 모양이다.
+          이 구조는 클라이언트가 외부에서 들어와 서버로 가는
+          <strong>North-South 트래픽</strong>을 전제로 설계됐다.
+        </p>
+
+        <h4>다른 랙 서버와 통신하려면 트리를 타고 올라가야 한다</h4>
+
+        <p>
+          3-tier는 트리 구조다. 그래서 두 서버 사이의 경로는
+          공통 조상까지 올라갔다 내려오는 식이다.
+          어디까지 올라가야 하느냐에 따라 홉 수가 달라진다.
+        </p>
+
+        <pre><code>case 1. 같은 랙 안            (1홉, TOR 한 대)
+   [서버 A] ── [TOR] ── [서버 B]
+
+case 2. 같은 Distribution 아래 다른 랙   (3홉)
+   [서버 A] → [TOR-1] → [Distribution] → [TOR-2] → [서버 B]
+
+case 3. 다른 Distribution 아래 다른 랙   (5홉)
+   [서버 A] → [TOR-1] → [Distribution-1] → [Core]
+                                              → [Distribution-2] → [TOR-2] → [서버 B]</code></pre>
+
+        <p>
+          같은 데이터센터 안 통신이라도 <strong>어느 랙끼리냐에 따라 latency가 1~5홉으로 들쭉날쭉</strong>이다.
+          어떤 서비스 쌍은 빠르고 어떤 쌍은 느린 식이다.
+          마이크로서비스 환경에서는 이게 골치 아프다.
+          A → B → C 호출 체인의 응답 시간이 배포 위치에 따라 다르게 나온다.
+          같은 서비스끼리 같은 Distribution 아래 모으는 배치 최적화를 하기도 하지만,
+          클러스터가 커지면 한계가 명확하다.
+        </p>
+
+        <p>
+          더 큰 문제는 case 3의 Core다.
+          서로 다른 Distribution 사이의 모든 통신이 Core 한 곳을 통과한다.
+          Distribution이 5개면 그들끼리의 cross 트래픽 20쌍(5×4)이
+          모두 Core 한 곳에서 합산된다.
+          East-West 트래픽이 늘어나면 Core 대역폭이 그 데이터센터의 본질적 한도가 된다.
+          마이크로서비스 시대에 3-tier가 답답한 진짜 이유가 여기다.
+        </p>
+
+        <h4>3-tier의 한계 — STP가 대역폭을 절반 잠재운다</h4>
+
+        <p>
+          3-tier의 가장 큰 단점은 <strong>STP(Spanning Tree Protocol)</strong>에 의존한다는 점이다.
+          STP는 이더넷 네트워크에서 루프를 방지하는 프로토콜로, 1990년대부터 표준이었다.
+        </p>
+
+        <p>
+          왜 필요한가. 이더넷에는 broadcast가 있다.
+          ARP 요청 같은 패킷은 같은 네트워크의 모든 포트로 뿌려진다.
+          그런데 스위치들이 이중화로 루프를 이루고 있으면 broadcast 패킷이
+          무한히 돌면서 증폭된다. 1초도 안 돼서 네트워크 전체가 마비된다.
+          이걸 <strong>broadcast storm</strong>이라 부르고, 옛날 데이터센터를 통째로 죽이던 사고 1순위였다.
+        </p>
+
+        <p>
+          STP의 해법은 단순하지만 답답하다.
+          스위치들끼리 협상해서 트리 모양 경로 하나만 남기고
+          <strong>나머지 링크를 의도적으로 차단</strong>한다.
+          차단된 링크는 평소엔 놀다가 활성 링크가 죽었을 때 그제서야 활성화된다.
+          그래서 "Spanning <strong>Tree</strong>" Protocol이다.
+          모든 스위치가 한 그루 트리를 이루도록 만든다.
+        </p>
+
+        <p>
+          결과적으로 이중화를 위해 40Gbps 업링크 4개를 깔아놔도
+          STP가 2개를 차단하니 실효 대역폭은 80Gbps.
+          나머지 80Gbps는 비싼 보험으로 잠재워두는 셈이다.
+          게다가 원조 STP는 토폴로지가 바뀌었을 때 새 트리 계산에 30~50초 걸렸다.
+          요즘은 RSTP(Rapid STP)로 1초 안에 수렴하지만,
+          절반 대역폭이 평소에 idle이라는 본질은 그대로다.
+        </p>
+
+        <h3>Spine-Leaf (현대)</h3>
+
+        <pre><code>[Spine] [Spine] [Spine] [Spine]    ← 모든 Spine이 모든 Leaf와 직결
+   │ \    /│ \    /│ \    /│
+   │  \  / │  \  / │  \  / │
+   │   \/  │   \/  │   \/  │
+   │   /\  │   /\  │   /\  │
+[Leaf]   [Leaf]   [Leaf]   [Leaf]
+   │        │        │        │
+[서버군] [서버군] [서버군] [서버군]</code></pre>
+
+        <p>
+          Spine과 Leaf 두 계층뿐이고, 모든 Leaf가 모든 Spine과 직결된다.
+          이 구조의 핵심은 <strong>어느 서버에서 어느 서버로 가도 항상 3홉</strong>(Leaf → Spine → Leaf)이라는 점이다.
+          3-tier에서 1~5홉으로 들쭉날쭉이던 latency가 여기서는 균일해진다.
+          마이크로서비스끼리 어떻게 흩어져 있어도 응답 시간이 예측 가능하다.
+          그리고 3-tier의 Core처럼 모든 cross 트래픽이 한 곳으로 몰리는 병목도 없다.
+          모든 Spine이 분산 처리하기 때문이다.
+        </p>
+
+        <h4>STP 대신 ECMP — 모든 링크가 살아있다</h4>
+
+        <p>
+          Spine-Leaf가 STP를 쓰지 않는 비결은 <strong>ECMP(Equal-Cost Multi-Path)</strong>다.
+          비용이 같은 경로가 여러 개일 때 그 경로들을 모두 활성화하고
+          트래픽을 분산하는 방식이다. L3 IP 라우팅 레벨에서 작동한다.
+        </p>
+
+        <p>
+          예를 들어 Leaf-1에 있는 서버에서 Leaf-2에 있는 서버로 보내야 한다고 하자.
+          가운데 Spine 4대가 모두 동일 비용 경로다.
+          ECMP는 패킷 헤더(source/dest IP, port)를 해시해서 그중 한 Spine으로 보낸다.
+          연결마다 다른 Spine이 골라지니, 4대의 Spine이 모두 풀가동된다.
+          STP처럼 절반이 idle 상태로 놀고 있지 않다.
+        </p>
+
+        <p>
+          연결 단위(flow)로 분산되니 같은 연결의 패킷들은 같은 경로로 흐른다.
+          순서 뒤집힘 같은 문제가 없다.
+          한 Spine이 죽어도 ECMP가 자동으로 그 경로를 빼고 나머지 3대로 분산을 다시 잡는다.
+          STP의 30초 수렴 같은 일이 없다.
+        </p>
+
+        <p>
+          이 구조가 등장한 이유는 워크로드가 바뀌었기 때문이다.
+          마이크로서비스 아키텍처가 보편화되면서 서버 간(East-West) 트래픽이
+          폭증했고, 3-tier의 Core 단계가 병목이 됐다.
+          Spine-Leaf는 East-West 트래픽이 한 곳으로 안 모이게 분산하면서 그 문제를 풀었다.
+        </p>
+
+        <h4>외부망 진출은 Border Leaf로</h4>
+
+        <p>
+          앞 다이어그램만 보면 의문이 든다. Spine-Leaf에는 외부로 나가는 출구가 없는 것처럼 보인다.
+          3-tier에서는 Core 스위치가 외부 연결까지 같이 담당했는데,
+          Spine-Leaf에서는 그 역할이 안 보인다.
+        </p>
+
+        <p>
+          답은 <strong>Border Leaf</strong>(또는 Edge Leaf)다.
+          서버를 수용하는 일반 Leaf와 별도로, <strong>외부 연결 전용 Leaf</strong>를 한두 대 따로 둔다.
+          이 Border Leaf에 방화벽, 라우터, ISP 회선 같은 외부 연결 장비가 연결된다.
+          외부로 나가야 하는 트래픽은 일반 Leaf → Spine → Border Leaf → 외부 장비 경로를 탄다.
+        </p>
+
+        <pre><code>[Spine] [Spine] [Spine] [Spine]
+   │ \  / │ \  / │ \  / │
+   │  \/  │  \/  │  \/  │
+   │  /\  │  /\  │  /\  │
+[Leaf]   [Leaf]   [Leaf]   [Border Leaf]
+   │        │        │           │
+ 서버      서버      서버    [방화벽] ─▶ [ISP 전용선] ─▶ 인터넷</code></pre>
+
+        <p>
+          왜 굳이 별도 Leaf를 두나. 두 가지 이유가 있다.
+        </p>
+
+        <p>
+          첫째는 <strong>역할 분리</strong>다.
+          데이터센터 내부 통신(East-West)과 외부 연결(North-South)이 다른 종류의 트래픽이다.
+          분리해두면 외부망 장비를 교체하거나 정책을 바꿔도 내부망에 영향이 없다.
+          반대로 내부 토폴로지가 바뀌어도 외부 연결은 그대로다.
+        </p>
+
+        <p>
+          둘째는 <strong>대역폭 격리</strong>다.
+          외부 트래픽 폭증이 내부 마이크로서비스 통신에 영향을 안 주도록
+          Border Leaf와 외부 장비가 별도 자원을 갖는다.
+          앞 시리즈에서 본 "GW의 외부 트래픽이 사내 다른 부서를 마비시키는" 문제도
+          이 분리 설계로 어느 정도 완화된다.
+        </p>
+
+        <p>
+          진짜 큰 데이터센터에서는 한 단계 더 가서 <strong>Super Spine</strong>이라는 계층을 둔다.
+          여러 Spine-Leaf 클러스터를 위에서 묶거나, 데이터센터 간 통신을 처리한다.
+          하지만 일반 기업 환경은 거의 Border Leaf 패턴까지가 끝이다.
+        </p>
+
+        <h2>방화벽 — stateful inspection의 진실</h2>
+
+        <p>
+          외부망으로 나가려면 거의 항상 방화벽을 통과해야 한다.
+          요즘 방화벽은 단순히 IP/포트로 막기만 하는 게 아니라
+          <strong>stateful inspection</strong>을 한다.
+          연결 하나하나의 상태를 추적한다는 뜻이다.
+        </p>
+
+        <pre><code>conntrack 테이블 (방화벽 메모리에 보관)
+─────────────────────────────────
+src_ip      dst_ip      src_port   dst_port   proto  state         timer
+192.168.1.10  1.2.3.4   50001      443        TCP    ESTABLISHED   299s
+192.168.1.10  1.2.3.4   50002      443        TCP    TIME_WAIT     58s
+192.168.1.20  5.6.7.8   45123      80         TCP    SYN_SENT      28s
+...</code></pre>
+
+        <p>
+          처음 SYN이 나가면 방화벽이 이 테이블에 항목을 추가한다.
+          그 응답으로 들어오는 패킷은 같은 4-tuple을 보고 같은 흐름임을 인식해서 통과시킨다.
+          정책상 허용된 새 흐름만 항목이 추가되니, 임의의 외부 패킷이
+          마구 들어오지 못한다.
+        </p>
+
+        <h3>흔한 병목 — conntrack 한도</h3>
+
+        <p>
+          이 테이블은 메모리에 들어가니 한도가 있다.
+          기업용 방화벽은 보통 수십만~수백만 개 동시 연결을 처리하지만,
+          짧은 connection을 마구 만드는 서비스(keep-alive 미사용)는
+          의외로 빨리 한도에 닿는다. 이 시점에 새 연결이 거부되기 시작한다.
+        </p>
+
+        <p>
+          앞 시리즈에서 본 TIME_WAIT 60초 동안에도 conntrack 테이블 자리를 차지한다.
+          그래서 클라이언트 측 keep-alive는 호스트 자원만 아끼는 게 아니라
+          방화벽 자원도 아끼는 셈이다.
+        </p>
+
+        <h3>TLS Inspection이 켜진 방화벽</h3>
+
+        <p>
+          보안팀이 사내에서 외부로 나가는 HTTPS 트래픽을 검사하고 싶어할 수 있다.
+          하지만 HTTPS는 암호화돼 있으니 그냥은 못 본다.
+          그래서 회사가 사내 PC와 서버에 자기 인증서를 미리 깔아두고,
+          방화벽이 강제로 중간자 역할을 해서 TLS를 푼다. 이게 TLS inspection이다.
+        </p>
+
+        <p>
+          이 기능을 켜면 방화벽이 모든 패킷을 복호화 → 검사 → 재암호화하느라
+          throughput이 평소의 30~70%까지 떨어진다.
+          외부 API 트래픽이 많은 서비스라면 보안팀과 협의해서
+          신뢰된 도메인(예: 카카오 API)은 inspection 예외 처리를 받는 게 일반적이다.
+        </p>
+
+        <h2>NAT — 사내 IP를 외부 IP로 바꾸는 단계</h2>
+
+        <p>
+          사내 서버는 보통 사설 IP(<code>192.168.x.x</code>, <code>10.x.x.x</code>)를 쓴다.
+          이 IP는 인터넷에서 라우팅되지 않으니 외부망으로 나가려면 변환이 필요하다.
+          이게 <strong>NAT(Network Address Translation)</strong>이다.
+        </p>
+
+        <pre><code>[사내 서버: 192.168.1.10:50001]
+        │
+        ▼
+[NAT 게이트웨이 / 방화벽]
+        │  source IP/Port 변환
+        │  192.168.1.10:50001  →  203.0.113.5:60123
+        ▼
+[외부망: 203.0.113.5:60123 → 카카오:443]</code></pre>
+
+        <p>
+          NAT는 외부에서 응답이 돌아왔을 때 누구에게 줘야 할지 알아야 한다.
+          그래서 conntrack 테이블에 변환 매핑을 같이 기록한다.
+          응답 패킷이 도착하면 매핑을 역으로 찾아서 원래 사내 IP/Port로 다시 변환한다.
+        </p>
+
+        <h3>NAT의 함정 — port 고갈</h3>
+
+        <p>
+          NAT는 외부에서 보면 모든 사내 서버가 같은 외부 IP를 쓰는 것처럼 보인다.
+          그래서 외부 IP의 포트 풀(0~65535)이 모든 사내 서버의 outbound 연결을 감당해야 한다.
+          한 외부 IP로 갈 수 있는 동시 연결이 약 6만 개로 제한된다.
+        </p>
+
+        <p>
+          GW가 카카오 API 같은 단일 목적지(IP, 443)에 동시 연결을 6만 개 넘게 시도하면
+          NAT 측 포트가 고갈된다.
+          호스트의 ephemeral port는 충분한데 NAT가 막히는 식이다.
+        </p>
+
+        <p>
+          큰 시스템에서 이 한도를 푸는 핵심은 <strong>외부 IP 자체를 여러 개 확보</strong>하는 것이다.
+          외부 IP가 N개면 source port 풀이 N배가 된다.
+          NAT 게이트웨이를 여러 대 까는 패턴은 보통 이걸 위해서다.
+          게이트웨이마다 다른 외부 IP를 붙이고 사내 트래픽을 분산해서 라우팅한다.
+          반대로 게이트웨이만 여러 대고 외부 IP가 하나로 묶여있으면 한도는 그대로다.
+          한 NAT 게이트웨이에 외부 IP 여러 개를 붙여두는 구성도 가능하다.
+          어느 쪽이든 본질은 외부 IP 개수다.
+        </p>
+
+        <p>
+          클라우드도 같은 모델이다.
+          AWS NAT Gateway는 외부 IP 1개당 단일 목적지 기준 동시 연결을
+          <strong>약 5만 5천 개</strong>로 명시한다.
+          이 한도를 넘으면 ErrorPortAllocation 메트릭이 올라가고 새 연결이 실패한다.
+          푸는 방법은 같다. NAT Gateway 한 대에 보조 IP를 최대 7개까지 추가해
+          외부 IP를 최대 8개로 묶을 수 있다. 한도가 8배인 약 44만 동시 연결까지 늘어난다.
+        </p>
+
+        <h2>ISP 전용선 — 가장 단단한 천장</h2>
+
+        <p>
+          NAT를 통과한 패킷은 마침내 회사 네트워크의 마지막 단계에 도착한다.
+          ISP와 계약된 전용선이다. 이 회선이 외부망 진출의 최종 관문이다.
+        </p>
+
+        <p>
+          전용선의 대역폭은 계약으로 정해진다. 1Gbps, 10Gbps 같은 수치다.
+          이게 <strong>회사 전체의 외부 통신 한도</strong>다.
+        </p>
+
+        <h4>회선은 공유되지만 N분할되지 않는다</h4>
+
+        <p>
+          여기서 헷갈리기 쉬운 점이 있다.
+          1Gbps 회선에 서버 100대가 매달려도
+          각자에게 10Mbps씩 미리 할당하는 게 아니다.
+          그렇게 하면 한 서버만 통신 중이고 나머지 99대가 idle일 때
+          99%가 놀게 된다. 비효율이다.
+        </p>
+
+        <p>
+          실제로는 <strong>동적 경합</strong> 방식이다. 안 쓰는 서버의 몫은 다른 서버가 자유롭게 가져간다.
+        </p>
+
+        <pre><code>케이스 1. 서버 A 혼자 통신 중
+   → A가 회선 1Gbps 거의 다 쓸 수 있음
+
+케이스 2. 서버 A, B, C 동시 통신 (3대)
+   → 셋이 경합, TCP 흐름 제어로 분산
+   → 대략 333Mbps씩 (정확히 1/N은 아니지만 비슷하게 수렴)
+
+케이스 3. 100대가 동시 폭증
+   → 회선 포화 → 라우터 큐가 차서 패킷 drop 시작
+   → 모든 송신자의 TCP가 congestion control로 감속
+   → 모두 같이 느려짐, latency 폭증</code></pre>
+
+        <p>
+          공평 분배는 TCP가 자동으로 만들어준다.
+          회선이 가득 차면 패킷 drop이 일어나고, drop을 본 송신 측 TCP가 자기 송신 속도를 줄인다.
+          이게 모든 송신자에게 동시에 일어나면서 fair share에 가까운 분배가 생긴다.
+          다만 완벽한 공평은 아니다.
+          RTT 짧은 연결이 더 빨리 회복해서 더 많이 가져가고,
+          BBR 같은 신형 알고리즘이 CUBIC보다 우세하고,
+          흐름 제어가 없는 UDP는 TCP를 양보 안 한다.
+        </p>
+
+        <h4>그래서 GW 폭증이 다른 부서를 마비시킨다</h4>
+
+        <p>
+          이 메커니즘이 실무에서 어떻게 나타나는지가 분명해진다.
+        </p>
+
+        <pre><code>평소:    GW 100Mbps + 다른 부서 200Mbps, 회선 여유 700Mbps  → 모두 쾌적
+GW 폭증: GW의 4GB × 동시 N개가 800Mbps 사용 시도
+        → 회선 1Gbps 포화
+        → 라우터 큐 찼고 패킷 drop 시작
+        → 메일/Slack/사내 API 호출의 TCP도 congestion control로 감속
+        → 회사 전체의 외부 통신이 같이 느려짐</code></pre>
+
+        <p>
+          GW 입장에선 "내 트래픽만 폭증했는데?" 싶지만,
+          회선이 공유 자원이라 다른 부서에 직접 영향이 간다.
+          앞서 설명한 NAT 게이트웨이 분리, Border Leaf 분리는 사내 장비 레벨 격리고,
+          ISP 회선 자체는 분리가 안 된다.
+          여기가 사내 인프라가 막을 수 없는 진짜 천장이다.
+        </p>
+
+        <h4>QoS — 일부 회사의 우선순위 정책</h4>
+
+        <p>
+          큰 조직에서는 회선 포화 상황에 대비해 트래픽 종류별 우선순위를 두기도 한다(QoS).
+          VoIP나 경영진 화상회의 같은 실시간 트래픽을 우선 보장하고,
+          백업이나 대용량 업로드 같은 대역폭 많이 먹는 트래픽은 낮은 우선순위로 둔다.
+          회선이 포화되면 낮은 우선순위 트래픽부터 drop 또는 지연된다.
+          모든 회사가 적용하는 건 아니지만 보안망과 업무망이 분리된 환경에서 흔하다.
+        </p>
+
+        <h4>증설은 즉시 안 된다</h4>
+
+        <p>
+          전용선 증설은 ISP 계약 변경, 장비 교체, 망 구성 작업이 따르고
+          수 주에서 수 개월이 걸린다.
+          그래서 외부 트래픽이 폭증할 가능성이 있는 기능은
+          이 회선이 진짜 천장이 된다는 걸 미리 인지하고 설계해야 한다.
+        </p>
+
+        <h2>온프레미스 vs 클라우드 — 통제 영역의 차이</h2>
+
+        <p>
+          여기까지 본 단계들은 환경에 따라 통제 가능 여부가 달라진다.
+        </p>
+
+        <pre><code>구간                     온프레미스           클라우드 (AWS 기준)
+────────────────────────  ──────────────────  ─────────────────────
+랙/스위치 (TOR/Spine)     사내 네트워크팀      클라우드 사업자
+방화벽                     사내 보안팀          Security Group + NACL
+NAT                        사내 NAT 장비        NAT Gateway (관리형)
+ISP 전용선                 사내가 ISP와 계약    클라우드 인터넷 게이트웨이
+증설                       수 주~수 개월        설정 변경 즉시</code></pre>
+
+        <p>
+          온프레미스는 모든 단계를 직접 운영한다.
+          반대로 클라우드는 NAT Gateway 같은 관리형 서비스가 자동으로 스케일된다.
+          클라우드에서 안 보이던 병목이 온프레미스에선 거의 항상 어딘가에서 만난다.
+          백엔드 개발자가 온프레미스에서 외부 API 통합을 설계할 때
+          이 차이를 인지하지 못하면 폭증 트래픽을 받았을 때 곤란해진다.
+        </p>
+
+        <h2>패킷이 회사를 떠났다</h2>
+
+        <p>
+          ISP 전용선까지 통과한 패킷은 이제 인터넷 백본으로 진입한다.
+          여기서부터는 우리 통제 밖이다. 백본을 어느 경로로 흘러
+          카카오 데이터센터에 도착할지는 BGP가 정한다.
+          그 도중에 RTT가 쌓이고, TCP의 congestion control이 동작하기 시작한다.
+        </p>
+
+        <p>
+          마지막 편에서는 인터넷을 건너는 동안 일어나는 일,
+          그리고 BDP가 왜 단일 connection의 throughput을 결정하는지 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

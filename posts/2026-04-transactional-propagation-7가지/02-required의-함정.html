@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REQUIRED — 가장 흔하지만 가장 위험한 디폴트 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.30 · 시리즈 2/4</div>
+        <h1>REQUIRED — 가장 흔하지만 가장 위험한 디폴트</h1>
+        <p class="subtitle">
+          예외를 catch했는데 왜 UnexpectedRollbackException이 터지는가.
+          REQUIRED의 logical/physical 구분이 만든 가장 유명한 함정.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">@Transactional Propagation 7가지</div>
+        <ol>
+          <li><a href="./01-propagation이-왜-있는가.html">Propagation이 왜 있는가</a></li>
+          <li class="current">REQUIRED — 가장 흔하지만 가장 위험한 디폴트</li>
+          <li><a href="./03-requires-new의-함정.html">REQUIRES_NEW — 진짜 새 트랜잭션의 함정</a></li>
+          <li><a href="./04-나머지-5가지.html">나머지 5가지와 선택 가이드</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 REQUIRED가 디폴트인가</h2>
+
+        <p>
+          <code>@Transactional</code>에 propagation을 명시하지 않으면 REQUIRED다.
+          Propagation enum의 Javadoc은 한 줄로 정의한다.
+        </p>
+
+        <blockquote>
+          "Support a current transaction, create a new one if none exists."
+          <br><br>
+          (현재 트랜잭션을 지원하고, 없으면 새로 만든다.)
+        </blockquote>
+
+        <p>
+          외부 tx 있으면 합류, 없으면 새로 시작. 가장 무난한 동작이라 디폴트가 됐다.
+          대부분의 비즈니스 로직은 "이 작업은 호출자의 트랜잭션에 묶여야 한다"가 자연스럽다.
+        </p>
+
+        <p>
+          그런데 REQUIRED의 "합류"가 정확히 무엇이고, 그 안에서 무슨 일이 일어나는지
+          모른 채로 쓰면 가장 유명한 함정에 걸린다.
+        </p>
+
+        <h2>합류 = 같은 physical, 다른 logical</h2>
+
+        <p>
+          1편에서 잠깐 본 physical/logical 구분을 다시 꺼낸다.
+          REQUIRED가 외부 tx에 합류할 때 일어나는 일은:
+        </p>
+
+        <pre><code>placeOrder() 호출
+  ├─ TX1 시작 (physical transaction)
+  │  └─ logical scope L1 (placeOrder의 @Transactional 범위)
+  │
+  ├─ paymentService.charge() 호출 (REQUIRED)
+  │  └─ logical scope L2 (charge의 @Transactional 범위)
+  │     ↓
+  │     L2는 새 physical을 만들지 않고 TX1에 합류
+  │     L2는 자신만의 rollback-only 플래그를 가짐</code></pre>
+
+        <p>
+          물리적으로는 트랜잭션이 하나(TX1)다. BEGIN ~ COMMIT 한 사이클.
+          하지만 Spring은 각 <code>@Transactional</code> 메서드마다
+          <strong>logical scope</strong>를 만들고 그 안에 rollback-only 플래그를 둔다.
+        </p>
+
+        <p>왜 이런 구조인가? 다음 절을 보면 이유가 드러난다.</p>
+
+        <h2>rollback-only 마킹 메커니즘</h2>
+
+        <p>
+          Spring 공식 문서가 기본 rollback 규칙을 정의한 부분:
+        </p>
+
+        <blockquote>
+          "In its default configuration, the Spring Framework's transaction
+          infrastructure code marks a transaction for rollback only in the case of
+          runtime, unchecked exceptions."
+          <br><br>
+          (기본 설정에서, Spring은 runtime/unchecked 예외에 한해 트랜잭션을
+          rollback 대상으로 마킹한다.)
+        </blockquote>
+
+        <p>이 "마킹"이 정확히 무엇인가:</p>
+
+        <pre><code>@Transactional 메서드 호출
+  → TransactionInterceptor가 메서드 실행을 감쌈
+  → 메서드 안에서 RuntimeException 던져짐
+  → Interceptor가 예외 catch
+  → 현재 logical scope에 rollback-only 플래그 set
+  → 예외 그대로 다시 throw</code></pre>
+
+        <p>
+          그래서 외부에서 그 예외를 잡지 않으면 트랜잭션이 롤백된다.
+          여기까지는 직관에 맞다.
+        </p>
+
+        <p>
+          문제는 <strong>외부에서 그 예외를 잡았을 때</strong> 일어난다.
+        </p>
+
+        <h2>catch했는데 UnexpectedRollbackException</h2>
+
+        <p>
+          가장 자주 보이는 코드 패턴이다.
+        </p>
+
+        <pre><code>@Service
+public class OrderService {
+
+    @Transactional
+    public Order placeOrder(OrderRequest request) {
+        Order order = orderRepository.save(...);
+        try {
+            paymentService.charge(order);   // REQUIRED, 합류
+        } catch (PaymentFailedException e) {
+            // 결제 실패해도 주문은 PENDING으로 남기자
+            order.markAsPending();
+            return order;
+        }
+        return order;
+    }
+}</code></pre>
+
+        <p>
+          의도는 명확하다. 결제가 실패해도 주문 자체는 살리고 PENDING 상태로 두자는 것.
+        </p>
+
+        <p>
+          그런데 실행하면 <code>UnexpectedRollbackException</code>이 터진다.
+          분명 catch했는데도. 왜?
+        </p>
+
+        <p>Spring 공식 문서의 한 줄 설명:</p>
+
+        <blockquote>
+          "However, in the case where an inner transaction scope sets the
+          rollback-only marker, the outer transaction has not decided on the
+          rollback itself, so the rollback (silently triggered by the inner
+          transaction scope) is unexpected. A corresponding
+          UnexpectedRollbackException is thrown at that point."
+          <br><br>
+          (내부 트랜잭션 scope가 rollback-only 마커를 설정한 경우, 외부 트랜잭션은
+          롤백을 결정하지 않았으므로, 내부 scope가 조용히 트리거한 롤백은 예상치 못한
+          상황이다. 이 시점에 UnexpectedRollbackException이 던져진다.)
+        </blockquote>
+
+        <p>
+          벌어진 일을 단계별로 보면:
+        </p>
+
+        <pre><code>1. placeOrder() 시작 → TX1 시작
+2. charge()에서 PaymentFailedException 던짐
+3. charge()의 logical scope L2가 TX1을 rollback-only로 마크
+   (charge의 @Transactional이 RuntimeException을 보고 마킹)
+4. 예외가 placeOrder()로 propagate
+5. placeOrder()의 catch가 예외 잡음
+6. placeOrder() 정상 종료, return order
+7. Spring이 TX1을 commit하려고 함
+   → rollback-only 마크 발견
+   → "어? commit 요청 받았는데 rollback-only네"
+   → UnexpectedRollbackException 던짐</code></pre>
+
+        <p>
+          핵심: <strong>logical scope의 rollback-only 마크는 catch로는 풀 수 없다.</strong>
+          내부에서 마크된 순간 그 트랜잭션은 끝났다. 외부가 catch해도 마크는 그대로다.
+        </p>
+
+        <h2>왜 이렇게 설계됐을까</h2>
+
+        <p>
+          이 동작이 의아하게 느껴질 수 있다. 그냥 catch했으니 commit해주면 안 되나?
+          답은 "안 된다, 더 위험하니까"다.
+        </p>
+
+        <p>
+          만약 logical scope L2가 마크한 rollback을 외부 catch가 무시할 수 있다면,
+          <code>charge</code>가 한 작업의 일부만 commit되는 상황이 생긴다.
+          <code>charge</code>는 자기 입장에서 "이 작업은 롤백돼야 한다"고 판단했는데,
+          외부가 그 판단을 무시하고 commit해버리면 <code>charge</code>가 본 부분 작업이
+          남아있게 된다. 트랜잭션의 원자성이 깨진다.
+        </p>
+
+        <p>
+          그래서 Spring은 더 안전한 쪽을 택했다.
+          <strong>한번 마크되면 무조건 롤백, 외부에 명시적으로 알린다</strong>는 정책.
+        </p>
+
+        <h2>그럼 어떻게 풀어야 하나</h2>
+
+        <p>
+          "결제 실패해도 주문은 살리고 싶다"는 요구가 진짜라면, 트랜잭션 분리가
+          답이다. <code>charge</code>를 REQUIRES_NEW로 두면 <code>charge</code>의 롤백이
+          외부 트랜잭션에 영향을 주지 않는다.
+        </p>
+
+        <pre><code>@Service
+public class PaymentService {
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void charge(Order order) {
+        ...
+    }
+}</code></pre>
+
+        <p>
+          이러면 <code>charge</code>의 트랜잭션이 자체적으로 롤백되고,
+          외부 <code>placeOrder</code>의 트랜잭션은 영향 없다.
+          catch도 의도대로 동작한다.
+        </p>
+
+        <p>
+          단, REQUIRES_NEW에는 또 다른 함정이 있다. 다음 편에서 본다.
+        </p>
+
+        <h2>정리</h2>
+
+        <ul>
+          <li>REQUIRED는 외부 tx에 합류한다 — 같은 physical, 다른 logical</li>
+          <li>RuntimeException이 내부 logical에서 던져지면 physical tx 전체에 rollback-only 마킹</li>
+          <li>마킹은 catch로 풀 수 없다 — 외부 commit 시도 시 UnexpectedRollbackException</li>
+          <li>"내부 작업은 실패해도 외부는 살리고 싶다"면 REQUIRES_NEW로 분리해야 함</li>
+        </ul>
+
+        <h2>다음 편</h2>
+
+        <p>
+          다음 편에서는 REQUIRES_NEW를 본다. "진짜 새 트랜잭션"이라는 이름답게,
+          외부 tx와 완전히 독립된 새 connection을 쓴다. 그런데 그 독립성이
+          DB 락과 만나면 자기 자신을 데드락에 빠뜨릴 수 있다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring RestClient + Apache HttpClient5 실전 설정 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 4/4</div>
+        <h1>Spring RestClient + Apache HttpClient5 실전 설정</h1>
+        <p class="subtitle">
+          앞서 본 원칙들을 코드로 옮기면 어떻게 생겼는지.
+          Spring Boot 4.x 환경에서 운영 가능한 외부 API 클라이언트의 실제 모양.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP Connection Pool 운영</div>
+        <ol>
+          <li><a href="./01-keep-alive-운영.html">Keep-Alive를 운영한다는 것</a></li>
+          <li><a href="./02-stale-connection.html">Pool 안의 좀비 — Stale Connection 3중 방어</a></li>
+          <li><a href="./03-ephemeral-port-고갈.html">외부 API 호출이 ephemeral port를 갉아먹는다</a></li>
+          <li class="current">Spring RestClient + Apache HttpClient5 실전 설정</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 Apache HttpClient5인가</h2>
+
+        <p>
+          Spring RestClient는 기본으로 JDK의 HttpClient를 쓴다.
+          기본만으로도 keep-alive와 connection pool은 작동한다.
+          그런데 우리가 앞서 본 정밀 제어(idle eviction, validate after inactivity, retry strategy)가
+          JDK HttpClient에선 잘 안 된다. API가 단순해서 그렇다.
+        </p>
+
+        <p>
+          Apache HttpClient5는 그 정밀 제어를 위한 표준 도구다.
+          오랜 시간 운영 환경에서 검증됐고, Spring Boot가 자동으로 통합해준다.
+          앞서 본 원칙을 코드로 옮기려면 거의 항상 이 조합으로 간다.
+        </p>
+
+        <h2>의존성 추가</h2>
+
+        <pre><code>// build.gradle
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
+}</code></pre>
+
+        <p>
+          httpclient5만 classpath에 있으면 Spring Boot가
+          RestClient의 백엔드를 자동으로 HttpComponents로 잡아준다.
+          ClientHttpRequestFactory를 직접 안 만들어도 된다.
+        </p>
+
+        <h2>최소 설정 — 글로벌 timeout</h2>
+
+        <p>
+          가장 먼저 잡아야 할 건 timeout. 외부 API 호출이 영원히 매달리지 않도록.
+        </p>
+
+        <pre><code># application.yml
+spring:
+  http:
+    client:
+      factory: http-components       # Apache HttpClient5 사용
+      connect-timeout: 5s             # TCP 연결 수립 timeout
+      read-timeout: 10s               # 응답 대기 timeout</code></pre>
+
+        <p>
+          이거만 잡아도 기본은 갖춰진다. JDK 기본보다 훨씬 안전.
+          그런데 풀 사이즈, eviction, validate 같은 디테일은 yaml로 안 되니
+          빈 정의로 가야 한다.
+        </p>
+
+        <h2>본격 — 운영용 RestClient 빈 정의</h2>
+
+        <p>
+          1, 2, 3편의 원칙이 다 들어간 모양.
+        </p>
+
+        <pre><code>@Configuration
+public class KakaoClientConfig {
+
+    @Bean
+    public RestClient kakaoRestClient() {
+
+        // 1. Connection pool — 풀 사이즈 + 검증 + eviction
+        PoolingHttpClientConnectionManager pool =
+            PoolingHttpClientConnectionManagerBuilder.create()
+                .setMaxConnTotal(100)                                 // 전체
+                .setMaxConnPerRoute(50)                               // 도메인당
+                .setValidateAfterInactivity(TimeValue.ofSeconds(10))  // 검증
+                .build();
+
+        // 2. HttpClient — eviction + retry
+        CloseableHttpClient httpClient = HttpClients.custom()
+            .setConnectionManager(pool)
+            .evictIdleConnections(TimeValue.ofMinutes(5))             // idle 5분이면 닫음
+            .evictExpiredConnections()                                 // keep-alive 만료된 것
+            .setRetryStrategy(new DefaultHttpRequestRetryStrategy(
+                1,                                                     // 1회 재시도
+                TimeValue.ofMilliseconds(100)                          // 100ms 후
+            ))
+            .build();
+
+        // 3. Spring 통합
+        var requestFactory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+
+        return RestClient.builder()
+            .baseUrl("https://api.kakao.com")
+            .requestFactory(requestFactory)
+            .build();
+    }
+}</code></pre>
+
+        <p>
+          이 한 빈에 1, 2, 3편의 원칙이 모두 담긴다.
+        </p>
+
+        <pre><code>1편: 싱글톤 빈 등록     ← @Bean으로 한 번만 만들어짐
+1편: 풀 사이즈 결정     ← maxConnTotal / maxConnPerRoute
+2편: 검증              ← validateAfterInactivity 10초
+2편: 청소              ← evictIdleConnections 5분
+2편: 재시도            ← DefaultHttpRequestRetryStrategy
+3편: 풀 자체가 keep-alive ← 풀 사이즈로 활성 연결 재사용</code></pre>
+
+        <h2>도메인별로 빈을 분리한다</h2>
+
+        <p>
+          외부 API가 여러 개라면 빈을 분리해야 한다. 한 풀에 다 묶으면 안 된다.
+        </p>
+
+        <pre><code>@Configuration
+public class ExternalClientsConfig {
+
+    @Bean(name = "kakaoRestClient")
+    public RestClient kakaoRestClient() {
+        return buildRestClient(
+            "https://api.kakao.com",
+            poolSize(maxTotal: 100, maxPerRoute: 50),
+            timeouts(connect: 5s, read: 10s)
+        );
+    }
+
+    @Bean(name = "paymentRestClient")
+    public RestClient paymentRestClient() {
+        return buildRestClient(
+            "https://pg.example.com",
+            poolSize(maxTotal: 50, maxPerRoute: 30),
+            timeouts(connect: 3s, read: 30s)        // 결제는 응답 시간 길 수 있음
+        );
+    }
+
+    @Bean(name = "smsRestClient")
+    public RestClient smsRestClient() {
+        return buildRestClient(
+            "https://sms.example.com",
+            poolSize(maxTotal: 30, maxPerRoute: 30),
+            timeouts(connect: 5s, read: 10s)
+        );
+    }
+}</code></pre>
+
+        <p>
+          왜 분리하는가. 도메인마다 특성이 다르기 때문.
+        </p>
+
+        <ul>
+          <li>카카오는 응답 빠름, 발송량 많음 → 풀 크게</li>
+          <li>결제 PG는 응답 길 수 있음 → read-timeout 길게</li>
+          <li>SMS는 트래픽 적음 → 풀 작게</li>
+        </ul>
+
+        <p>
+          무엇보다 <strong>한 도메인의 폭증이 다른 도메인까지 막지 않게</strong> 하기 위해서다.
+          한 풀에 다 묶으면 카카오 응답이 느려져서 풀이 차면 결제 호출도 같이 못 한다.
+          분리해두면 격리된다.
+        </p>
+
+        <h2>사용 측 코드</h2>
+
+        <p>
+          빈 이름으로 주입한다.
+        </p>
+
+        <pre><code>@Service
+public class KakaoService {
+
+    private final RestClient kakaoRestClient;
+
+    public KakaoService(@Qualifier("kakaoRestClient") RestClient kakaoRestClient) {
+        this.kakaoRestClient = kakaoRestClient;
+    }
+
+    public KakaoResponse send(SendRequest req) {
+        return kakaoRestClient.post()
+            .uri("/v2/alimtalk/send")
+            .body(req)
+            .retrieve()
+            .body(KakaoResponse.class);
+    }
+}</code></pre>
+
+        <p>
+          서비스 코드는 깔끔하다. RestClient의 모든 운영 디테일은 빈 정의에 갇혀있다.
+          비즈니스 코드를 보는 사람은 풀 사이즈도, eviction도 신경 쓸 필요 없다.
+          외부 API 호출 한 줄.
+        </p>
+
+        <h2>모니터링 메트릭 노출</h2>
+
+        <p>
+          운영 중에 풀 상태를 보려면 메트릭을 노출시켜야 한다.
+          Apache HttpClient5는 풀 통계 API를 제공하니
+          그걸 Micrometer로 등록한다.
+        </p>
+
+        <pre><code>@Component
+@RequiredArgsConstructor
+public class HttpPoolMetrics {
+
+    private final PoolingHttpClientConnectionManager kakaoPool;
+    private final MeterRegistry meterRegistry;
+
+    @Scheduled(fixedRate = 10_000)  // 10초마다
+    public void registerMetrics() {
+        PoolStats stats = kakaoPool.getTotalStats();
+
+        Gauge.builder("http.pool.available", stats, PoolStats::getAvailable)
+            .tag("client", "kakao")
+            .register(meterRegistry);
+
+        Gauge.builder("http.pool.leased", stats, PoolStats::getLeased)
+            .tag("client", "kakao")
+            .register(meterRegistry);
+
+        Gauge.builder("http.pool.pending", stats, PoolStats::getPending)
+            .tag("client", "kakao")
+            .register(meterRegistry);
+
+        Gauge.builder("http.pool.max", stats, s -> (double) s.getMax())
+            .tag("client", "kakao")
+            .register(meterRegistry);
+    }
+}</code></pre>
+
+        <p>
+          Prometheus + Grafana 환경이면 이 메트릭들이 자동으로 수집되고 대시보드에 보인다.
+          Pool 사용률이 100%에 닿거나 pending이 0보다 자주 큰 패턴이 보이면 풀 사이즈를 늘릴 시그널.
+        </p>
+
+        <h2>흔한 함정 모음</h2>
+
+        <h3>함정 1 — RestClientBuilder를 매번 새로 만들기</h3>
+
+        <pre><code>// ❌ 매 호출마다 새 builder
+public ResponseDto call() {
+    return RestClient.builder()
+        .baseUrl("https://api.kakao.com")
+        .build()                              // ← 새 풀 생성
+        .post()...;
+}
+
+// ✅ 빈에 등록하고 주입
+@Bean RestClient kakaoRestClient() { ... }</code></pre>
+
+        <p>
+          RestClient.builder() 호출 자체가 무거운 일은 아니지만,
+          그 결과 build()로 만든 RestClient가 자기 풀을 새로 갖는다.
+          매번 풀을 새로 만들고 버리니 keep-alive 의미 없음.
+        </p>
+
+        <h3>함정 2 — 풀 사이즈 default 그대로 두기</h3>
+
+        <p>
+          PoolingHttpClientConnectionManager의 기본값은 작다.
+          maxConnTotal=25, maxConnPerRoute=5 정도.
+          그대로 두면 외부 API 호출이 좀만 늘어나면 풀 부족으로 thread가 대기에 묶인다.
+          외부 호출이 많은 서비스는 명시적으로 늘려야 한다.
+        </p>
+
+        <h3>함정 3 — connect/read timeout을 안 잡거나 너무 길게</h3>
+
+        <p>
+          기본 timeout이 무한이거나 매우 길면 외부 API 장애 시 우리 thread가
+          풀에서 못 풀려난다. 풀이 빨리 차서 새 요청이 다 막힌다.
+          적절한 timeout이 cascading failure를 막는다.
+        </p>
+
+        <pre><code>connect-timeout: 5초    ← 연결 자체가 5초 안에 안 되면 포기
+read-timeout: 10초      ← 응답이 10초 안에 안 오면 포기
+
+(외부 API 특성에 따라 조정. 결제는 30초 일반적)</code></pre>
+
+        <h3>함정 4 — POST 자동 재시도 켜둔 채로 두기</h3>
+
+        <p>
+          DefaultHttpRequestRetryStrategy의 기본은 멱등 메서드만 재시도지만,
+          어떤 사용자가 setRetryStrategy로 POST까지 재시도되는 정책을 넣는 경우가 있다.
+          외부 API가 Idempotency-Key를 지원하지 않으면 중복 처리 위험.
+          POST는 명시적으로 코드에서 재시도 책임을 가지는 게 안전하다.
+        </p>
+
+        <h3>함정 5 — 한 풀에 모든 외부 API 묶기</h3>
+
+        <p>
+          @Primary RestClient 하나에 모든 baseUrl을 동적으로 바꿔 쓰는 코드.
+          한 풀이라 도메인 간 격리가 없다. 카카오 폭증이 결제까지 막을 수 있다.
+          도메인별로 빈 분리가 정석.
+        </p>
+
+        <h2>운영 체크리스트</h2>
+
+        <p>
+          이 시리즈를 다 읽고 코드 짤 때 실수 안 하게 정리.
+        </p>
+
+        <pre><code>[ ] HTTP 클라이언트(RestClient/WebClient)는 싱글톤 @Bean으로 등록했나?
+[ ] Apache HttpClient5를 백엔드로 쓰고 있나?
+[ ] 풀 사이즈(maxTotal, maxPerRoute)를 명시적으로 잡았나?
+[ ] connect-timeout / read-timeout을 명시적으로 잡았나?
+[ ] validateAfterInactivity로 stale 검증을 켰나?
+[ ] evictIdleConnections로 선제 청소를 켰나?
+[ ] 외부 API가 여러 개면 도메인별로 빈을 분리했나?
+[ ] 풀 메트릭을 Micrometer로 노출하고 있나?
+[ ] Grafana 대시보드에서 pool.available, pool.leased, pool.pending이 보이나?
+[ ] ss -s 또는 netstat으로 TIME_WAIT 폭증 모니터링이 있나?
+[ ] POST 자동 재시도가 위험하지 않은지 확인했나? (Idempotency-Key)</code></pre>
+
+        <p>
+          이 11개를 다 만족하면 외부 API 통합의 토대가 운영 수준에 도달한 것이다.
+          여기 위에 CircuitBreaker, retry policy, fallback 같은 resilience 패턴이 얹힌다.
+        </p>
+
+        <h2>시리즈 정리</h2>
+
+        <pre><code>1편: Keep-Alive를 운영한다는 것
+     - 매 요청마다 100ms 잃지 않는 법
+     - HTTP 클라이언트는 싱글톤 빈
+     - Connection Pool이 운영 단위
+     - 풀 사이즈 결정 가이드 (peak × 1.5~2배)
+
+2편: Pool 안의 좀비 — Stale Connection 3중 방어
+     - 좀비가 만들어지는 세 가지 경로
+     - 사용 직전 검증 (validate)
+     - 주기적 청소 (eviction)
+     - 사후 재시도 (retry)
+     - POST 재시도의 위험과 Idempotency-Key
+
+3편: 외부 API 호출이 ephemeral port를 갉아먹는다
+     - 풀 사이즈와 OS 자원의 분리
+     - TIME_WAIT 60초의 의미
+     - 폭망 시나리오와 진단
+     - keep-alive가 1순위 해법
+
+4편: Spring RestClient + Apache HttpClient5 실전 설정
+     - 운영 가능한 빈 정의
+     - 도메인별 분리
+     - 모니터링 메트릭 노출
+     - 흔한 함정 5가지
+     - 운영 체크리스트 11개</code></pre>
+
+        <p>
+          외부 API 통합 코드를 짤 때마다 이 토대가 깔려있어야 한다.
+          그 위에 비즈니스 로직, resilience 패턴, failover가 얹힌다.
+          토대가 약하면 위가 다 흔들린다.
+        </p>
+
+        <p>
+          그리고 이 토대를 알고 있다는 건 면접에서 큰 차이를 만든다.
+          "외부 API 어떻게 호출하시나요" 같은 평범한 질문이 들어왔을 때
+          싱글톤 빈, 풀 사이즈, validate, eviction, ephemeral port까지 한 흐름으로 풀 수 있다면
+          그게 시니어 백엔드의 시각이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

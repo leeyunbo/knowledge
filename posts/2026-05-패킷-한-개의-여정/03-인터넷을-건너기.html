@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>인터넷을 건너기 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 3/3</div>
+        <h1>인터넷을 건너기</h1>
+        <p class="subtitle">
+          회선은 빈데 왜 단일 connection은 느린가.
+          BDP, slow start, congestion control이 throughput을 정하는 방식.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">패킷 한 개의 여정</div>
+        <ol>
+          <li><a href="./01-호스트-안의-여정.html">호스트 안의 여정</a></li>
+          <li><a href="./02-사내망에서-외부망까지.html">사내망에서 외부망까지</a></li>
+          <li class="current">인터넷을 건너기</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>회사 회선까지 통과한 패킷이 향하는 곳</h2>
+
+        <p>
+          앞 편에서 패킷은 ISP 전용선까지 도달했다.
+          이제 인터넷 백본으로 진입한다.
+          여기서부터는 회사도, 클라우드 사업자도 아닌 인터넷 자체의 영역이다.
+          그래도 백엔드 입장에서 알아두면 도움이 되는 그림이 있다.
+        </p>
+
+        <h2>인터넷의 정체 — AS와 BGP</h2>
+
+        <p>
+          인터넷은 하나의 거대한 네트워크가 아니라
+          <strong>AS(Autonomous System)</strong>들의 연결망이다.
+          AS는 한 조직(ISP, 콘텐츠 회사, 통신사)이 운영하는 라우팅 도메인 단위다.
+          KT는 AS, SKT도 AS, Google도 AS, 카카오도 AS다.
+          전 세계에 약 10만 개의 AS가 있다.
+        </p>
+
+        <p>
+          AS끼리는 <strong>BGP(Border Gateway Protocol)</strong>로 라우팅 정보를 교환한다.
+          "이 IP 대역으로 가려면 나를 거치면 돼"라고 서로 광고하는 식이다.
+          그래서 우리 패킷이 카카오로 갈 때 어느 AS들을 거쳐 가는지는
+          BGP가 정한 경로에 따라 그때그때 다르다.
+        </p>
+
+        <p>
+          AS들이 만나는 물리적 장소를 <strong>IXP(Internet Exchange Point)</strong>라고 한다.
+          한국에서는 KINX 같은 IXP가 있다.
+          국내 ISP들과 글로벌 사업자들이 여기서 직접 연결되어
+          패킷 교환 비용과 latency를 줄인다.
+        </p>
+
+        <h2>RTT — 거리만으로는 설명 안 되는 시간</h2>
+
+        <p>
+          RTT(Round Trip Time)는 패킷이 우리에서 상대까지 갔다가 돌아오는 시간이다.
+          빛의 속도로 계산하면 서울-도쿄 왕복은 이론상 약 7ms,
+          서울-미국 동부는 약 100ms다.
+          하지만 실제 RTT는 항상 이 이론치보다 크다. 보통 1.5~3배 차이 난다.
+        </p>
+
+        <p>
+          이유는 단순하다. 패킷이 직선으로 안 가기 때문이다.
+          BGP가 정한 경로를 따라 여러 AS와 라우터를 거치고,
+          각 라우터에서 처리 시간(보통 0.1~수 ms)을 보탠다.
+          광케이블 안에서 빛은 공기보다 약 30% 느리다.
+          그래서 같은 거리도 RTT가 천차만별이다.
+        </p>
+
+        <pre><code>$ mtr kakao.com
+HOST: ...                       Loss%   Snt   Last   Avg
+1. router-internal               0.0%    10    0.5    0.5
+2. firewall                      0.0%    10    1.2    1.3
+3. isp-edge                      0.0%    10    3.8    4.1
+4. isp-core                      0.0%    10    8.5    8.7
+5. ixp-router                    0.0%    10   12.1   12.3
+6. kakao-edge                    0.0%    10   14.2   14.5
+7. kakao.com                     0.0%    10   15.0   15.2</code></pre>
+
+        <p>
+          mtr이나 traceroute를 쓰면 어느 홉에서 latency가 튀는지 볼 수 있다.
+          한 홉에서 갑자기 latency가 크게 튀면 그 구간이 병목이거나 우회 경로다.
+        </p>
+
+        <h2>TCP slow start — 새 연결이 처음에 느린 이유</h2>
+
+        <p>
+          연결이 만들어졌다고 처음부터 회선 가득 데이터를 보내는 건 아니다.
+          TCP는 새 연결이 시작되면 <strong>slow start</strong>라는 단계를 거친다.
+          처음에는 작은 윈도우로 시작해서 ACK를 받을 때마다 윈도우를 키운다.
+        </p>
+
+        <pre><code>RTT 1: 윈도우 10 세그먼트 전송 → ACK 받음
+RTT 2: 윈도우 20 세그먼트 → ACK 받음
+RTT 3: 윈도우 40 세그먼트 → ACK 받음
+RTT 4: 윈도우 80 세그먼트 → ACK 받음
+...</code></pre>
+
+        <p>
+          ACK를 받을 때마다 윈도우가 두 배가 된다. 지수적 증가다.
+          이걸 임계값(slow start threshold)에 도달할 때까지 한다.
+          지수적이라 빨라 보이지만, 임계값에 도달하기 전에는 회선 용량의 일부만 쓴다.
+          그래서 새 연결의 첫 몇 RTT는 회선이 빈데도 그 속도를 다 못 쓴다.
+        </p>
+
+        <p>
+          이게 keep-alive와 connection pool이 첫 연결 비용 외에도
+          throughput에 영향을 주는 또 다른 이유다.
+          한 번 가속이 붙은 connection을 계속 쓰면 그 가속이 유지된다.
+          매번 새 connection을 만들면 매번 slow start부터 다시 한다.
+        </p>
+
+        <h2>Congestion Control — CUBIC vs BBR</h2>
+
+        <p>
+          slow start가 끝나고 임계값에 도달하면 그 다음은
+          <strong>congestion control</strong> 알고리즘이 윈도우를 관리한다.
+          현재 Linux 기본은 CUBIC, 옵션으로 BBR이 있다.
+        </p>
+
+        <h3>CUBIC — 손실을 신호로 본다</h3>
+
+        <p>
+          CUBIC은 패킷 손실을 혼잡의 신호로 해석한다.
+          평소엔 윈도우를 천천히 키우다가 손실이 발생하면 윈도우를 30% 줄이고
+          다시 cubic 함수 모양으로 회복한다.
+          1990년대부터 이어져 온 loss-based 알고리즘 계열의 진화 형태다.
+        </p>
+
+        <p>
+          단점은 손실이 자주 나는 경로에서는 윈도우를 자주 줄여
+          throughput이 회선 용량의 일부만 쓰게 된다는 것이다.
+          무선 네트워크나 RTT 큰 경로에서 특히 문제가 된다.
+        </p>
+
+        <h3>BBR — 손실 대신 모델로 본다</h3>
+
+        <p>
+          BBR은 2016년 Google이 만든 알고리즘이다.
+          손실을 무시하고 대신 측정한 <strong>최대 대역폭</strong>과
+          <strong>최소 RTT</strong>를 가지고 네트워크 모델을 만든다.
+          그 모델에 맞춰 윈도우를 조절한다.
+        </p>
+
+        <p>
+          그 결과는 인상적이다. Google이 YouTube에 BBR을 깔았더니
+          throughput이 4% 증가하고 RTT가 33% 줄었다.
+          1% 손실이 있는 long-haul 경로에서는 BBR이 CUBIC보다
+          수천 배 throughput을 보인 측정도 있다.
+        </p>
+
+        <p>
+          요즘 Linux 커널은 BBR을 옵션으로 지원한다.
+          <code>sysctl -w net.ipv4.tcp_congestion_control=bbr</code>로 바꿀 수 있다.
+          외부 API 호출이 많고 RTT가 큰 환경(예: 해외 서비스 통합)이라면
+          BBR로 바꾸는 것만으로 throughput이 눈에 띄게 개선되기도 한다.
+        </p>
+
+        <h2>BDP — 단일 connection의 진짜 한계</h2>
+
+        <p>
+          여기까지 봐도 한 가지 의문이 남는다.
+          1Gbps 회선이 빈데 단일 connection이 그걸 다 못 쓰는 경우가 종종 있다. 왜인가.
+          답은 <strong>BDP(Bandwidth-Delay Product)</strong>에 있다.
+        </p>
+
+        <pre><code>BDP = Bandwidth × RTT</code></pre>
+
+        <p>
+          이게 뭘 의미하나. BDP는 한 시점에 "송신했지만 ACK 안 온" 데이터의 최대 크기다.
+          TCP는 ACK를 못 받으면 더 안 보낸다.
+          그래서 윈도우 크기가 BDP보다 작으면 회선을 다 못 쓴다.
+        </p>
+
+        <h3>실제 계산해보기</h3>
+
+        <p>
+          1Gbps 회선, 카카오까지 RTT 30ms 환경이라고 하자.
+        </p>
+
+        <pre><code>BDP = 1,000,000,000 bps × 0.03s ÷ 8 = 3,750,000 bytes ≈ 3.75 MB</code></pre>
+
+        <p>
+          이게 의미하는 바는 분명하다.
+          <strong>TCP 윈도우가 3.75MB는 돼야 1Gbps 회선을 가득 쓸 수 있다.</strong>
+          만약 윈도우가 64KB라면?
+        </p>
+
+        <pre><code>실효 throughput = 64 KB ÷ 0.03s ≈ 2.13 MB/s ≈ 17 Mbps</code></pre>
+
+        <p>
+          1Gbps 회선인데 단일 connection이 17Mbps밖에 못 쓴다.
+          회선이 비어있어도 TCP가 알아서 절약하는 게 아니라,
+          이건 윈도우 한도에 걸린 것이다.
+        </p>
+
+        <h3>해법 — 윈도우 스케일링과 병렬 connection</h3>
+
+        <p>
+          TCP 헤더의 윈도우 필드는 16비트라 64KB가 최대다.
+          이 한계를 풀려고 RFC 7323이 <strong>Window Scale 옵션</strong>을 만들었다.
+          handshake 시점에 협상한 배수만큼 곱해서 더 큰 윈도우를 쓸 수 있게 해준다.
+          요즘 OS는 이걸 기본으로 켜둔다.
+        </p>
+
+        <p>
+          그래도 단일 connection의 한도가 부족하면
+          <strong>병렬 connection</strong>이 답이다.
+          큰 파일을 chunk로 나눠 여러 connection으로 동시 업로드하면
+          각 connection이 자기 윈도우를 갖고 돌아 합산 throughput이 N배가 된다.
+          AWS S3의 multipart upload, HTTP/2 multiplexing이 이런 발상의 산물이다.
+        </p>
+
+        <p>
+          앞에서 설계했던 4GB 카카오 업로드 흐름에서
+          "회선은 빈데 왜 한 connection이 4GB를 30분이나 보내는 거지?"라는 질문이 나오면
+          답은 거의 항상 BDP × congestion control이다.
+          회선이 아니라 <strong>단일 connection의 윈도우</strong>가 한도다.
+        </p>
+
+        <h2>시리즈 정리 — 한 줄을 그릴 수 있게 됐다</h2>
+
+        <p>
+          세 편을 거치며 한 API 호출이 어디를 거쳐 가는지 따라가봤다.
+        </p>
+
+        <pre><code>[애플리케이션] ─▶ [소켓 큐] ─▶ [TCP] ─▶ [IP] ─▶ [qdisc]
+              ─▶ [드라이버 큐] ─▶ [NIC]
+              ─▶ [TOR 스위치] ─▶ [백본 (3-tier 또는 Spine-Leaf)]
+              ─▶ [방화벽] ─▶ [NAT] ─▶ [ISP 전용선]
+              ─▶ [인터넷 백본 / IXP / AS들] ─▶ [카카오]</code></pre>
+
+        <p>
+          이 한 줄을 머릿속에 그릴 수 있으면, 어떤 외부 통신 문제가 와도
+          어디부터 의심해야 할지가 분명해진다.
+          호스트 안의 큐가 차 있는지, 방화벽 conntrack이 가득 찼는지,
+          ISP 회선이 포화 상태인지, 단일 connection이 BDP에 걸려있는지.
+        </p>
+
+        <p>
+          API 한 줄 뒤에 이 여정이 매번 일어난다는 걸 의식하면
+          코드를 짜는 방식도 조금씩 바뀐다.
+          매 호출마다 새 연결을 만들지 않게 connection pool을 둔다.
+          큰 파일은 stream으로 흘려보내고, 필요하면 병렬로 쪼갠다.
+          외부망 진출 한도를 넘는 트래픽이 발생할 가능성을 미리 본다.
+        </p>
+
+        <p>
+          이런 시각이 백엔드의 외부 통합 코드에 묻어나면, 인프라가 보내는 신호를 더 빨리 읽을 수 있다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>클러스터드 vs 보조 — Back to Table과 커버링 인덱스 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 2/4</div>
+        <h1>클러스터드 vs 보조 — Back to Table과 커버링 인덱스</h1>
+        <p class="subtitle">
+          왜 PK는 짧게 잡아야 하는가. 인덱스 탔는데 왜 풀스캔보다 느린가.
+          Random I/O와 Sequential I/O가 만드는 진짜 차이.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인덱스 — B-Tree부터 Covering까지</div>
+        <ol>
+          <li><a href="./01-b-tree의-정체.html">인덱스가 왜 빠른가 — B+Tree의 정체</a></li>
+          <li class="current">클러스터드 vs 보조 — Back to Table과 커버링 인덱스</li>
+          <li><a href="./03-복합-인덱스-운영.html">복합 인덱스 운영 — Left-most Prefix와 카디널리티</a></li>
+          <li><a href="./04-explain-실전-튜닝.html">EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>두 종류의 인덱스</h2>
+
+        <p>
+          InnoDB의 인덱스는 두 종류다. 리프 노드에 무엇이 저장되느냐로 갈린다.
+        </p>
+
+        <pre><code>클러스터드 인덱스 (Clustered Index)
+  - 리프 노드에 실제 데이터 행 전체가 저장됨
+  - 테이블당 1개만 가능
+  - InnoDB에선 PK가 자동으로 클러스터드 인덱스가 됨
+  - 사실상 "테이블 자체가 PK 기준으로 정렬된 B+Tree"
+
+보조 인덱스 (Secondary Index, Non-clustered Index)
+  - 리프 노드에 인덱스 키 + PK 값만 저장됨
+  - 테이블당 여러 개 가능
+  - 실제 데이터를 가져오려면 PK로 클러스터드 인덱스를 한 번 더 탐색</code></pre>
+
+        <p>
+          이 구조 차이가 InnoDB 성능 특성의 거의 모든 것을 설명한다.
+        </p>
+
+        <h2>클러스터드 인덱스 — 테이블 자체가 트리</h2>
+
+        <pre><code>users 테이블 (PK = id):
+
+[Root]
+   │
+[Branch]
+   │
+   ├──▶ [Leaf: id=1, name="A", email="a@x", age=20, ...]
+   ├──▶ [Leaf: id=2, name="B", email="b@x", age=25, ...]
+   ├──▶ [Leaf: id=3, name="C", email="c@x", age=30, ...]
+   ...</code></pre>
+
+        <p>
+          PK로 검색하면 트리 탐색 한 번으로 행 전체에 도달.
+          가장 빠른 접근 경로다.
+        </p>
+
+        <pre><code>SELECT * FROM users WHERE id = 1234567
+  → 클러스터드 인덱스 탐색 (3~4 페이지 읽기)
+  → 리프에서 데이터 행 발견
+  → 끝</code></pre>
+
+        <h2>보조 인덱스 — 키와 PK만 들고 있다</h2>
+
+        <p>
+          email에 보조 인덱스를 걸었다고 하자.
+        </p>
+
+        <pre><code>users 테이블의 email 보조 인덱스:
+
+[Root]
+   │
+[Branch]
+   │
+   ├──▶ [Leaf: email="a@x", id=1]   ← 키 + PK만
+   ├──▶ [Leaf: email="b@x", id=2]
+   ├──▶ [Leaf: email="c@x", id=3]
+   ...</code></pre>
+
+        <p>
+          이메일로 검색하면 어떻게 되나?
+        </p>
+
+        <pre><code>SELECT * FROM users WHERE email = 'a@x'
+
+1. email 보조 인덱스 탐색 (3~4 페이지 읽기)
+2. 리프에서 (email="a@x", id=1) 발견
+3. id=1로 클러스터드 인덱스 다시 탐색 (3~4 페이지 읽기)
+4. 행 전체 발견
+   ─────────────────────
+   총 6~8 페이지 읽기 (트리 두 번 탐)</code></pre>
+
+        <p>
+          이 두 번째 탐색을 <strong>Back to Table</strong>(또는 북마크 룩업)이라 부른다.
+          PK 검색의 두 배 비용이다. 그래도 풀스캔보다는 압도적으로 빠르다(1억 건 vs 8 페이지).
+        </p>
+
+        <h2>왜 PK를 짧게 잡아야 하는가</h2>
+
+        <p>
+          이 구조에서 한 가지 중요한 사실이 따라온다.
+          <strong>모든 보조 인덱스의 리프에 PK 값이 저장된다.</strong>
+        </p>
+
+        <pre><code>email 인덱스 리프:    [email="a@x", id=1]
+phone 인덱스 리프:    [phone="010-...", id=1]
+name 인덱스 리프:     [name="Alice",  id=1]
+
+→ 보조 인덱스가 N개면 PK가 N개 복사됨</code></pre>
+
+        <p>
+          PK가 BIGINT(8바이트)면 큰 영향 없지만,
+          UUID 같은 32~36바이트 문자열이면 모든 보조 인덱스가 그만큼 비대해진다.
+        </p>
+
+        <pre><code>BIGINT PK (8B) + 보조 인덱스 5개 + 1억 행:
+  추가 저장: 8B × 5 × 1억 = 4GB
+
+UUID PK (36B) + 보조 인덱스 5개 + 1억 행:
+  추가 저장: 36B × 5 × 1억 = 18GB</code></pre>
+
+        <p>
+          14GB 차이. 디스크만이 아니라 Buffer Pool에도 그만큼 압박이 간다.
+          그래서 InnoDB에선 <strong>"PK는 짧고 단조 증가하는 정수형"</strong>이 권장된다.
+          AUTO_INCREMENT BIGINT가 일반적이고, UUID를 PK로 쓸 거면
+          최소한 ULID나 UUIDv7 같은 단조 증가 형태를 검토해야 한다.
+        </p>
+
+        <h3>UUID PK가 또 다른 문제를 만드는 이유</h3>
+
+        <p>
+          저장 크기뿐만이 아니다. UUID v4 같은 무작위 PK는
+          <strong>클러스터드 인덱스의 페이지 분할</strong>을 자주 발생시킨다.
+        </p>
+
+        <pre><code>AUTO_INCREMENT (단조 증가):
+  새 row의 id가 항상 가장 큼
+  → 항상 마지막 페이지에 append
+  → 페이지 분할 거의 없음
+  → 페이지 채움이 ~15/16 (효율적)
+
+UUID v4 (무작위):
+  새 row의 id가 어디 들어갈지 무작위
+  → 중간 페이지에 insert
+  → 페이지가 가득 차면 분할
+  → 페이지 채움이 1/2~15/16 (비효율적)</code></pre>
+
+        <p>
+          공식 문서에 따르면 InnoDB는 새 행 삽입 시 페이지의 1/16을 비워둔다.
+          순차 삽입이면 ~15/16 채움인데, 랜덤 삽입이면 1/2까지 떨어질 수 있다.
+          공간 효율이 낮아지고, 분할 자체에도 비용이 든다.
+        </p>
+
+        <h2>커버링 인덱스 — Back to Table을 건너뛰는 법</h2>
+
+        <p>
+          보조 인덱스 검색이 트리 두 번 타는 게 비싸다고 했다.
+          이걸 한 번으로 줄이는 방법이 있다. 커버링 인덱스다.
+        </p>
+
+        <p>
+          <strong>쿼리에서 필요한 모든 컬럼이 인덱스 안에 있으면
+          보조 인덱스 리프에서 바로 결과를 반환</strong>한다.
+          클러스터드 인덱스를 다시 탐색할 필요가 없다.
+        </p>
+
+        <pre><code>users 테이블에 (email) 보조 인덱스 있음.
+보조 인덱스 리프: (email, id)
+
+쿼리 1:
+  SELECT * FROM users WHERE email = 'a@x'
+  → 모든 컬럼 필요. 보조 인덱스로 부족.
+  → 트리 두 번 (Back to Table 발생)
+
+쿼리 2:
+  SELECT id, email FROM users WHERE email = 'a@x'
+  → id와 email만 필요.
+  → 보조 인덱스 리프에 둘 다 있음 (email + PK인 id)
+  → 트리 한 번. 끝. 커버링 인덱스 작동.</code></pre>
+
+        <p>
+          이게 Spring 환경에서도 굉장히 강력한 튜닝 기법이다.
+          DTO에 필요한 컬럼이 한정적이면 그 컬럼들이 다 들어간 인덱스를 만들면 된다.
+        </p>
+
+        <pre><code>특정 화면이 자주 호출하는 쿼리:
+  SELECT id, email, name FROM users WHERE status = 'ACTIVE'
+
+기존 인덱스: (status)
+  → Back to Table 발생 (id, email, name 가지러)
+
+새 인덱스: (status, email, name)
+  → 보조 인덱스 리프에 status, email, name + PK인 id가 모두 있음
+  → 커버링 인덱스 작동, Back to Table 제거
+  → 페이지 읽기 절반 이상 감소</code></pre>
+
+        <h3>EXPLAIN에서 확인하는 법</h3>
+
+        <pre><code>EXPLAIN SELECT id, email FROM users WHERE email = 'a@x';
+
++----+-------------+-------+------+--------+----------------------+
+| id | type        | key   | rows | Extra                        |
++----+-------------+-------+------+----------------------+--------+
+|  1 | ref         | email |    1 | Using index                  |
++----+-------------+-------+------+----------------------+--------+
+
+→ Extra: "Using index"가 보이면 커버링 인덱스 작동 중</code></pre>
+
+        <p>
+          <code>Using index</code>가 보이면 그 쿼리는 트리 한 번만 탔다.
+          반대로 그게 없으면 Back to Table이 발생했다.
+        </p>
+
+        <h2>인덱스를 탔는데 왜 풀스캔보다 느릴까</h2>
+
+        <p>
+          이게 면접에서 자주 나오는 트릭 질문이다. 답은 <strong>I/O 패턴 차이</strong>에 있다.
+        </p>
+
+        <h3>Random I/O vs Sequential I/O</h3>
+
+        <pre><code>Sequential I/O (순차 읽기):
+  디스크에서 인접한 페이지를 차례로 읽음
+  HDD: 헤드 이동 없음, 매우 빠름
+  SSD: 페이지 prefetch가 효과적
+  실측 throughput이 매우 높음
+
+Random I/O (랜덤 읽기):
+  디스크에서 흩어진 페이지를 임의로 읽음
+  HDD: 매 페이지마다 헤드 이동 (seek time 5~10ms)
+  SSD: HDD보단 빠르지만 sequential보다 느림
+  실측 throughput이 낮음</code></pre>
+
+        <p>
+          이게 인덱스 vs 풀스캔 결정에 영향을 준다.
+        </p>
+
+        <h3>풀스캔은 Sequential I/O</h3>
+
+        <pre><code>SELECT * FROM users
+  → 클러스터드 인덱스 리프를 처음부터 끝까지 순차 읽기
+  → Sequential I/O
+  → 1억 행 읽어도 단순 데이터 throughput에 가까움</code></pre>
+
+        <h3>보조 인덱스 + Back to Table은 Random I/O</h3>
+
+        <pre><code>SELECT * FROM users WHERE age &gt; 50
+  → age 보조 인덱스로 매칭되는 PK 목록 얻음 (정렬돼있음)
+  → 그 PK들로 클러스터드 인덱스를 차례로 탐색
+  → 그러나 PK 자체는 정렬돼있어도, age=50 이상인 사용자의 PK는
+    물리적으로 디스크 여기저기 흩어져있음
+  → Random I/O 대량 발생</code></pre>
+
+        <p>
+          매칭되는 행이 적으면 Random I/O 비용을 감당할 만하다.
+          그러나 결과 행이 많으면(예: 테이블의 30%) Random I/O 누적이
+          풀스캔의 Sequential I/O를 능가한다.
+        </p>
+
+        <pre><code>매칭 행 1만 건 (1억 중 0.01%):
+  Random I/O 1만 번 << 풀스캔 1억 행
+  → 인덱스가 압도적
+
+매칭 행 3000만 건 (1억 중 30%):
+  Random I/O 3000만 번 ≈ 풀스캔 1억 행
+  → 풀스캔이 더 빠를 수 있음</code></pre>
+
+        <h2>옵티마이저는 풀스캔을 일부러 선택한다</h2>
+
+        <p>
+          그래서 옵티마이저는 통계를 보고 결과가 충분히 많으면 일부러 풀스캔을 고른다.
+          관찰 사례로 보통 <strong>테이블의 20~30% 이상</strong>이 결과로 예상되면
+          풀스캔으로 전환되는 패턴이 보인다.
+        </p>
+
+        <pre><code>EXPLAIN SELECT * FROM users WHERE age &gt; 18;
+
++----+--------+-----+-------+-----------+
+| id | type   | key | rows  | Extra     |
++----+--------+-----+-------+-----------+
+|  1 | ALL    | NULL| 9999  |           |   ← type: ALL, key: NULL
++----+--------+-----+-------+-----------+
+
+→ age 인덱스가 있어도 옵티마이저가 풀스캔 선택
+→ 거의 모든 행이 만 18세 이상이라 인덱스가 비효율</code></pre>
+
+        <p>
+          "인덱스 걸었는데 안 타요"라고 할 때 상당수가 이 케이스다.
+          옵티마이저가 더 똑똑한 선택을 한 결과지 버그가 아니다.
+          결과 비율을 줄이거나(WHERE 조건 추가) 커버링 인덱스를 만들면 인덱스를 다시 타기 시작한다.
+        </p>
+
+        <h2>Buffer Pool — 디스크 I/O를 메모리로 흡수</h2>
+
+        <p>
+          여기까지 디스크 I/O를 기준으로 얘기했지만, 현실 InnoDB는
+          <strong>Buffer Pool</strong>이라는 메모리 캐시를 갖고 있다.
+          자주 쓰는 페이지는 메모리에 머물러 디스크 I/O가 거의 발생하지 않는다.
+        </p>
+
+        <pre><code>Buffer Pool 크기:
+  innodb_buffer_pool_size 설정으로 결정
+  보통 시스템 메모리의 50~70%
+
+자주 쓰는 인덱스 상위 노드:
+  거의 항상 Buffer Pool에 캐시
+  → PK 검색이 사실상 메모리 비교만으로 끝남
+
+자주 쓰는 페이지의 Buffer Pool 적중률:
+  잘 튜닝된 OLTP는 99%+
+  → 디스크 I/O는 거의 발생 안 함</code></pre>
+
+        <p>
+          "트리 높이 4 레벨이면 페이지 읽기 4번"이라고 했지만,
+          실제 운영에선 그중 3~4번이 다 메모리 hit고
+          많아야 1번 정도가 진짜 디스크다. 이게 OLTP가 빠른 진짜 비밀.
+        </p>
+
+        <h2>정리</h2>
+
+        <pre><code>1. InnoDB의 인덱스는 두 종류
+   - 클러스터드 (PK, 리프에 행 전체) — 1개
+   - 보조 (리프에 키 + PK) — 여러 개
+
+2. PK는 짧게 잡아라
+   - 모든 보조 인덱스에 PK가 복사됨
+   - UUID v4는 페이지 분할도 자주 일으킴
+
+3. 보조 인덱스 검색은 Back to Table 비용
+   - 트리 두 번 (보조 → 클러스터드)
+   - 매칭 행 많으면 Random I/O가 풀스캔보다 느려질 수 있음
+
+4. 커버링 인덱스로 Back to Table 제거
+   - 쿼리의 모든 컬럼이 인덱스에 있으면 트리 한 번
+   - EXPLAIN의 Extra: Using index 확인
+
+5. 옵티마이저는 통계 기반으로 풀스캔을 선택할 수 있다
+   - "인덱스 안 타요" 의 상당수는 옵티마이저의 의도된 선택
+   - 결과 비율 20~30%+이면 보통 풀스캔이 선택됨
+
+6. Buffer Pool이 디스크 I/O를 흡수
+   - 잘 튜닝된 OLTP는 적중률 99%+
+   - 페이지 읽기 횟수가 곧 디스크 I/O 횟수가 아님</code></pre>
+
+        <p>
+          여기까지가 단일 컬럼 인덱스의 그림이다.
+          현실에선 한 컬럼이 아니라 여러 컬럼을 묶은 복합 인덱스가 거의 모든 곳에서 쓰인다.
+          그런데 복합 인덱스는 또 다른 함정이 있다.
+          <code>(A, B, C)</code>로 만들었는데 <code>WHERE B = ?</code>으로 검색하면 인덱스를 못 탄다.
+          왜 그런지, 어떻게 컬럼 순서를 정해야 하는지가 다음 편이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

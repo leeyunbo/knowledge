@@ -24,7 +24,7 @@
 
 ### DB
 - [ ] ★ 트랜잭션 격리 수준 deep dive (5편)
-- [ ] ★ 인덱스 — B-Tree부터 Covering까지 (4편)
+- [x] ★ 인덱스 — B-Tree부터 Covering까지 (4편)
 - [ ] ★ MVCC와 잠금 (3편)
 - [ ] ★ N+1과 fetch 전략 (3편)
 - [ ] ★ 정규화 vs 반정규화 (2편)
@@ -36,13 +36,13 @@
 - [ ] ★ DI 방식 — 생성자 / 세터 / 필드 (2편)
 
 ### Spring 모듈/기능
-- [ ] ★ Transaction Propagation 7가지 (4편)
+- [x] ★ Transaction Propagation 7가지 (4편)
 - [ ] ★ `@Transactional` self-invocation 함정 (2편)
 
 ### HTTP / 네트워크
 - [ ] ★ HTTP 메소드와 멱등성 (2편)
 - [ ] ★ HTTP 상태코드 — 헷갈리는 경계 (2편)
-- [ ] ★ TCP 3-way / 4-way handshake — TIME_WAIT까지 (3편)
+- [x] ★ TCP 3-way / 4-way handshake — TIME_WAIT까지 (3편)
 - [ ] ★ TCP vs UDP — 어디서 어느 것 (2편)
 
 ### 보안
@@ -131,8 +131,8 @@
 - [ ] HTTPS / TLS handshake (3편)
 - [ ] DNS 동작 — 재귀 vs 반복 (2편)
 - [ ] Cookie / Session / Token — 트레이드오프 (3편)
-- [ ] HTTP Connection Pool 튜닝 (3편)
-- [ ] Keep-Alive와 idle timeout (2편)
+- [x] HTTP Connection Pool 튜닝 (3편)
+- [x] Keep-Alive와 idle timeout (2편)
 
 ### 보안
 - [ ] CSRF / XSS / SQL Injection 방어 (3편)

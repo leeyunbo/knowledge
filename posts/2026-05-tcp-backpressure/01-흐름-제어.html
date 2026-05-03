@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TCP 흐름 제어의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 1/2</div>
+        <h1>TCP 흐름 제어의 정체</h1>
+        <p class="subtitle">
+          4GB 파일을 받아 외부 API로 흘려보내는 서버가
+          왜 메모리 8KB만 쓰고 끝나는지. 그 마법의 진짜 이름은 backpressure다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">TCP Backpressure</div>
+        <ol>
+          <li class="current">TCP 흐름 제어의 정체</li>
+          <li><a href="./02-spring-실전.html">Spring 코드에서 backpressure를 살리는 법</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>4GB는 어디 있는가</h2>
+
+        <p>
+          4GB 파일을 클라이언트로부터 받아 외부 API로 흘려보내는 게이트웨이가 있다고 하자.
+          서버 메모리는 4GB는커녕 1GB도 안 잡힌다. JVM heap 사용량을 봐도 평소와 비슷하다.
+          파일은 분명히 서버를 통과하는데, 어디에도 통째로 머물지 않는다.
+        </p>
+
+        <p>
+          이걸 가능하게 하는 건 애플리케이션 코드의 묘기가 아니다.
+          TCP가 이미 갖고 있는 <strong>흐름 제어(flow control)</strong> 기능이
+          이 동기화를 자동으로 만들어준다.
+        </p>
+
+        <h2>전제 — 양쪽 모두 버퍼가 있다</h2>
+
+        <p>
+          TCP 연결 한 개에는 양쪽 호스트 각각에 버퍼가 있다.
+          송신 측에는 송신 버퍼(send buffer), 수신 측에는 수신 버퍼(receive buffer)다.
+          OS 커널 메모리에 잡히고, 보통 256KB~수 MB 정도다.
+        </p>
+
+        <pre><code>[Sender]                                  [Receiver]
+  애플리케이션                                  애플리케이션
+       │ write()                                    ▲ read()
+       ▼                                            │
+  [송신 버퍼]      ─── TCP 패킷 ───▶          [수신 버퍼]</code></pre>
+
+        <p>
+          송신 측은 애플리케이션이 <code>write()</code>로 송신 버퍼에 데이터를 채우고,
+          커널이 그걸 패킷으로 보낸다.
+          수신 측은 도착한 패킷이 수신 버퍼에 쌓이고,
+          애플리케이션이 <code>read()</code>로 그걸 꺼낸다.
+        </p>
+
+        <p>
+          여기서 핵심 질문이 나온다.
+          만약 sender가 너무 빨리 보내고 receiver의 read가 느리면 어떻게 되나.
+          수신 버퍼는 무한이 아니다.
+        </p>
+
+        <h2>TCP window — 매 ACK에 실리는 자기 잔량</h2>
+
+        <p>
+          TCP의 답은 단순하다.
+          <strong>받는 쪽이 매번 자기 수신 버퍼의 남은 공간을 알려준다.</strong>
+          이 값이 TCP 헤더의 <code>window</code> 필드에 들어간다.
+          ACK가 갈 때마다 같이 실린다.
+        </p>
+
+        <pre><code>[Sender]                                       [Receiver]
+   ── 데이터 ───────────────────────▶              │
+                                                  │ 수신 버퍼: 8KB 남음
+   ◀── ACK (window=8192) ─────────                │ "8KB까지만 더 보내"</code></pre>
+
+        <p>
+          sender는 이 window 값을 보고 자기가 한 번에 얼마나 보낼 수 있는지 안다.
+          window가 8KB면 8KB까지만 보내고 ACK를 기다린다.
+          ACK가 오면 그 안의 새 window 값을 보고 다음 송신량을 정한다.
+        </p>
+
+        <p>
+          이건 sender의 친절함이 아니라 강제다.
+          window를 넘겨 보내면 receiver가 ACK 안 주고, 결국 재전송 큐에 쌓여 sender 자기가 막힌다.
+        </p>
+
+        <h2>window = 0 — 멈춰</h2>
+
+        <p>
+          receiver의 read가 정말 느리면 수신 버퍼가 점점 차오른다.
+          가득 차는 순간 receiver는 ACK에 <code>window=0</code>을 실어 보낸다.
+        </p>
+
+        <pre><code>[Sender]                                       [Receiver]
+                                                  │ 수신 버퍼: ████████ (가득 참)
+   ◀── ACK (window=0) ─────────                  │ "더 이상 받지 마"
+   │
+   │ sender의 다음 write() 블로킹
+   │ 송신 버퍼에 데이터 쌓이기 시작
+   │
+   │ sender의 애플리케이션 write()도 결국 블로킹</code></pre>
+
+        <p>
+          window=0이 도착하면 sender의 TCP는 송신을 멈춘다.
+          새 데이터를 못 보내니 송신 버퍼에 데이터가 쌓이고,
+          송신 버퍼도 차면 sender 측 애플리케이션의 <code>write()</code> 호출이 블로킹된다.
+          연쇄적으로 위로 올라가며 멈춰버린다.
+        </p>
+
+        <h2>Zero Window Probe — 영원히 멈추지 않게</h2>
+
+        <p>
+          한 가지 위험이 있다. window=0이 된 후 receiver가 버퍼를 비웠을 때
+          sender에게 "이제 더 보내도 돼"라고 알리는 메시지(window update)가
+          만약 손실되면 어떻게 되나.
+          sender는 window=0인 줄 알고 영원히 기다린다.
+          receiver는 sender가 안 보내니까 그냥 그대로 있다.
+          데드락이다.
+        </p>
+
+        <p>
+          TCP는 이걸 막으려고 <strong>Zero Window Probe</strong>를 쓴다.
+          window=0을 받은 sender는 그냥 가만히 있는 게 아니라
+          <strong>주기적으로 1바이트짜리 패킷을 receiver에게 보낸다</strong>.
+        </p>
+
+        <pre><code>[Sender]                                       [Receiver]
+   ── 1바이트 (probe) ────────▶                  │
+                                                  │ 버퍼 비었으면 window>0 응답
+   ◀── ACK (window=8192) ─────                   │ "이제 받을 수 있어"
+   │
+   │ 송신 재개</code></pre>
+
+        <p>
+          이 probe는 처음에는 짧은 간격으로, 점점 길어지는 식으로 보낸다.
+          실무에선 5~60초 사이 간격이 흔하다. 운영 중인 시스템에서
+          window 회복이 늦으면 이 probe 주기 때문에 실제 송신 재개가
+          몇십 초 지연될 수 있다.
+        </p>
+
+        <h2>양방향 backpressure — 진짜 그림</h2>
+
+        <p>
+          여기까지가 한 방향(sender → receiver) 흐름 제어다.
+          그런데 우리가 4GB 파일을 받아서 다시 외부 API로 보내는 GW 서버는
+          양방향 모두에서 이 메커니즘이 동시에 작동한다.
+        </p>
+
+        <pre><code>[Client]                  [GW]                      [Kakao]
+
+  4GB 송신 ─────▶  [GW 수신 버퍼]
+                         │
+                  JVM read(8KB)
+                         │
+                  JVM write(8KB)
+                         │
+                  [GW 송신 버퍼] ─────▶ Kakao로 송신
+                                                       │
+                                                  Kakao 수신 버퍼
+                                                       │
+                                                  Kakao read</code></pre>
+
+        <p>
+          GW는 두 개의 TCP 연결을 가진다.
+          왼쪽(클라이언트와의 연결)에서는 자기가 receiver,
+          오른쪽(카카오와의 연결)에서는 자기가 sender다.
+          이 둘이 자동으로 동기화된다.
+        </p>
+
+        <h3>카카오가 느리다고 하자</h3>
+
+        <pre><code>1. Kakao read 느림 → Kakao 수신 버퍼 참
+2. Kakao가 GW에게 window=0 보냄
+3. GW의 카카오 방향 송신 멈춤
+4. GW 송신 버퍼 가득 참
+5. GW의 RestClient.write 블로킹
+6. GW가 InputStream.read 못 함
+7. GW의 클라이언트 방향 수신 버퍼 안 비워짐
+8. GW가 클라이언트에게 window=0 보냄
+9. 클라이언트 송신 멈춤</code></pre>
+
+        <p>
+          한 사람도 일부러 뭘 한 게 없다. TCP 두 개의 흐름 제어가
+          <strong>양쪽에서 동시에 작동하면서 자연스럽게 동기화</strong>된다.
+          느린 쪽 속도에 전체가 맞춰진다. 한 줄로 요약하면 이거다.
+        </p>
+
+        <p>
+          <strong>4GB가 어디에도 안 머무는 게 아니라, 흘러가지 못해 못 머무는 것이다.</strong>
+        </p>
+
+        <h2>그래서 GW가 메모리 8KB만 쓰는 이유</h2>
+
+        <p>
+          위 그림에서 GW의 메모리 점유는 정확히 다음과 같다.
+        </p>
+
+        <pre><code>GW 수신 버퍼     (커널)    수백 KB ~ 수 MB
+GW 송신 버퍼     (커널)    수백 KB ~ 수 MB
+JVM read 버퍼   (heap)    8 KB
+─────────────────────────────────────
+합계                       수 MB 이내</code></pre>
+
+        <p>
+          4GB는 GW에 있을 때 항상 이 수 MB짜리 파이프 안에서만 흐른다.
+          어딘가 통째로 쌓일 일이 없다.
+          이게 흐름 제어가 만들어주는 자동 메모리 절약이다.
+        </p>
+
+        <h2>BDP가 끼어드는 자리</h2>
+
+        <p>
+          여기까지가 흐름 제어의 본체지만, 실무에선 한 가지 더 있다.
+          앞 시리즈에서 본 <strong>BDP(Bandwidth-Delay Product)</strong>다.
+          BDP가 receive window보다 크면, sender는 회선이 비어있어도 throughput을 다 못 쓴다.
+        </p>
+
+        <pre><code>1Gbps 회선, RTT 30ms 환경:
+  BDP = 1,000,000,000 × 0.03 ÷ 8 ≈ 3.75 MB
+
+receive window가 64KB라면:
+  실효 throughput = 64KB ÷ 30ms ≈ 17 Mbps   ← 1Gbps 못 다 씀</code></pre>
+
+        <p>
+          그래서 RTT 큰 외부 API와 통신할 때는 receive 버퍼를 충분히 키워야 한다.
+          OS 기본값이 작으면 <code>SO_RCVBUF</code> 옵션이나
+          <code>net.core.rmem_max</code> 설정으로 조절한다.
+          요즘 OS는 자동 튜닝(<code>tcp_rmem</code>)이 켜져 있어서
+          대부분의 경우 알아서 조정해주지만, 극단적으로 큰 BDP 환경은 직접 설정이 필요하다.
+        </p>
+
+        <h2>이론은 됐고, 그래서 코드는 어떻게 짜야 하나</h2>
+
+        <p>
+          여기까지 본 흐름 제어는 OS와 TCP가 이미 알아서 해주는 일이다.
+          백엔드 개발자가 직접 신경 쓸 일은 거의 없다.
+          단 하나 빼고. <strong>이 흐름 제어가 작동하려면 코드가 InputStream을 끝까지 살려둬야 한다.</strong>
+        </p>
+
+        <p>
+          반대로 우리가 4GB를 한 번에 메모리에 올려버리면(예: <code>readAllBytes()</code>)
+          흐름 제어는 자기 일을 못 한다. receive 버퍼는 빠르게 비워지니
+          window=0이 안 뜨고, 클라이언트는 계속 보내고, JVM heap이 4GB를 통째로 떠안는다.
+        </p>
+
+        <p>
+          다음 편에서는 Spring Boot 환경에서 이 흐름 제어를 살리는 코드 패턴과
+          실수로 망가뜨리는 패턴을 본다. 4GB 카카오 동영상 업로드 게이트웨이 케이스로.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

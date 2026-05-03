@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Preflight (OPTIONS) — 왜 한 번 더 왔다 갔다 하는가 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 2/3</div>
+        <h1>Preflight (OPTIONS) — 왜 한 번 더 왔다 갔다 하는가</h1>
+        <p class="subtitle">
+          본 요청 직전에 OPTIONS가 한 번 더 날아간다.
+          왜 그게 필요하고, 어떻게 캐시해서 비용을 줄이는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CORS 깊이 이해</div>
+        <ol>
+          <li><a href="./01-same-origin-policy.html">Same-Origin Policy의 진짜 의미</a></li>
+          <li class="current">Preflight (OPTIONS) — 왜 한 번 더 왔다 갔다 하는가</li>
+          <li><a href="./03-credentials-cache-함정.html">Credentials, Cache, Vary — 운영에서 만나는 함정</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>네트워크 탭에 OPTIONS가 찍힌다</h2>
+
+        <p>
+          프론트에서 카카오 API를 호출했을 뿐인데 개발자 도구 네트워크 탭을 보면
+          요청이 두 개 찍혀있다.
+        </p>
+
+        <pre><code>OPTIONS /v2/alimtalk/send   200 OK   ← 처음 보는 요청
+POST    /v2/alimtalk/send   200 OK   ← 우리가 보낸 요청</code></pre>
+
+        <p>
+          내가 OPTIONS는 보낸 적이 없는데? 코드에는 fetch POST 한 번뿐인데?
+          답은 <strong>브라우저가 자동으로 보낸 preflight request</strong>다.
+          본 요청 전에 권한을 미리 확인하기 위함이다.
+        </p>
+
+        <h2>왜 preflight가 필요한가</h2>
+
+        <p>
+          1편에서 SOP가 응답 차단으로 작동한다고 했다.
+          그러면 본 요청은 그냥 보내고 응답만 차단하면 되지 않나?
+          왜 굳이 OPTIONS로 미리 물어봐야 하나?
+        </p>
+
+        <p>
+          답: <strong>본 요청 자체가 위험할 수 있기 때문</strong>이다.
+        </p>
+
+        <pre><code>예: attacker.com이 사용자를 사칭해 mybank.com에
+    DELETE /accounts/me 호출을 시도
+
+본 요청을 그냥 보내면:
+  브라우저: 응답은 차단했지만 요청은 이미 갔음
+  서버: DELETE 받아서 계좌 삭제함
+  사용자: 응답 못 봐도 이미 늦음</code></pre>
+
+        <p>
+          GET처럼 <strong>안전한(safe) 메서드</strong>는 부수효과가 없다고 가정해도 된다(이게 simple request로 분류되는 이유다).
+          그러나 PUT, DELETE, 또는 JSON body가 있는 POST는 부수효과가 있을 수 있다.
+          이런 요청은 보내기 전에 서버가 받겠다고 먼저 확인해야 한다.
+        </p>
+
+        <p>
+          그래서 브라우저는 본 요청 전에 OPTIONS 메서드로 "이런 요청 보내려는데 받아줄 거야?"라고 묻는다.
+          서버가 "응 받겠어"라고 응답하면 그제서야 본 요청을 보낸다.
+          서버가 거부하면 본 요청 자체가 안 나간다.
+        </p>
+
+        <h2>Preflight가 발동되는 조건</h2>
+
+        <p>
+          1편에서 simple request 조건을 봤다. 그걸 어기면 preflight가 발동된다.
+          정리하면 다음 중 하나라도 해당하면 preflight.
+        </p>
+
+        <pre><code>1. 메서드가 GET, HEAD, POST가 아님
+   → PUT, DELETE, PATCH, OPTIONS 등
+
+2. Content-Type이 다음 셋 중 하나가 아님
+   → application/x-www-form-urlencoded
+   → multipart/form-data
+   → text/plain
+   (즉 application/json은 preflight 발동)
+
+3. Custom 헤더가 있음
+   → Authorization, X-Custom-Header 등
+   → 단 일부 안전 헤더(Accept, Content-Language 등)는 예외
+
+4. XMLHttpRequestUpload에 이벤트 리스너가 등록됨
+5. 요청 body에 ReadableStream이 사용됨</code></pre>
+
+        <p>
+          현실에서 거의 모든 API 호출이 preflight를 트리거한다.
+          REST API는 보통 <code>Content-Type: application/json</code>을 쓰니
+          이것만으로도 preflight가 발동된다.
+          토큰 인증을 위해 <code>Authorization: Bearer ...</code>를 실으면 또 발동.
+          PUT, DELETE 같은 메서드면 또 발동.
+        </p>
+
+        <h2>Preflight 요청의 모양</h2>
+
+        <p>
+          브라우저가 자동으로 만들어 보내는 OPTIONS 요청은 이렇게 생겼다.
+        </p>
+
+        <pre><code>OPTIONS /v2/alimtalk/send HTTP/1.1
+Host: api.kakao.com
+Origin: https://app.example.com
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: content-type, authorization</code></pre>
+
+        <p>
+          핵심 헤더가 셋이다.
+        </p>
+
+        <pre><code>Origin
+  요청을 보내는 출처. 브라우저가 자동 첨부.
+  서버는 이 origin을 보고 "허용된 origin인가" 판단.
+
+Access-Control-Request-Method
+  본 요청이 사용할 HTTP 메서드.
+  "내가 곧 POST 보낼 건데 받겠어?"
+
+Access-Control-Request-Headers
+  본 요청에 실릴 custom 헤더 목록.
+  "내가 content-type, authorization 헤더 실을 건데 괜찮아?"</code></pre>
+
+        <h2>Preflight 응답의 모양</h2>
+
+        <p>
+          서버가 "응 허용"으로 응답하면 다음과 같이 헤더를 실어 보낸다.
+        </p>
+
+        <pre><code>HTTP/1.1 200 OK
+Access-Control-Allow-Origin: https://app.example.com
+Access-Control-Allow-Methods: POST, GET, PUT, DELETE
+Access-Control-Allow-Headers: content-type, authorization
+Access-Control-Max-Age: 3600</code></pre>
+
+        <p>
+          역시 핵심 헤더 셋(+ Max-Age).
+        </p>
+
+        <pre><code>Access-Control-Allow-Origin
+  허용할 origin.
+  "https://app.example.com"으로 응답하거나
+  "*"로 모두 허용 (단, credentials와 함께 못 씀)
+
+Access-Control-Allow-Methods
+  허용할 HTTP 메서드 목록.
+  요청한 메서드가 여기 포함되어야 본 요청 통과.
+
+Access-Control-Allow-Headers
+  허용할 custom 헤더 목록.
+  요청한 헤더가 여기 포함되어야 본 요청 통과.
+
+Access-Control-Max-Age
+  이 preflight 응답을 브라우저가 캐시할 시간(초).
+  이 시간 동안 같은 요청에 대해 OPTIONS를 또 안 보냄.</code></pre>
+
+        <p>
+          이 응답이 OK면 브라우저가 그제서야 본 요청을 보낸다.
+        </p>
+
+        <h2>Preflight의 비용 — RTT 한 번 추가</h2>
+
+        <p>
+          Preflight는 본 요청 전에 한 번 더 왕복이 일어난다는 뜻이다.
+          RTT 30ms 환경이면 매 호출마다 30ms가 추가된다.
+        </p>
+
+        <pre><code>Preflight 없을 때 (simple request):
+  Browser ─POST─▶ Server
+  Browser ◀─응답─ Server
+  총 1 RTT (30ms)
+
+Preflight 있을 때:
+  Browser ─OPTIONS─▶ Server
+  Browser ◀─OPTIONS 응답─ Server
+  Browser ─POST─▶ Server
+  Browser ◀─응답─ Server
+  총 2 RTT (60ms)</code></pre>
+
+        <p>
+          호출이 많은 페이지(대시보드처럼 API 여러 개 동시 호출)에선
+          이 추가 RTT가 누적되어 체감 속도에 영향을 준다.
+          그래서 preflight 응답을 캐시하는 메커니즘이 필요하다.
+        </p>
+
+        <h2>Access-Control-Max-Age — Preflight 캐시</h2>
+
+        <p>
+          Preflight 응답에 <code>Access-Control-Max-Age</code> 헤더를 실으면
+          브라우저가 그 시간 동안 같은 요청 종류에 대해 preflight를 다시 안 보낸다.
+        </p>
+
+        <pre><code>Access-Control-Max-Age: 3600    ← 1시간 동안 캐시</code></pre>
+
+        <p>
+          첫 호출:
+        </p>
+
+        <pre><code>1. OPTIONS 요청 ──▶ Server
+2. OPTIONS 응답 ◀── Server (Max-Age: 3600 포함)
+3. POST 요청    ──▶ Server
+4. POST 응답    ◀── Server</code></pre>
+
+        <p>
+          이후 1시간 안의 같은 종류 호출:
+        </p>
+
+        <pre><code>1. POST 요청 ──▶ Server     (preflight 생략, 곧장 본 요청)
+2. POST 응답 ◀── Server</code></pre>
+
+        <p>
+          매 호출마다 RTT 한 번 절약. 큰 차이를 만든다.
+        </p>
+
+        <h3>Max-Age 한도 — 브라우저별 다름</h3>
+
+        <p>
+          서버가 큰 값을 보내도 브라우저가 자기 한도로 잘라낸다.
+        </p>
+
+        <pre><code>Chrome (v76 이후): 최대 7200초 (2시간)
+Firefox: 최대 86400초 (24시간)
+Safari: 더 작음 (보통 600초)
+기본값(헤더 없으면): 5초
+
+서버가 Access-Control-Max-Age: 86400 보내도
+Chrome은 7200으로 캐시함.</code></pre>
+
+        <p>
+          24시간을 보내도 의미 없으니 보통 7200(2시간) 정도가 실용적이다.
+          Max-Age를 너무 길게 잡으면 정책 변경이 빨리 반영되지 않는다는 trade-off도 있다.
+        </p>
+
+        <h2>"같은 종류"의 정의 — 캐시 키</h2>
+
+        <p>
+          Max-Age 캐시는 (URL, 메서드, 헤더) 조합 단위로 작동한다.
+          한 URL에 대해 POST + Authorization 조합의 preflight 응답을 캐시했다고
+          PUT + Authorization도 자동으로 같이 캐시되는 게 아니다.
+          새 메서드는 새 preflight를 트리거.
+        </p>
+
+        <pre><code>POST /api/foo + Authorization 헤더 → preflight #1, 캐시
+POST /api/foo + Authorization + X-Custom 헤더 → preflight #2, 새 캐시
+PUT  /api/foo + Authorization 헤더 → preflight #3, 새 캐시</code></pre>
+
+        <p>
+          그래서 첫 페이지 로드 시 여러 preflight가 한 번씩 일어나고,
+          그 후엔 Max-Age 동안 안 일어나는 패턴이다.
+        </p>
+
+        <h2>실패 시나리오 디버깅</h2>
+
+        <h3>1. 서버가 OPTIONS를 처리 안 함</h3>
+
+        <p>
+          가장 흔한 실패. 백엔드 개발자가 POST 핸들러만 만들고 OPTIONS는 안 만든 경우.
+          OPTIONS 요청에 404나 405가 응답된다.
+          브라우저는 preflight 실패로 보고 본 요청을 안 보낸다.
+        </p>
+
+        <p>
+          해결: 서버 프레임워크의 CORS 미들웨어가 OPTIONS를 자동 처리하게 설정.
+          Spring Boot면 <code>@CrossOrigin</code> 또는 <code>CorsConfiguration</code>.
+        </p>
+
+        <h3>2. Allow-Methods/Headers에 누락</h3>
+
+        <pre><code>요청:
+  Access-Control-Request-Method: PUT
+  Access-Control-Request-Headers: authorization, x-trace-id
+
+응답:
+  Access-Control-Allow-Methods: GET, POST    ← PUT 빠짐
+  Access-Control-Allow-Headers: authorization ← x-trace-id 빠짐
+
+→ 브라우저: preflight 거부로 판단, 본 요청 안 보냄</code></pre>
+
+        <p>
+          요청한 메서드/헤더가 응답의 허용 목록에 모두 들어있어야 한다.
+          하나라도 빠지면 본 요청 차단.
+        </p>
+
+        <h3>3. Origin 불일치</h3>
+
+        <pre><code>요청:
+  Origin: https://app.example.com
+
+응답:
+  Access-Control-Allow-Origin: https://other.example.com   ← 불일치
+
+→ 브라우저: 거부</code></pre>
+
+        <p>
+          정확한 매칭이 필요. 와일드카드(*)는 모든 origin 허용이지만 credentials와 같이 못 씀(3편).
+          서버가 origin을 echo하는 패턴(요청 origin을 그대로 응답에 실음)도 흔히 쓰지만
+          보안 측면에서 신중해야 한다(3편).
+        </p>
+
+        <h2>Preflight 응답에는 body가 필요 없다</h2>
+
+        <p>
+          종종 헷갈리는 점. Preflight 응답은 헤더만 의미가 있다. body는 무시된다.
+          그래서 status code만 200(또는 204) 주고 body는 비워두면 된다.
+        </p>
+
+        <pre><code>HTTP/1.1 204 No Content
+Access-Control-Allow-Origin: https://app.example.com
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE
+Access-Control-Allow-Headers: content-type, authorization
+Access-Control-Max-Age: 7200
+
+(body 없음)</code></pre>
+
+        <p>
+          Spring Boot의 CORS 자동 처리도 이런 형태로 응답한다.
+          본 요청 처리 로직을 OPTIONS에 또 만들 필요 없다.
+        </p>
+
+        <h2>여기까지 — 정상 시나리오</h2>
+
+        <p>
+          1편에서 SOP가 무엇이고, 2편에서 preflight가 어떻게 작동하는지 봤다.
+          정상 시나리오는 거의 다 풀렸다.
+        </p>
+
+        <p>
+          그런데 운영 환경에선 미묘한 함정들이 있다.
+          쿠키를 같이 보내려면 어떻게 해야 하는가.
+          CDN 캐시가 origin 헤더를 어떻게 다루는가.
+          왜 origin echo 패턴이 보안 위험인가.
+          마지막 편에서 이 운영 함정들을 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

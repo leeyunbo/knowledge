@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LoadBalancer 패턴 비교 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.02 · 시리즈 2/4</div>
+        <h1>LoadBalancer 패턴 비교</h1>
+        <p class="subtitle">
+          외부 API endpoint가 여러 개일 때 LB를 어디 둬야 하는가.
+          Standalone, Sidecar, Client-side 세 패턴의 trade-off.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">외부 API Failover 다층 방어</div>
+        <ol>
+          <li><a href="./01-200이-진짜-200인가.html">200이 진짜 200인가</a></li>
+          <li class="current">LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</li>
+          <li>CircuitBreaker가 LB로 못 잡는 것</li>
+          <li>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>같은 문제, 세 가지 자리</h2>
+
+        <p>
+          카카오가 endpoint 두 개를 줬다고 하자.
+          <code>kakao-1.example.com</code>과 <code>kakao-2.example.com</code>.
+          우리는 어느 한 쪽이 죽었을 때 자동으로 다른 쪽으로 보내고 싶다.
+          그리고 평소에도 부하 분산을 하고 싶다.
+        </p>
+
+        <p>
+          이걸 어디서 처리할 건가? 답은 세 가지다.
+        </p>
+
+        <pre><code>1. 별도 LB 서버 (Standalone)
+2. 각 호스트 안에 LB 같이 띄움 (Sidecar)
+3. 애플리케이션 코드 안에 LB 라이브러리 (Client-side)</code></pre>
+
+        <p>
+          모두 "분기"라는 동작은 같다. 다른 건 그 분기 로직이 어디 살아있느냐다.
+          이 자리에 따라 운영 방식, 장애 격리, 비용이 완전히 달라진다.
+        </p>
+
+        <h2>패턴 1 — Standalone LB</h2>
+
+        <pre><code>[Client 호스트 1]                    [LB 호스트 (전용 서버)]
+   Sender 프로세스 ──HTTP──▶          ┌────────────────────┐
+                                       │  nginx / HAProxy   │
+[Client 호스트 2]                      │   - health check   │ ──┬──▶ kakao-1
+   Sender 프로세스 ──HTTP──▶          │   - load balance   │   │
+                                       └────────────────────┘   └──▶ kakao-2
+
+         (보통 LB 호스트도 이중화로 2대)</code></pre>
+
+        <p>
+          가장 전통적인 모양이다. LB 전용 서버를 띄우고 모든 클라이언트가 그 서버를 거친다.
+          AWS ALB, GCP Load Balancer 같은 클라우드 관리형 LB도 본질은 같다.
+        </p>
+
+        <h3>장점</h3>
+
+        <ul>
+          <li><strong>언어/프레임워크 무관</strong>: 클라이언트가 Java든 Python이든 Go든 똑같이 작동</li>
+          <li><strong>운영이 한 곳에 모임</strong>: LB 설정 한 군데, 모니터링 한 군데</li>
+          <li><strong>중앙 정책 적용</strong>: rate limit, 인증, TLS 종단 같은 정책을 LB에서 일괄 처리</li>
+        </ul>
+
+        <h3>단점</h3>
+
+        <ul>
+          <li><strong>추가 hop</strong>: 클라이언트 → LB → 카카오. LB가 네트워크 한 단계 더 추가</li>
+          <li><strong>LB 자체가 SPOF</strong>: 한 대만 두면 그게 죽으면 모두 멈춤. 이중화 필수</li>
+          <li><strong>이중화하면 또 SPOF 분리 작업</strong>: VRRP/Keepalived 또는 클라우드 LB로 또 한 단계</li>
+          <li><strong>전용 서버 비용</strong>: LB만 돌릴 서버 2대(이중화) 운영</li>
+        </ul>
+
+        <h3>이런 환경에 적합</h3>
+
+        <p>
+          여러 언어/프레임워크의 클라이언트가 섞여있고,
+          중앙에서 외부 API 호출 정책을 통제하고 싶을 때.
+          큰 회사에서 표준 외부 API 게이트웨이로 두는 형태가 흔하다.
+        </p>
+
+        <h2>패턴 2 — Sidecar LB</h2>
+
+        <pre><code>[Client 호스트 1]                    [Client 호스트 2]
+┌──────────────────────────┐         ┌──────────────────────────┐
+│  Sender 프로세스           │         │  Sender 프로세스           │
+│      │                    │         │      │                    │
+│      │ localhost:8080     │         │      │ localhost:8080     │
+│      ▼                    │         │      ▼                    │
+│  [HAProxy/nginx]          │         │  [HAProxy/nginx]          │
+└──────┼───────────────────┘         └──────┼───────────────────┘
+       │                                     │
+       └────────┬───────────────────────────┘
+                │
+       ┌────────┴────────┐
+       ▼                 ▼
+   kakao-1            kakao-2</code></pre>
+
+        <p>
+          각 호스트 안에 작은 LB(보통 nginx 또는 HAProxy)를 같이 띄우는 패턴이다.
+          애플리케이션은 <code>localhost:8080</code>같은 loopback 주소로 호출하고,
+          loopback의 LB가 카카오 endpoint들로 분기한다.
+        </p>
+
+        <p>
+          큰 그림으로 보면 Service Mesh의 sidecar 패턴(Istio의 Envoy 등)과 같은 발상이다.
+          단지 우리는 외부 API 한두 개만 처리하니 nginx/HAProxy 정도면 충분하다.
+        </p>
+
+        <h3>장점</h3>
+
+        <ul>
+          <li><strong>추가 hop 거의 없음</strong>: loopback 통신이라 latency가 0에 수렴</li>
+          <li><strong>별도 서버 불필요</strong>: 기존 호스트에 nginx 한 개씩 추가</li>
+          <li><strong>장애 격리</strong>: 한 호스트의 LB가 죽어도 다른 호스트는 멀쩡</li>
+          <li><strong>LB SPOF 자동 해소</strong>: 모든 호스트가 자기 LB를 가지니 단일 장애점이 없다</li>
+          <li><strong>언어 무관</strong>: 호스트의 모든 프로세스가 혜택. 언어가 섞여도 OK</li>
+        </ul>
+
+        <h3>단점</h3>
+
+        <ul>
+          <li><strong>설정 동기화 부담</strong>: N개 호스트의 nginx 설정을 일치시켜야 함 (Ansible, Chef, Puppet 같은 자동화 필요)</li>
+          <li><strong>한 호스트 LB 장애 = 그 호스트 모든 sender 영향</strong>: systemd로 즉시 재시작 정책 필수</li>
+          <li><strong>모니터링 분산</strong>: 각 호스트의 LB 통계가 따로. 통합 대시보드 필요</li>
+          <li><strong>리소스 약간</strong>: 각 호스트마다 nginx 프로세스 (CPU/메모리 소모는 미미함)</li>
+        </ul>
+
+        <h3>이런 환경에 적합</h3>
+
+        <p>
+          호스트 수가 적당하고(수십 대 이내) 운영 자동화 도구가 갖춰져 있을 때.
+          별도 LB 서버를 늘리고 싶지 않을 때.
+          중규모 발송 시스템의 표준 모양에 가깝다.
+        </p>
+
+        <h2>패턴 3 — Client-side LB</h2>
+
+        <pre><code>[Client 호스트]
+┌──────────────────────────────────────┐
+│  Sender 프로세스                       │
+│  ├─ Spring Cloud LoadBalancer 라이브러리│
+│  │     - backend 리스트                │
+│  │     - health check                 │
+│  │     - round-robin 분기              │
+│  │                                    │
+│  │ 코드: webClient.post("kakao-svc")  │
+│  └─────────┬──────────────────────────│
+└────────────┼──────────────────────────┘
+             │
+   ┌─────────┴─────────┐
+   ▼                   ▼
+kakao-1              kakao-2</code></pre>
+
+        <p>
+          LB 로직이 별도 인프라가 아니라 <strong>애플리케이션 코드 안의 라이브러리</strong>다.
+          코드가 직접 backend 리스트에서 골라 호출한다.
+        </p>
+
+        <pre><code>@LoadBalanced
+@Bean
+public WebClient.Builder webClientBuilder() {
+    return WebClient.builder();
+}
+
+// 호출 코드
+webClient.post()
+    .uri("https://kakao-service/api/...")  // ← "서비스 이름"
+    .body(req)
+    .retrieve();</code></pre>
+
+        <p>
+          여기서 <code>kakao-service</code>는 실제 도메인이 아니다.
+          라이브러리가 service discovery(Consul, Eureka 등)에서 이 이름에 등록된
+          backend 리스트를 가져와 그중 하나를 골라 호출한다.
+        </p>
+
+        <h3>장점</h3>
+
+        <ul>
+          <li><strong>추가 hop 0</strong>: 메모리 안에서 분기, 네트워크 비용 없음</li>
+          <li><strong>인프라 가장 단순</strong>: 별도 LB도, sidecar도 없음</li>
+          <li><strong>코드 한 줄로 적용</strong>: 어노테이션 + 라이브러리 의존성</li>
+          <li><strong>service discovery 친화</strong>: 동적으로 backend 리스트가 바뀌는 환경에 자연스러움</li>
+        </ul>
+
+        <h3>단점</h3>
+
+        <ul>
+          <li><strong>언어/프레임워크 의존</strong>: Spring Cloud LoadBalancer는 Spring 환경에서만. 다른 언어가 섞이면 별도 라이브러리 필요</li>
+          <li><strong>backend 리스트 동기화 필요</strong>: Discovery 시스템이 살아있어야 함</li>
+          <li><strong>버전 업그레이드가 클라이언트 단위</strong>: LB 정책 바꾸려면 모든 서비스 재배포</li>
+          <li><strong>LB 책임이 코드에</strong>: 라이브러리 버그가 곧 우리 서비스 버그</li>
+        </ul>
+
+        <h3>이런 환경에 적합</h3>
+
+        <p>
+          모든 sender가 같은 언어/프레임워크(예: Spring Boot 통일).
+          마이크로서비스 환경에서 service discovery를 이미 쓰고 있을 때.
+          가장 인프라 부담이 적다.
+        </p>
+
+        <h2>세 패턴 비교표</h2>
+
+        <pre><code>관점                  Standalone           Sidecar              Client-side
+────────────────────  ───────────────────  ──────────────────   ─────────────────
+별도 서버              필요 (보통 2대 HA)    불필요               불필요
+추가 hop               1 (네트워크)          loopback (거의 0)   0 (메모리 안)
+언어 의존              없음                  없음                있음 (라이브러리)
+운영 복잡도            LB 서버 운영          호스트별 동기화      라이브러리 의존성
+LB SPOF 위험           있음 (이중화 필요)    자동 해소           N/A
+중앙 통제              쉬움                  중간                 어려움
+설정 동기화            한 곳                 N개 호스트          모든 클라이언트
+대표 도구              nginx, HAProxy,       각 호스트의          Spring Cloud LB,
+                       AWS ALB              nginx                gRPC built-in</code></pre>
+
+        <h2>실전 결정 — 우리 환경에 어떤 게 맞는가</h2>
+
+        <p>
+          결정에 영향을 주는 인자는 보통 다음 셋이다.
+        </p>
+
+        <h3>1. 호스트 수와 sender 수</h3>
+
+        <pre><code>호스트 1~3대, sender 5~10개:
+  → Standalone 또는 Sidecar 둘 다 OK
+  → 인프라가 간단하면 Sidecar 가성비 좋음
+
+호스트 10대 이상:
+  → Sidecar (호스트별 LB) 또는 Standalone
+  → Sidecar는 운영 자동화 도구 필수
+
+호스트 50대 이상 (대규모 분산):
+  → Standalone (중앙 통제) 또는 Service Mesh (Sidecar의 진화형)</code></pre>
+
+        <h3>2. 클라이언트 언어 다양성</h3>
+
+        <pre><code>모두 Spring Boot:    → Client-side가 가장 가벼움
+Java + Python 혼재:  → Standalone 또는 Sidecar
+다양한 언어 + 외부망: → Standalone (중앙 일괄 처리)</code></pre>
+
+        <h3>3. 발송량과 격리 요구</h3>
+
+        <pre><code>일반 발송량, 보통 격리:        → Sidecar
+초당 수만 발송, 강한 격리:     → Sidecar (호스트별 격리 자동)
+중앙 정책/감사가 강하게 필요:  → Standalone</code></pre>
+
+        <h2>실제로는 둘 이상 같이 쓴다</h2>
+
+        <p>
+          하나만 고를 필요가 없다는 점도 짚자.
+          특히 큰 시스템은 두 패턴을 같이 쓴다.
+        </p>
+
+        <pre><code>[Sender 코드 + Spring Cloud LB]    ← 1차 분기 (Client-side)
+        │
+        ▼
+[Sidecar nginx]                    ← 2차 안전망 (Sidecar)
+        │
+        ▼
+[카카오 endpoint들]</code></pre>
+
+        <p>
+          Client-side가 평소엔 분기를 담당하고, sidecar는 보강용으로 두기도 한다.
+          또는 사내 표준 LB에 보내고 그 위에 다시 client-side retry를 거는 패턴도 있다.
+          무엇이 맞다 틀리다보다, <strong>각 자리가 무엇을 책임지는지 명확히 분리</strong>하는 게 중요하다.
+        </p>
+
+        <h2>그래서 LB 하나만으로 충분한가</h2>
+
+        <p>
+          어느 패턴을 골라도 한 가지 한계가 남는다.
+          LB는 본질적으로 <strong>외형적 health check</strong>로 작동한다.
+          TCP 연결이 되고, HTTP 200이 떨어지면 살아있다고 판단한다.
+        </p>
+
+        <p>
+          그런데 1편에서 봤듯, HTTP 200이라고 비즈니스가 성공한 게 아니다.
+          200을 받지만 body는 실패인 경우, 응답이 점점 느려지는 부분 장애,
+          특정 resultCode만 늘어나는 의미적 실패 — LB는 이걸 못 본다.
+        </p>
+
+        <p>
+          다음 편에서는 LB가 못 잡는 영역을 CircuitBreaker가 어떻게 보강하는지,
+          그리고 둘을 같이 쓸 때 각자 어떤 시그널을 보는지 살펴본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

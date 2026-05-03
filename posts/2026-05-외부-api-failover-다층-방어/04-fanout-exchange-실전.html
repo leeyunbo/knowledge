@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.02 · 시리즈 4/4</div>
+        <h1>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</h1>
+        <p class="subtitle">
+          여러 sender 프로세스의 CircuitBreaker가 split-brain 상태에 빠지는 문제.
+          그리고 RabbitMQ Fanout Exchange로 푼 방법.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">외부 API Failover 다층 방어</div>
+        <ol>
+          <li><a href="./01-200이-진짜-200인가.html">200이 진짜 200인가</a></li>
+          <li><a href="./02-loadbalancer-패턴-비교.html">LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</a></li>
+          <li><a href="./03-circuitbreaker가-잡는-것.html">CircuitBreaker가 LB로 못 잡는 것</a></li>
+          <li class="current">카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>ALIO-GW의 구성</h2>
+
+        <p>
+          ALIO-GW는 카카오 알림톡을 발송하는 게이트웨이다.
+          카카오는 우리 회사에 두 개의 endpoint를 제공한다.
+          전용선으로 이어진 두 카카오 서버다.
+          평소엔 primary 한 쪽으로 보내고, 장애 시 secondary로 옮기는 active-standby 운영.
+        </p>
+
+        <p>
+          발송 처리 구조는 이렇다.
+        </p>
+
+        <pre><code>[비즈니스 서비스] ──▶ [발송 큐 (RabbitMQ)] ──▶ [Sender Pool]
+                                              ├─ Sender #1
+                                              ├─ Sender #2
+                                              ├─ ...
+                                              └─ Sender #10
+                                                    │
+                                                    ▼
+                                              [카카오 primary]
+                                              [카카오 secondary]</code></pre>
+
+        <p>
+          Sender 프로세스 약 10개. 각자 발송 큐에서 메시지를 꺼내 카카오로 보낸다.
+          각 sender에 Resilience4j CircuitBreaker가 붙어있다.
+        </p>
+
+        <h2>Split-brain이 발생했다</h2>
+
+        <p>
+          어느 날 카카오 primary 시스템에 부분 장애가 났다.
+          모든 sender의 응답에 5xx가 섞이기 시작했다.
+          그런데 모니터링 대시보드를 보니 이상한 패턴이었다.
+        </p>
+
+        <pre><code>Sender #1: CircuitBreaker OPEN  → secondary로 발송 중
+Sender #2: CircuitBreaker OPEN  → secondary로 발송 중
+Sender #3: CircuitBreaker CLOSED → primary로 계속 발송 (실패 누적 중)
+Sender #4: CircuitBreaker CLOSED → primary로 계속 발송 (실패 누적 중)
+Sender #5: CircuitBreaker OPEN  → secondary로 발송 중
+...</code></pre>
+
+        <p>
+          일부 sender는 OPEN으로 전환됐는데, 일부는 CLOSED로 남아있었다.
+          왜? 발송 큐가 sender들에게 균등하게 분산되지 않았기 때문이다.
+        </p>
+
+        <h3>왜 분산이 균등하지 않은가</h3>
+
+        <p>
+          RabbitMQ가 메시지를 sender들에게 분배할 때
+          각 sender의 처리 속도와 발송 큐의 트래픽 패턴에 따라 분배가 들쭉날쭉할 수 있다.
+          어떤 sender는 분당 1000건 보내고, 어떤 sender는 200건 보내는 식이다.
+        </p>
+
+        <p>
+          CircuitBreaker는 <strong>각 인스턴스 단위로 통계를 갖는다</strong>.
+          1000건 처리 중인 sender는 빠르게 실패 통계를 쌓아 임계값 도달, OPEN 전환.
+          200건 처리 중인 sender는 같은 비율의 실패가 와도 절대 호출 수가 적어
+          <code>minimumNumberOfCalls</code> 임계값을 못 넘는다. CLOSED로 남는다.
+        </p>
+
+        <p>
+          결과적으로 <strong>같은 카카오 장애에 같은 GW의 sender들이 다른 결정</strong>을 내리는 상황이 만들어졌다.
+        </p>
+
+        <h2>Split-brain이 만드는 진짜 문제들</h2>
+
+        <h3>1. 일부 트래픽이 계속 죽어가는 endpoint로 간다</h3>
+
+        <p>
+          CLOSED로 남은 sender들이 보내는 트래픽은 계속 primary로 향한다.
+          primary는 부분 장애 중이라 응답이 점점 느려지거나 일부 실패한다.
+          이 sender들에 큐 적체가 시작된다.
+        </p>
+
+        <h3>2. 모니터링이 회색지대가 된다</h3>
+
+        <p>
+          대시보드에 일부는 정상, 일부는 failover 상태로 잡힌다.
+          운영팀이 "장애인지 아닌지" 즉시 판단하기 어렵다.
+          전체 추세가 안 보인다.
+        </p>
+
+        <h3>3. 감사 추적이 복잡해진다</h3>
+
+        <p>
+          어떤 메시지는 primary로 보내졌고, 어떤 메시지는 secondary로 보내졌다.
+          금융권 감사 시점에 "이 거래가 어느 회선으로 갔나"를 추적하기 까다로워진다.
+          Sender별로 다른 결정을 했으니 일관된 답이 안 나온다.
+        </p>
+
+        <h2>해법 — 일괄 결정을 외부 시그널로</h2>
+
+        <p>
+          처음엔 CircuitBreaker 설정을 더 정교하게 잡으려 했다.
+          <code>minimumNumberOfCalls</code>을 줄이고 슬라이딩 윈도우를 작게.
+          하지만 본질적으로 sender 간 통계 공유가 안 되는 한 split-brain은 사라지지 않았다.
+        </p>
+
+        <p>
+          진짜 해법은 <strong>Failover 결정을 한 sender의 로컬 통계가 아닌 외부 신호로 만드는 것</strong>이었다.
+          한 곳에서 결정하고, 모든 sender가 그 결정을 받아 동시에 전환.
+          여기에 RabbitMQ Fanout Exchange가 자연스럽게 들어맞았다.
+        </p>
+
+        <h2>RabbitMQ Fanout Exchange의 동작</h2>
+
+        <p>
+          Fanout Exchange는 RabbitMQ의 exchange 타입 중 하나다.
+          <strong>Exchange에 publish된 메시지를 binding된 모든 queue에 복사 전달</strong>한다.
+          routing key는 무시된다.
+        </p>
+
+        <pre><code>[Publisher] ──▶ [Fanout Exchange]
+                       ├──▶ [Queue 1] (Sender #1이 구독)
+                       ├──▶ [Queue 2] (Sender #2가 구독)
+                       ├──▶ [Queue 3] (Sender #3이 구독)
+                       ├──▶ ...
+                       └──▶ [Queue 10] (Sender #10이 구독)
+
+→ 메시지 1번 publish하면 10개 sender가 모두 같은 메시지를 받음</code></pre>
+
+        <p>
+          이 모양이 정확히 우리에게 필요했다.
+          "지금부터 secondary로 가자"는 신호 한 번이 모든 sender에게 동시에 도달.
+        </p>
+
+        <h2>설계 — 두 종류의 큐</h2>
+
+        <pre><code>[비즈니스 서비스]
+       │
+       ▼
+[발송 큐 (Direct Exchange + Queue)]   ← 발송 메시지가 흐르는 곳
+       │
+       ▼
+[Sender Pool]
+   ├─ Sender #1 ─┐
+   ├─ Sender #2  │
+   ├─ ...         │ 발송 큐를 work queue로 공유 (한 메시지 = 한 sender 처리)
+   └─ Sender #10 ┘
+       │
+       ▼
+[카카오 primary or secondary]
+
+
+[운영 도구 또는 모니터링]
+       │
+       │ Failover 신호 publish
+       ▼
+[Failover Fanout Exchange]   ← 각 sender마다 큐 binding
+       │
+       ├──▶ [Sender #1 전용 control queue]
+       ├──▶ [Sender #2 전용 control queue]
+       ├──▶ ...
+       └──▶ [Sender #10 전용 control queue]
+              │
+              ▼
+       각 sender가 신호 받으면 endpoint를 secondary로 전환</code></pre>
+
+        <p>
+          핵심은 <strong>발송 큐와 control 큐의 분리</strong>다.
+        </p>
+
+        <ul>
+          <li><strong>발송 큐</strong>: Direct Exchange + 단일 work queue. 한 메시지를 sender 한 명이 처리</li>
+          <li><strong>Failover Fanout</strong>: Fanout Exchange + sender마다 별도 control queue. 한 신호를 모든 sender가 동시에 수신</li>
+        </ul>
+
+        <p>
+          모든 sender는 <strong>두 개의 큐를 동시에 구독</strong>한다.
+          하나는 일감을 받는 발송 큐, 다른 하나는 운영 신호를 받는 control 큐.
+        </p>
+
+        <h2>Failover 신호의 흐름</h2>
+
+        <pre><code>1. 트리거 발생
+   - 운영자가 수동으로 발동 (카카오 점검 공지)
+   - 또는 모니터링이 "primary 실패율 N% 초과" 감지하고 자동 발동
+
+2. Publisher가 Failover 이벤트 발행
+   {
+     "action": "SWITCH_ENDPOINT",
+     "target": "secondary",
+     "reason": "PRIMARY_HIGH_ERROR_RATE",
+     "timestamp": "..."
+   }
+
+3. Fanout Exchange가 모든 control queue에 broadcast
+
+4. 각 sender가 신호 수신
+   - 자기 endpoint 설정을 secondary로 전환
+   - 다음 발송부터 secondary로 보냄
+
+5. 모든 sender가 동일 시점에 동일 endpoint를 사용
+   → split-brain 해소</code></pre>
+
+        <h2>Sender 코드의 모양</h2>
+
+        <pre><code>@Component
+public class KakaoSender {
+
+    private volatile Endpoint currentEndpoint = Endpoint.PRIMARY;
+
+    @RabbitListener(queues = "${queue.failover-control}")
+    public void onFailoverSignal(FailoverEvent event) {
+        log.info("Failover 신호 수신: {}", event);
+        this.currentEndpoint = event.target();
+    }
+
+    @RabbitListener(queues = "${queue.send}")
+    public void onSendMessage(SendMessage msg) {
+        Endpoint ep = currentEndpoint;
+        try {
+            kakaoClient.send(ep, msg);
+        } catch (Exception e) {
+            handleFailure(msg, e);
+        }
+    }
+}</code></pre>
+
+        <p>
+          핵심은 <code>currentEndpoint</code>가 <strong>volatile</strong>이라는 점.
+          한 sender 안에서 control queue 처리 thread와 발송 thread가 다르므로
+          가시성을 보장해야 한다.
+        </p>
+
+        <p>
+          control queue의 신호가 도착하는 순간 <code>currentEndpoint</code>가 바뀌고,
+          그 다음 발송 메시지부터는 새 endpoint로 흐른다.
+          코드 변경이 매우 단순하지만 효과는 강력하다.
+        </p>
+
+        <h2>LB, CircuitBreaker와 같이 살아있다</h2>
+
+        <p>
+          여기서 중요한 건 Fanout Failover가 LB나 CircuitBreaker를 대체하는 게 아니라는 점이다.
+          셋이 각자 다른 시간 척도와 시그널을 책임진다.
+        </p>
+
+        <pre><code>척도            잡는 것                          반응 속도
+─────────────  ──────────────────────────────  ──────────────────
+LB             외형적 health (TCP, HTTP 200)    초 단위
+CircuitBreaker 의미적 실패, slow call          분 단위 (통계 누적)
+Fanout 신호    운영자/외부 감지 시스템 결정       즉시 (사람 또는 외부 트리거)</code></pre>
+
+        <p>
+          짧은 외형 장애는 LB가 흡수.
+          그게 못 잡는 의미적 부분 장애는 CircuitBreaker가 흡수.
+          그것마저 split-brain이거나 외부 정보(점검 공지)가 있을 땐 Fanout이 일괄 결정.
+        </p>
+
+        <p>
+          각 layer가 자기 책임만 지는 명확한 그림이다.
+          한 layer가 무력화돼도 위/아래에서 보강한다.
+        </p>
+
+        <h2>운영 측면의 효과</h2>
+
+        <h3>1. 운영자가 즉시 통제 가능</h3>
+
+        <p>
+          카카오에서 "오후 3시부터 1시간 점검"이라고 공지가 오면,
+          관리자 페이지에서 버튼 한 번. 모든 sender가 동시에 secondary로 전환.
+          CircuitBreaker가 임계값에 도달할 때까지 기다리지 않아도 된다.
+        </p>
+
+        <h3>2. 일관된 감사 로그</h3>
+
+        <p>
+          모든 sender가 동시에 같은 결정을 내리니, 감사 시점에
+          "X 시점부터 Y 시점까지 모든 발송은 secondary로 갔음"이라고 명확히 기록할 수 있다.
+        </p>
+
+        <h3>3. 모니터링이 단순해진다</h3>
+
+        <p>
+          현재 active endpoint를 단일 값으로 표시 가능.
+          "지금 primary, 23:14에 secondary로 전환됨" 같은 단순 시계열로 운영팀이 본다.
+        </p>
+
+        <h2>주의할 점</h2>
+
+        <h3>Control queue의 메시지 누락 방지</h3>
+
+        <p>
+          Failover 신호를 한 sender가 못 받으면 그 sender만 옛 endpoint로 계속 보낸다.
+          이걸 막으려면:
+        </p>
+
+        <ul>
+          <li>Control queue를 <strong>durable</strong>로 두고 메시지에 persistent 설정</li>
+          <li>Sender가 재시작될 때 현재 활성 endpoint를 별도 저장소(예: Redis)에서 읽도록</li>
+          <li>주기적인 sync 메시지(매 분마다 현재 endpoint 재방송)로 누락 보강</li>
+        </ul>
+
+        <h3>신호의 출처를 명확히</h3>
+
+        <p>
+          누가 Failover를 발동할 수 있는지 명확히 통제해야 한다.
+          관리자 인증 + 감사 로그 + 변경 이력. 잘못된 신호 한 번이 전 sender를 secondary로 보낸다.
+        </p>
+
+        <h2>시리즈 정리</h2>
+
+        <p>
+          네 편을 거치며 외부 API Failover의 다층 방어를 정리했다.
+        </p>
+
+        <pre><code>1편: 200이 진짜 200인가
+     - HTTP 응답 코드와 비즈니스 결과 코드의 분리
+     - 4xx/5xx 처리 정책
+     - SUCCESS / BUSINESS_FAIL / RETRYABLE_FAIL / SYSTEM_FAIL 분류
+
+2편: LoadBalancer 패턴 비교
+     - Standalone / Sidecar / Client-side
+     - 환경별 적합한 패턴 선택
+
+3편: CircuitBreaker가 LB로 못 잡는 것
+     - 외형 health vs 의미 health
+     - Resilience4j로 정밀 분류
+     - LB + CircuitBreaker 다층 방어
+
+4편: Fanout Exchange로 일괄 Failover
+     - Sender 간 split-brain 문제
+     - RabbitMQ Fanout으로 외부 시그널
+     - 운영자의 명시적 통제 layer</code></pre>
+
+        <p>
+          이 네 layer가 각자 다른 시그널과 시간 척도를 책임지면서
+          외부 API 통합이 운영 수준에 도달한다.
+          어느 한 layer만으로는 못 잡는 영역이 있고, 그 영역이 다른 layer에서 잡힌다.
+        </p>
+
+        <p>
+          외부 API와 통합하는 코드를 짤 때마다,
+          그 한 줄 뒤에 어떤 실패 시나리오가 가능한지 그려보면 좋다.
+          200 OK가 진짜 OK인가, 응답이 점점 느려지면 우리 thread가 어떻게 되는가,
+          여러 인스턴스가 같은 결정을 내리고 있는가.
+          이런 질문이 자연스럽게 떠오르면 그게 시니어 백엔드의 시각이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

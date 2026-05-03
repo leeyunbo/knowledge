@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CircuitBreaker가 LB로 못 잡는 것 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.02 · 시리즈 3/4</div>
+        <h1>CircuitBreaker가 LB로 못 잡는 것</h1>
+        <p class="subtitle">
+          외형적 health vs 의미적 health.
+          LB의 한계와 CircuitBreaker의 정밀도, 그리고 둘을 같이 쓸 때의 그림.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">외부 API Failover 다층 방어</div>
+        <ol>
+          <li><a href="./01-200이-진짜-200인가.html">200이 진짜 200인가</a></li>
+          <li><a href="./02-loadbalancer-패턴-비교.html">LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</a></li>
+          <li class="current">CircuitBreaker가 LB로 못 잡는 것</li>
+          <li>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>LB의 health check가 보는 것</h2>
+
+        <p>
+          LoadBalancer는 backend가 살아있는지 어떻게 아는가.
+          기본은 <strong>주기적인 health check 요청</strong>이다.
+        </p>
+
+        <pre><code>nginx upstream:
+  server kakao-1.example.com:443 max_fails=3 fail_timeout=10s;
+  server kakao-2.example.com:443 max_fails=3 fail_timeout=10s;
+
+→ 30초마다 GET /health 호출
+→ 200 OK가 떨어지면 "살아있음"
+→ 3번 연속 실패하면 "죽음"으로 표시 → 트래픽 안 보냄
+→ 10초 후 다시 health check 재개</code></pre>
+
+        <p>
+          이 체크가 보는 건 <strong>"서버가 작동 중이냐"</strong> 정도다.
+          좀 더 정교한 LB는 응답 시간이나 특정 헤더도 보지만,
+          본질은 외형적인 신호다.
+        </p>
+
+        <p>
+          그런데 외부 API의 진짜 장애는 더 미묘하다.
+        </p>
+
+        <h2>LB가 절대 못 잡는 세 가지</h2>
+
+        <h3>1. 의미적 실패 — 200인데 실패</h3>
+
+        <p>
+          1편에서 본 그 패턴.
+          카카오가 HTTP 200은 잘 주는데 body가 실패다.
+        </p>
+
+        <pre><code>HTTP/1.1 200 OK
+{
+  "resultCode": "KAKAO_SYSTEM_ERROR",
+  "resultMessage": "카카오 내부 시스템 일시 장애"
+}</code></pre>
+
+        <p>
+          health check가 200만 보고 "살아있음"이라고 판정한다.
+          그런데 실제 비즈니스 호출은 모두 실패하고 있다.
+          LB는 트래픽을 계속 그쪽으로 보낸다.
+          모든 발송이 실패한다.
+        </p>
+
+        <h3>2. Slow 장애 — 200을 주는데 점점 느려짐</h3>
+
+        <p>
+          카카오가 응답을 주긴 주는데, 응답 시간이 평소 200ms에서 점점 늘어나
+          5초, 10초로 길어진다.
+          health check도 (느리지만) 200을 받는다. LB는 살아있다고 본다.
+        </p>
+
+        <p>
+          그런데 우리 sender 입장에선 한 호출에 10초씩 걸리니
+          처리량이 평소의 1/50로 떨어진다. 큐에 적체가 시작되고
+          결국 다른 정상 트래픽까지 영향을 받는다.
+          이걸 <strong>cascading failure</strong>로 가는 입구다.
+        </p>
+
+        <h3>3. 부분 장애 — 어떤 요청은 성공, 어떤 요청은 실패</h3>
+
+        <p>
+          더 까다로운 케이스. 카카오가 어떤 종류 요청은 200을, 어떤 종류는 502를 준다.
+          예를 들어 텍스트 알림톡은 잘 가는데 이미지 첨부 알림톡만 실패하는 식.
+        </p>
+
+        <p>
+          health check 요청이 단순한 텍스트 호출이라면 항상 200을 받는다.
+          LB 입장에선 정상으로 보인다. 그런데 실제 다양한 비즈니스 호출은 50% 실패하고 있다.
+        </p>
+
+        <h2>CircuitBreaker가 보는 것</h2>
+
+        <p>
+          CircuitBreaker는 별도 health check를 하지 않는다.
+          <strong>실제 비즈니스 호출의 성공/실패를 직접 카운트</strong>한다.
+        </p>
+
+        <pre><code>실제 호출 100개의 통계:
+  성공: 35개
+  실패: 65개  ← (이 65개가 IOException, 5xx, 의미적 실패 등 우리가 정의한 "실패")
+
+실패율 65% > 임계값 50%
+  → CircuitBreaker가 OPEN 상태로 전환
+  → 이후 호출은 즉시 fallback (실제 호출 안 함)</code></pre>
+
+        <p>
+          이 통계의 핵심은 <strong>"실패의 정의를 우리가 코드에서 정한다"</strong>는 점이다.
+          단순히 예외만 카운트하는 게 아니라,
+          200 OK 응답이라도 body의 resultCode를 보고 실패로 분류할 수 있다.
+        </p>
+
+        <h2>Resilience4j로 정밀하게 잡기</h2>
+
+        <p>
+          Spring 생태계에서 가장 많이 쓰는 Resilience4j 기준으로 보자.
+        </p>
+
+        <h3>실패 정의를 명시적으로</h3>
+
+        <pre><code>CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+    .failureRateThreshold(50)               // 실패율 50% 넘으면 OPEN
+    .slowCallRateThreshold(50)              // slow 비율 50% 넘으면 OPEN
+    .slowCallDurationThreshold(Duration.ofSeconds(2))  // 2초 넘으면 slow
+    .minimumNumberOfCalls(20)               // 최소 20회 호출 후부터 통계 적용
+    .waitDurationInOpenState(Duration.ofSeconds(30))   // OPEN 상태 30초 유지
+    .recordExceptions(IOException.class, TimeoutException.class)
+    .recordResult(response -> {
+        if (response instanceof KakaoResponse kakao) {
+            String code = kakao.resultCode();
+            // 5xx 응답이거나 의미적 시스템 실패면 실패로 카운트
+            return "KAKAO_SYSTEM_ERROR".equals(code)
+                || "GATEWAY_ERROR".equals(code);
+        }
+        return false;
+    })
+    .build();</code></pre>
+
+        <p>
+          여기 <code>recordResult</code>가 핵심이다. 200 응답이라도 body를 보고
+          실패로 분류할 수 있다. LB는 이걸 못 한다.
+        </p>
+
+        <h3>Slow 장애도 잡는다</h3>
+
+        <p>
+          <code>slowCallDurationThreshold</code>는 응답 시간이 일정 기준을 넘으면
+          그걸 "slow call"로 카운트한다.
+          slow call 비율이 임계값을 넘으면 (예: 50%) CircuitBreaker가 OPEN으로 간다.
+        </p>
+
+        <p>
+          이게 cascading failure 막는 핵심이다.
+          카카오 응답이 점점 느려져도 LB는 모르지만,
+          CircuitBreaker는 "이 backend는 응답이 느려져서 이상해"라고 판단해
+          미리 차단한다. 우리 sender의 thread가 느린 응답에 묶이는 걸 막는다.
+        </p>
+
+        <h2>LB와 CircuitBreaker는 서로 다른 시그널을 본다</h2>
+
+        <pre><code>LB가 보는 시그널:                    CircuitBreaker가 보는 시그널:
+  - TCP 연결 가능 여부                  - 실제 호출의 성공/실패 비율
+  - HTTP health endpoint 200 OK         - 응답 시간 (slow call)
+  - HTTP 응답 status code               - Body 안의 비즈니스 결과 코드
+                                        - 코드에서 정의한 실패 조건
+
+LB가 잡는 장애:                       CircuitBreaker가 잡는 장애:
+  - 서버 완전 다운                      - 의미적 실패 (200 + 실패 body)
+  - HTTP 5xx 응답                       - Slow 장애
+  - TCP 거부                            - 부분 장애 (특정 호출만 실패)
+                                        - cascading failure 진입 차단</code></pre>
+
+        <p>
+          둘이 같은 일을 하는 것 같지만 보는 데이터가 다르다.
+          그래서 한 쪽만으로는 못 잡는 영역이 생긴다.
+          정확히 그 영역이 다른 쪽에서 잡힌다.
+        </p>
+
+        <h2>면접에서 받는 질문 — "그럼 LB Proxy만 쓰면 안 되나요?"</h2>
+
+        <p>
+          이 시점에 한 가지 정직하게 짚어야 할 게 있다.
+          "LB는 외형 health만 본다"고 했는데, 그건 nginx OSS나 HAProxy 기준이고,
+          현대적인 LB(Envoy, Istio)는 그보다 훨씬 정교하다.
+          이걸 모르고 가면 면접에서 답이 막힌다.
+        </p>
+
+        <h3>Modern LB는 통계 기반 차단까지 한다 — Outlier Detection</h3>
+
+        <p>
+          Envoy의 <strong>Outlier Detection</strong>이 정확히 그 기능이다.
+          backend별로 실제 트래픽 응답을 추적해서, 통계가 나쁜 backend를 풀에서 자동 제거한다.
+        </p>
+
+        <pre><code>clusters:
+- name: kakao_cluster
+  outlier_detection:
+    consecutive_5xx: 5                       # 5번 연속 5xx면 빼기
+    consecutive_gateway_failure: 5           # 502/503/504 5번 연속이면 빼기
+    failure_percentage_threshold: 5          # 실패율 5% 넘으면 빼기
+    failure_percentage_minimum_hosts: 2
+    failure_percentage_request_volume: 100   # 최소 100 요청 후 통계 적용
+    success_rate_minimum_hosts: 2
+    success_rate_request_volume: 100
+    base_ejection_time: 30s                  # 30초간 풀에서 제외
+    max_ejection_percent: 50                 # 최대 50%까지만 빼기 (모두 빠지지 않게)
+    interval: 10s                            # 10초마다 통계 체크</code></pre>
+
+        <p>
+          "5% 실패율 넘으면 그 backend로 더 이상 보내지 마"가 LB 설정 한 줄로 가능하다.
+          이건 단순 health check를 넘어서는 정밀한 통계 기반 차단이다.
+          시리즈 시작에서 "LB는 외형 health만 본다"고 단순화한 그림에 보강이 필요한 부분이다.
+        </p>
+
+        <h3>그럼에도 CircuitBreaker가 필요한 결정적 이유</h3>
+
+        <p>
+          Envoy를 도입하면 CircuitBreaker가 필요 없는가? <strong>아니다</strong>.
+          Outlier Detection도 못 잡는 영역이 분명히 있다.
+          이게 "왜 LB만 쓰지 않았는가"의 진짜 답변이 된다.
+        </p>
+
+        <h4>1. 의미적 실패는 Envoy도 못 본다</h4>
+
+        <p>
+          Envoy Outlier Detection이 보는 시그널은 다음 정도다.
+        </p>
+
+        <pre><code>- HTTP status code (5xx, 502, 503, 504)
+- 연결 실패 (TCP refused, timeout)
+- 게이트웨이 실패</code></pre>
+
+        <p>
+          이건 모두 <strong>외형적 시그널</strong>이다.
+          HTTP 응답 코드와 연결 가능 여부.
+          이전보다 더 정교해졌지만, 결국 본질은 status code 기반.
+        </p>
+
+        <p>
+          그런데 1편에서 본 카카오 알림톡 응답을 보자.
+        </p>
+
+        <pre><code>HTTP/1.1 200 OK
+{
+  "resultCode": "KAKAO_SYSTEM_ERROR",
+  "resultMessage": "카카오 내부 시스템 일시 장애"
+}</code></pre>
+
+        <p>
+          Envoy 입장에서 이건 200 OK다. 풀에서 빼지 않는다.
+          Outlier Detection의 어떤 룰에도 안 걸린다. 5xx도 아니고 timeout도 아니다.
+          그런데 우리 비즈니스 관점에선 명백한 시스템 실패다.
+        </p>
+
+        <p>
+          <strong>HTTP body 안의 비즈니스 result_code까지 들여다보는 건
+          애플리케이션 코드(CircuitBreaker)의 영역</strong>이다.
+          어떤 modern LB도 이 영역까진 안 간다. 가는 순간 "도메인 특화 LB"가 되어
+          범용성을 잃는다.
+        </p>
+
+        <h4>2. 도메인 특화 실패 정의를 LB 설정에 못 담는다</h4>
+
+        <p>
+          외부 API마다 실패 정의가 다르다.
+        </p>
+
+        <pre><code>카카오 알림톡:
+  resultCode: "KAKAO_SYSTEM_ERROR"  → 시스템 실패 (failover)
+  resultCode: "RECEIVER_BLOCKED"    → 비즈니스 실패 (failover X, 사용자에게 반환)
+
+결제 PG:
+  apiResultCode: "ERR_AUTH_EXPIRED" → 시스템 실패 (재인증 후 재시도)
+  apiResultCode: "FAIL_INSUFFICIENT_BALANCE" → 비즈니스 실패</code></pre>
+
+        <p>
+          같은 200 OK라도 어떤 코드는 시스템 실패, 어떤 코드는 비즈니스 실패.
+          이 분류는 외부 API의 명세서를 읽고 도메인을 이해하는 사람만 정의할 수 있다.
+          LB가 자동으로 알 수 없는 영역이다.
+        </p>
+
+        <h4>3. 운영 비용 — Envoy/Istio 도입은 큰 결정</h4>
+
+        <p>
+          Envoy의 Outlier Detection이 좋은 기능인 건 맞지만, 그걸 쓰려면 보통 다음 중 하나다.
+        </p>
+
+        <ul>
+          <li>각 호스트에 Envoy를 sidecar로 띄우기 (운영 자동화 필요)</li>
+          <li>Service Mesh(Istio, Linkerd) 도입 (큰 프로젝트)</li>
+          <li>중앙 Envoy 클러스터 운영 (또 다른 SPOF 관리)</li>
+        </ul>
+
+        <p>
+          한두 개 외부 API 통합 때문에 Service Mesh를 도입하기엔 운영 비용이 과하다.
+          이미 Spring Boot + Resilience4j 환경이 갖춰져 있으면
+          코드에 어노테이션 한 줄 + 라이브러리 의존성 추가가 비용의 전부다.
+          기능 완성도 vs 운영 비용의 trade-off에서 후자가 작은 시스템이라면
+          CircuitBreaker가 합리적 선택이다.
+        </p>
+
+        <h4>4. 4편의 split-brain 문제는 LB로도 안 풀린다</h4>
+
+        <p>
+          Envoy Outlier Detection이 통계를 쌓으려면 어느 인스턴스의 통계인가?
+          각 sender 호스트의 sidecar Envoy가 자기 통계를 따로 쌓는다.
+          그러면 정확히 우리가 다음 편에서 다룰 split-brain 문제가 LB 레이어에서도 재현된다.
+          중앙 Envoy 클러스터로 모든 트래픽을 모아도, 그건 또 다른 SPOF가 된다.
+        </p>
+
+        <p>
+          외부 통제 신호로 모든 sender를 동시에 전환시키는 패턴은 LB 자동화로 풀 수 없는 영역이다.
+          이건 다음 편의 주제다.
+        </p>
+
+        <h3>면접 답변 시뮬레이션</h3>
+
+        <p>
+          "왜 LB Proxy(nginx, HAProxy)로 failover를 처리하지 않고 CircuitBreaker를 쓰셨나요?"
+          이런 질문이 들어왔을 때 답변이 명확해진다.
+        </p>
+
+        <pre><code>1. 카카오 알림톡 API는 HTTP 200 응답에 body로 실패 코드를 내려준다.
+   nginx나 HAProxy 같은 LB는 status code 기반으로만 health를 판단하니
+   이 의미적 실패를 잡지 못한다.
+
+2. Envoy의 Outlier Detection이라면 통계 기반 차단까진 가능하지만,
+   여전히 status code와 연결 실패만 본다. body 안의 비즈니스 코드는 못 본다.
+
+3. 도메인 특화 실패 정의(특정 result_code만 시스템 실패로 분류)를
+   범용 LB 설정에 담는 게 부자연스럽다.
+   이건 외부 API 명세를 이해하는 코드 레벨에서 정의해야 한다.
+
+4. Envoy/Istio 도입은 운영 부담이 큰 결정이다.
+   외부 API 한두 개 통합을 위해 Service Mesh를 깔기엔 무겁고,
+   Spring Boot + Resilience4j 환경이라면 라이브러리 의존성 한 줄로 끝난다.
+
+5. 그리고 다음 편에서 보겠지만, sender 인스턴스 간 split-brain 문제는
+   LB의 자동 차단으로도 풀리지 않는다.
+   외부 통제 신호가 필요하고, 그건 어플리케이션 레이어의 일이다.</code></pre>
+
+        <p>
+          이 다섯 가지가 "LB Proxy 쓰면 됐을 텐데"라는 의문에 대한 답이다.
+          modern LB의 능력을 인정하되, 도메인 의미적 판단과 운영 비용 측면에서
+          CircuitBreaker가 적합한 자리가 분명히 있음을 짚는다.
+        </p>
+
+        <h3>실제로는 둘이 같이 산다</h3>
+
+        <p>
+          이 답변이 "LB 안 씀, CircuitBreaker만 씀"으로 들리면 반은 맞는 말이지만 반은 틀린 말이다.
+          현실 시스템은 보통 둘 다 두고 각자 책임만 진다.
+          LB(Outlier Detection 포함)가 외형/통계 health를 1차로 거르고,
+          CircuitBreaker가 의미적 health를 2차로 잡는다.
+          어느 한 layer만으론 못 잡는 영역이 있어서 둘 다 살아있다.
+        </p>
+
+        <h2>도구별 자동 차단 정밀도 비교</h2>
+
+        <p>
+          참고로 LB 도구별로 통계 기반 차단을 어디까지 지원하는지 정리하면 이렇다.
+        </p>
+
+        <pre><code>도구              단순 Health   연속 실패 차단   통계 기반 (실패율 %)
+────────────────  ───────────  ──────────────   ─────────────────────
+nginx OSS         ✅            ✅ (max_fails)   ❌
+nginx Plus        ✅            ✅                ⚠️ 일부
+HAProxy           ✅            ✅ (observe)     ⚠️ 누적 횟수 기반
+Envoy             ✅            ✅                ✅ (Outlier Detection)
+Istio (Envoy 기반) ✅            ✅                ✅
+AWS ALB           ✅            ✅                ❌
+Spring Cloud LB   ✅            ⚠️                ❌ (CircuitBreaker로 보강)</code></pre>
+
+        <p>
+          시스템에 어떤 LB를 쓰느냐에 따라 CircuitBreaker가 떠안아야 할 부담이 다르다.
+          Envoy를 쓰고 있다면 통계 기반 차단은 LB가 가져가니
+          CircuitBreaker는 의미적 실패에만 집중하면 된다.
+          nginx OSS를 쓴다면 통계 기반 차단까지 CircuitBreaker가 보강해야 한다.
+          어느 도구를 쓰든 두 layer를 같이 두는 그림은 변하지 않는다.
+        </p>
+
+        <h2>다층 방어 구성하기</h2>
+
+        <p>
+          현실적인 구성은 둘 다 두는 것이다.
+          각자 자기 책임만 지면 된다.
+        </p>
+
+        <pre><code>[Sender 코드]
+  ├─ CircuitBreaker (실패율/slow call 추적)
+  │      ↓ 임계값 넘으면 OPEN, 즉시 fallback
+  │
+  ↓
+[Local LB (sidecar 또는 client-side)]
+  ├─ Health check (TCP, HTTP 200 확인)
+  │      ↓ 죽은 backend 자동 제거, 살아있는 곳으로 분기
+  │
+  ↓
+[카카오 endpoint들]</code></pre>
+
+        <p>
+          LB가 1차로 외형적 health 거른다.
+          CircuitBreaker가 2차로 의미적 health를 거른다.
+          한 layer가 못 잡은 게 다른 layer에서 잡힌다.
+        </p>
+
+        <h2>각자의 역할 분리 — 책임을 명확히</h2>
+
+        <pre><code>LB의 책임:
+  - "이 backend가 살아있냐"
+  - 외형 health 기반 자동 분기
+  - 빠른 외형 장애에 즉시 반응
+
+CircuitBreaker의 책임:
+  - "이 호출이 비즈니스적으로 작동하냐"
+  - 통계 기반 자동 차단
+  - 미묘한 장애 (slow, 의미적 실패) 대응
+
+남은 책임 (다음 편에서 다룸):
+  - 운영자의 명시적 통제
+    (예: "카카오 점검 시간이래, 모두 secondary로 보내")
+  - 전사적 의사결정 (split-brain 방지)</code></pre>
+
+        <p>
+          이 세 layer가 다 있어야 외부 API 통합이 운영 수준에 도달한다.
+          하나라도 빠지면 그 layer가 잡아야 할 장애 시나리오가 무방비로 노출된다.
+        </p>
+
+        <h2>실제 구성 예시</h2>
+
+        <p>
+          Spring Boot 환경에서 sidecar nginx + Resilience4j를 같이 쓴다고 해보자.
+        </p>
+
+        <h3>Sidecar nginx 설정</h3>
+
+        <pre><code># 각 호스트의 nginx.conf
+upstream kakao_backend {
+    server kakao-1.example.com:443 max_fails=3 fail_timeout=10s;
+    server kakao-2.example.com:443 max_fails=3 fail_timeout=10s;
+    keepalive 32;
+}
+
+server {
+    listen 8080;
+    location / {
+        proxy_pass https://kakao_backend;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+    }
+}</code></pre>
+
+        <h3>Spring 코드</h3>
+
+        <pre><code>@CircuitBreaker(name = "kakao-send", fallbackMethod = "fallback")
+public KakaoResponse send(KakaoRequest req) {
+    return restClient.post()
+        .uri("http://localhost:8080/v2/talk/send")  // sidecar로
+        .body(req)
+        .retrieve()
+        .body(KakaoResponse.class);
+}
+
+public KakaoResponse fallback(KakaoRequest req, Throwable ex) {
+    // CircuitBreaker가 OPEN이면 여기로
+    log.warn("CircuitBreaker OPEN, fallback 처리", ex);
+    return queueForRetry(req);
+}</code></pre>
+
+        <p>
+          Sender는 항상 <code>localhost:8080</code>(sidecar)으로 호출한다.
+          sidecar가 두 카카오 endpoint 중 살아있는 곳으로 분기.
+          만약 둘 다 외형적으론 살아있는데 실제 호출은 실패한다면
+          CircuitBreaker가 통계로 잡아 OPEN 상태로 간다.
+        </p>
+
+        <h2>여기까지가 자동 방어의 끝</h2>
+
+        <p>
+          LB와 CircuitBreaker는 모두 <strong>자동</strong>이다.
+          코드와 인프라가 알아서 외부 장애에 반응한다.
+          사람이 개입할 필요 없이 대부분의 일상적 장애는 흡수한다.
+        </p>
+
+        <p>
+          그런데 자동으로 못 푸는 시나리오가 하나 있다.
+          여러 sender 프로세스가 동시에 돌고 있을 때,
+          각 프로세스의 CircuitBreaker 통계가 분리되어 있어
+          <strong>일부는 OPEN, 일부는 CLOSED</strong>인 split-brain 상태가 생긴다.
+        </p>
+
+        <p>
+          또 운영자가 "카카오 점검 공지 받았으니 지금부터 모든 트래픽을 secondary로 보내라"고
+          명시적으로 결정하고 싶을 때가 있다. 자동 시그널이 OPEN 임계값에 도달하기 전에 미리.
+        </p>
+
+        <p>
+          이 두 문제 — split-brain과 명시적 통제 — 를 어떻게 풀었는지가 마지막 편 주제다.
+          ALIO-GW에서 RabbitMQ Fanout Exchange로 어떻게 일괄 Failover를 만들었는지,
+          그리고 그게 LB/CircuitBreaker와 어떻게 같이 살아있는지 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

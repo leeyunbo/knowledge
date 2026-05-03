@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TCP 연결을 만든다는 것 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 1/3</div>
+        <h1>TCP 연결을 만든다는 것</h1>
+        <p class="subtitle">
+          HTTP 요청 한 번 보내기 직전, 클라이언트와 서버는 무슨 대화를 나누는가.
+          그리고 그 대화는 얼마나 비싼가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">TCP 연결의 일생</div>
+        <ol>
+          <li class="current">TCP 연결을 만든다는 것</li>
+          <li><a href="./02-연결을-끊는다.html">연결을 끊는 데 왜 4번이나 걸리나</a></li>
+          <li><a href="./03-time-wait.html">TIME_WAIT가 ephemeral port를 잡아먹는다</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>HTTP 요청 한 번이 진짜로 보내지기까지</h2>
+
+        <p>
+          코드에서는 한 줄이다.
+        </p>
+
+        <pre><code>restClient.get().uri("https://kakao.com/api/v1/foo").retrieve();</code></pre>
+
+        <p>
+          호출 한 번이지만 와이어에서는 그렇지 않다.
+          GET 요청을 실제로 던지기 전에, 우리 호스트와 카카오 서버는
+          서로 처음 보는 사이라면 먼저 자기소개부터 한다.
+          그게 <strong>TCP 3-way handshake</strong>다.
+        </p>
+
+        <h2>3-way handshake — RFC 9293이 정의하는 것</h2>
+
+        <p>
+          TCP는 신뢰성 있는 연결을 만들기 위해 양쪽이 각자의
+          <strong>초기 시퀀스 번호(ISN)</strong>를 교환하는 절차를 거친다.
+          RFC 9293은 이 절차를 다음 네 단계로 정의한다.
+        </p>
+
+        <pre><code>1) A → B  SYN, seq=X            "내 시작 번호는 X야"
+2) A ← B  ACK seq=X+1            "X 받았어"
+3) A ← B  SYN, seq=Y             "내 시작 번호는 Y야"
+4) A → B  ACK seq=Y+1            "Y 받았어"</code></pre>
+
+        <p>
+          위에서 2번과 3번은 한 패킷에 합쳐서 보낸다.
+          그래서 실제 와이어에는 세 개의 패킷이 흐르고, 이걸 3-way라고 부른다.
+        </p>
+
+        <pre><code>[Client]                              [Server]
+   │ ── SYN ───────────────────────▶    │
+   │ ◀── SYN + ACK ─────────────────    │
+   │ ── ACK ───────────────────────▶    │
+   │                                    │
+   │   여기까지 와야 데이터 전송 가능       │</code></pre>
+
+        <p>
+          왜 시퀀스 번호를 교환해야 하나. TCP는 각 바이트에 일련번호를 붙여서
+          순서를 맞추고, 빠진 게 있으면 재전송한다.
+          그러려면 양쪽이 "내가 어디서부터 셀게"를 먼저 알려줘야 한다.
+          시퀀스는 글로벌 시계가 아니라 각 호스트가 골라내는 번호라서
+          매번 새 연결마다 다시 합의해야 한다.
+        </p>
+
+        <h2>이 절차가 얼마나 비싼가</h2>
+
+        <p>
+          패킷이 클라이언트와 서버 사이를 <strong>한 번 왕복하는 시간</strong>을
+          RTT(Round Trip Time)라고 한다.
+          3-way handshake는 패킷이 1.5번 왕복한 효과를 가진다(SYN 발송 후
+          ACK가 돌아올 때까지가 1 RTT, 마지막 ACK는 발송만 하고 응답을 안 기다림).
+        </p>
+
+        <p>
+          서울에서 카카오 서버가 같은 데이터센터에 있으면 RTT는 1ms 안쪽이지만,
+          외부 인터넷 구간이 끼면 보통 20~40ms다.
+          RTT 30ms 환경이라면 연결 만드는 데만 약 45ms가 그냥 사라진다.
+          데이터는 아직 한 바이트도 안 보냈는데.
+        </p>
+
+        <h2>HTTPS면 더 비싸진다</h2>
+
+        <p>
+          요즘 외부 API는 거의 다 HTTPS다.
+          TCP 3-way가 끝났다고 끝이 아니다. 그 위로 TLS handshake가 또 한 번 일어난다.
+          TLS 버전에 따라 비용이 다르다.
+        </p>
+
+        <h3>TLS 1.2 — 2 RTT</h3>
+
+        <pre><code>[Client]                              [Server]
+   │ ── ClientHello ───────────────▶    │
+   │ ◀── ServerHello + Cert + ... ──    │
+   │ ── ClientKeyExchange + ... ───▶    │
+   │ ◀── Finished ──────────────────    │
+   │                                    │
+   │   이제 암호화 통신 가능                │</code></pre>
+
+        <p>
+          ClientHello를 보내고 응답을 받는 데 1 RTT,
+          키 교환 메시지를 보내고 Finished를 받는 데 1 RTT.
+          합쳐서 2 RTT.
+        </p>
+
+        <h3>TLS 1.3 — 1 RTT</h3>
+
+        <p>
+          TLS 1.3은 ClientHello에 키 교환 정보를 같이 실어 보낸다.
+          서버는 한 번에 응답하면서 자기 키 교환 정보와 Finished를 같이 보낸다.
+          1 RTT 만에 끝난다.
+        </p>
+
+        <p>
+          그리고 TLS 1.3에는 한 단계 더 나간 모드가 있다. 0-RTT다.
+          이전에 한 번 연결한 적 있는 서버라면 RTT 비용이 아예 0이 된다.
+          그런데 이 0-RTT는 보안 함정을 같이 가져온다.
+          그래서 이 모드는 "쓸지 말지"가 아니라
+          "어떤 요청에만 쓸지"를 골라야 하는 기능이다.
+        </p>
+
+        <h2>0-RTT는 왜 멱등 요청에만 써야 하나</h2>
+
+        <p>
+          0-RTT는 이전 세션에서 합의해둔 키(PSK, Pre-Shared Key)를 재사용한다.
+          이미 양쪽이 같은 키를 가지고 있으니 새로 키 교환을 할 필요가 없다.
+          그 키로 암호화한 실제 데이터를 ClientHello에 같이 실어 보낸다.
+          서버는 ClientHello를 받자마자 데이터까지 처리할 수 있다.
+          handshake와 첫 요청이 같은 패킷에 실리는 셈이다.
+        </p>
+
+        <p>
+          문제는 이 패킷이 <strong>재전송 공격(replay attack)</strong>에 취약하다는 점이다.
+          재전송 공격은 공격자가 정상 트래픽을 통째로 가로채서
+          서버에 똑같이 다시 보내는 것이다.
+          같은 송금 요청 패킷을 100번 재전송하면 100번 송금되는 식이다.
+        </p>
+
+        <p>
+          일반 TLS handshake는 이걸 자연스럽게 막는다.
+          매번 양쪽이 새 난수를 생성해서 키 도출에 섞기 때문에,
+          같은 패킷을 재전송해도 새 handshake의 키와 안 맞아서 복호화 실패한다.
+          하지만 0-RTT는 이전 세션 키를 그대로 재사용한다.
+          공격자가 ClientHello + 0-RTT 데이터 패킷을 통째로 캡처해두면,
+          같은 키로 암호화된 채로 다시 보낼 수 있다.
+          서버 입장에선 정상 요청으로 보이니 또 처리한다.
+          TLS 1.3 표준(RFC 8446)은 이 위험을 명시적으로 인정하면서,
+          애플리케이션이 알아서 막으라고 책임을 위임한다.
+        </p>
+
+        <h3>멱등 요청 — 재전송돼도 안전한 요청</h3>
+
+        <p>
+          그 책임을 지는 방법이 <strong>멱등 요청(idempotent)</strong>이다.
+          멱등은 같은 요청을 N번 보내도 결과가 한 번 보낸 것과 같다는 뜻이다.
+          HTTP 메서드 중에는 GET, PUT, DELETE가 멱등이다.
+        </p>
+
+        <pre><code>GET    /users/42      → 100번 호출해도 같은 사용자 정보 조회. 결과 같음.
+PUT    /users/42      → 100번 호출해도 최종 상태는 마지막 한 번과 같음.
+DELETE /users/42      → 100번 호출해도 최종 상태(없음)는 같음.
+
+POST   /orders        → 100번 호출하면 주문 100개 생성. 멱등 아님.</code></pre>
+
+        <p>
+          0-RTT가 재전송돼도 GET이면 그냥 같은 데이터를 한 번 더 조회하는 것뿐이라
+          서버 상태가 망가지지 않는다.
+          POST에 0-RTT를 쓰면 주문이 중복 생성될 수 있다.
+        </p>
+
+        <p>
+          RFC 8446 위원회는 HTTPS 연결의 첫 요청이 보통 GET이라는 점을 근거로
+          0-RTT를 표준에 넣었다. 즉, "안전한 요청에만 쓴다는 전제가 깔려 있다."
+          POST나 결제 같은 비멱등 요청은 0-RTT를 쓰지 말거나,
+          멱등성 키(Idempotency-Key 헤더)로 서버가 중복을 무시하도록 만들어야 한다.
+        </p>
+
+        <h2>합치면 얼마인가</h2>
+
+        <p>
+          RTT 30ms 환경에서 카카오 같은 외부 HTTPS API에 처음 연결한다고 해보자.
+        </p>
+
+        <pre><code>TCP 3-way handshake     : 1.5 RTT  →  45ms
+TLS 1.2 handshake       : 2   RTT  →  60ms
+                                     ─────
+                                     105ms
+
+TLS 1.3이라면           : 1   RTT  →  30ms
+                                     ─────
+                                     75ms</code></pre>
+
+        <p>
+          데이터 한 바이트 보내기도 전에 75~105ms가 사라진다.
+          여기에 인증서 검증, 키 연산 같은 CPU 비용까지 더해진다.
+        </p>
+
+        <h2>매번 새 연결이면 얼마나 손해인가</h2>
+
+        <p>
+          외부 API를 100번 호출한다고 해보자. 매번 새 연결을 만들면 어떻게 되나.
+        </p>
+
+        <pre><code>매번 새 연결 (TLS 1.2):
+  연결 비용 105ms × 100 = 10,500ms
+  실제 요청 처리 50ms × 100 = 5,000ms
+  ─────────────────────────────────
+  총 15,500ms
+
+연결 재사용 (Keep-Alive):
+  첫 연결만 105ms
+  요청 50ms × 100 = 5,000ms
+  ─────────────────────────────────
+  총 5,105ms</code></pre>
+
+        <p>
+          3배 이상 차이 난다. 이게 <strong>Keep-Alive</strong>가 존재하는 이유고,
+          HTTP 클라이언트에 connection pool이 따라붙는 이유다.
+          한 번 만든 연결을 안 끊고 다음 요청에 재사용한다.
+        </p>
+
+        <h2>그래서 첫 호출은 항상 느리다</h2>
+
+        <p>
+          외부 API 응답 시간을 모니터링하다 보면
+          첫 호출만 유난히 느리고 그다음부터는 빠른 패턴이 자주 보인다.
+          그 차이가 보통 50~100ms고, 그게 handshake 비용이다.
+          만약 매 호출마다 그 비용이 찍힌다면
+          connection pool이 동작하지 않고 있다는 신호다.
+        </p>
+
+        <p>
+          연결을 만드는 데도 비용이 있다는 걸 알았으니, 다음 질문이 자연스럽다.
+          그럼 만든 연결은 어떻게 끊는가.
+          만들 때는 3번이었는데 끊을 때는 왜 4번이나 걸리는지,
+          그리고 그 4번이 끝난 다음에 60초 동안 뭘 기다리는지.
+          다음 편에서 이어진다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

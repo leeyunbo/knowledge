@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>호스트 안의 여정 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 1/3</div>
+        <h1>호스트 안의 여정</h1>
+        <p class="subtitle">
+          애플리케이션 코드의 한 줄 뒤에서 데이터는 어떤 단계를 거쳐
+          물리 케이블까지 도달하는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">패킷 한 개의 여정</div>
+        <ol>
+          <li class="current">호스트 안의 여정</li>
+          <li><a href="./02-사내망에서-외부망까지.html">사내망에서 외부망까지</a></li>
+          <li><a href="./03-인터넷을-건너기.html">인터넷을 건너기</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>API 한 번 호출이 진짜 어디까지 가는가</h2>
+
+        <p>
+          외부 API를 부르는 코드는 보통 한 줄이다.
+        </p>
+
+        <pre><code>restClient.post().uri(url).body(payload).retrieve();</code></pre>
+
+        <p>
+          이 한 줄이 카카오 서버에 도달하기까지는 정말 많은 단계를 거친다.
+          그중 절반 이상은 호스트를 떠나기도 전에 일어난다.
+          애플리케이션 코드와 NIC(네트워크 카드) 사이에 운영체제의 네트워크 스택이 있고,
+          여기서 데이터는 여러 큐와 레이어를 차례로 지난다.
+        </p>
+
+        <p>
+          이 편에서는 그 호스트 내부 여정을 따라가본다.
+          이걸 한 번 그려보면 "왜 이 요청이 막혔지?"라는 질문을 받았을 때
+          어디부터 의심해야 할지가 분명해진다.
+        </p>
+
+        <h2>전체 그림</h2>
+
+        <pre><code>[애플리케이션] (유저 공간)
+       │ write() / send() 시스템콜
+       ▼
+[소켓 송신 큐] (커널)
+       │
+       ▼
+[TCP 레이어]   ── 세그먼트화, 헤더 추가, 시퀀스/ACK 관리
+       │
+       ▼
+[IP 레이어]    ── IP 헤더, 라우팅 테이블 조회
+       │
+       ▼
+[qdisc]       ── 트래픽 제어, 우선순위, rate shaping
+       │
+       ▼
+[드라이버 큐]  ── ring buffer, DMA 매핑
+       │
+       ▼
+[NIC]         ── 이더넷 프레임으로 캡슐화 → 와이어로 송신</code></pre>
+
+        <p>
+          위에서 아래로 흘러간다. 각 단계가 자기 일을 마쳐야 다음 단계로 넘어간다.
+          한 단계라도 막히면 위쪽 큐에 데이터가 쌓이고, 결국 애플리케이션이 멈춘다.
+        </p>
+
+        <h2>1. 시스템콜 — 유저 공간에서 커널로 넘어가는 순간</h2>
+
+        <p>
+          애플리케이션이 <code>write(socket, buffer, n)</code>를 호출하면
+          CPU가 모드를 전환한다. 유저 공간에서 커널 공간으로 들어가는 것이다.
+          이 전환은 약간의 비용이 있어서, 작은 데이터를 자주 보내는 코드는
+          시스템콜 횟수만으로도 성능 손해를 본다.
+        </p>
+
+        <p>
+          버퍼링이 그래서 중요하다. JVM의 <code>BufferedOutputStream</code> 같은 게
+          이 비용을 줄이려고 존재한다.
+          작은 write를 모아서 한 번에 보내면 시스템콜 한 번에 데이터 여러 개를 처리한다.
+        </p>
+
+        <h2>2. 소켓 송신 큐 — sk_buff와 송신 버퍼 한도</h2>
+
+        <p>
+          커널에 들어온 데이터는 <strong>sk_buff(socket buffer)</strong>라는 구조에 담긴다.
+          줄여서 skb. 패킷 데이터와 메타데이터를 통째로 감싼 컨테이너로,
+          네트워크 스택을 끝까지 따라다닌다.
+        </p>
+
+        <p>
+          이 skb는 그 소켓의 송신 큐에 들어간다.
+          Linux는 소켓마다 송신 버퍼 한도를 둔다(<code>SO_SNDBUF</code>).
+          커널이 그 소켓의 현재 사용량을 카운터로 추적하다가,
+          새 skb를 할당했을 때 한도를 넘으면 그 시점에 <code>write()</code>를 블로킹한다.
+          ACK를 받아 skb가 해제되면 카운터가 줄고, 그제서야 다음 write가 진행된다.
+        </p>
+
+        <p>
+          앞 시리즈에서 설명한 TCP backpressure가 여기서 발현된다.
+          반대편이 데이터를 빨리 받지 못하면 송신 큐가 비워지지 않고,
+          그러면 우리 <code>write()</code>가 멈춘다.
+          그래서 4GB 파일을 흘려보낼 때 InputStream을 끝까지 살려두면
+          메모리에 통째로 올라가지 않는다. 송신 큐가 자연스럽게 막아주기 때문이다.
+        </p>
+
+        <h2>3. TCP 레이어 — 세그먼트화와 헤더</h2>
+
+        <p>
+          TCP는 큰 데이터를 그대로 안 내보낸다. <strong>MSS(Maximum Segment Size)</strong>
+          크기로 자른다. 보통 1460바이트 정도. 이걸 넘는 데이터는 여러 세그먼트로 쪼갠다.
+        </p>
+
+        <p>
+          세그먼트마다 TCP 헤더가 붙는다. 헤더에는 시퀀스 번호, ACK 번호,
+          윈도우 크기, 체크섬 같은 정보가 들어간다.
+          시퀀스 번호로 순서를 맞추고, ACK로 도달 여부를 확인하고,
+          빠진 게 있으면 재전송한다.
+          TCP가 "신뢰성 있는" 프로토콜인 이유의 대부분이 이 단계에서 일어난다.
+        </p>
+
+        <h2>4. IP 레이어 — 어디로 보낼지 정한다</h2>
+
+        <p>
+          TCP 세그먼트에 IP 헤더가 추가된다. 출발지 IP, 목적지 IP, TTL 같은 정보.
+          그리고 <strong>라우팅 테이블</strong>을 조회해서
+          이 패킷을 어느 인터페이스로 내보낼지 결정한다.
+        </p>
+
+        <pre><code>$ ip route
+default via 192.168.1.1 dev eth0
+192.168.1.0/24 dev eth0 proto kernel scope link</code></pre>
+
+        <p>
+          이 테이블을 보면 우리 호스트가 외부망으로 나갈 때 어느 NIC를 거치는지 알 수 있다.
+          서버에 NIC이 여러 장 꽂혀있는 경우도 흔한데(<code>eth0</code>, <code>eth1</code>, ...),
+          이때는 트래픽 종류에 따라 라우팅을 다르게 잡아 NIC을 분리하는 패턴이 자주 쓰인다.
+        </p>
+
+        <h3>멀티 NIC과 트래픽 분리</h3>
+
+        <p>흔한 분리 패턴은 이렇다.</p>
+
+        <pre><code>eth0   외부망 진출 (인터넷 / 외부 API 호출)
+eth1   사내 LAN (DB, 다른 마이크로서비스, 캐시)
+eth2   관리/모니터링 (메트릭, 로그 수집, SSH)</code></pre>
+
+        <p>
+          왜 굳이 NIC을 나누나. 두 가지 이유가 있다.
+        </p>
+
+        <p>
+          첫째는 <strong>대역폭 격리</strong>다.
+          외부 API 호출이 폭증해서 외부망 NIC가 포화 상태가 되어도
+          DB 통신용 NIC는 영향을 안 받는다.
+          한 호스트의 NIC 한 장이 곧 그 호스트의 외부 통신 한도라서,
+          종류 다른 트래픽이 같은 NIC를 공유하면 한 쪽이 막힐 때 다른 쪽도 같이 막힌다.
+        </p>
+
+        <p>
+          둘째는 <strong>보안 격리</strong>다.
+          외부망용 NIC는 방화벽과 NAT를 거쳐 인터넷으로 나가는 길이고,
+          사내망용 NIC는 사내에서만 도달 가능한 폐쇄망이다.
+          외부에서 들어오는 트래픽이 사내 자원에 닿으려면 명시적으로 경로를 열어줘야 하니
+          공격 표면이 줄어든다.
+          DMZ 구성의 흔한 모양이다.
+        </p>
+
+        <h3>NIC 선택은 보통 목적지 IP로 결정된다</h3>
+
+        <p>
+          기본은 라우팅 테이블의 목적지 IP 매칭으로 NIC가 정해진다.
+          위 <code>ip route</code> 출력에서 <code>default via 192.168.1.1 dev eth0</code>은
+          "특별히 매칭되는 룰이 없으면 eth0으로 보내라"는 뜻이다.
+          사내망 IP 대역(예: <code>10.0.0.0/8</code>)에 대해 별도 룰을 잡아두면 그 트래픽은 eth1로 나간다.
+        </p>
+
+        <pre><code>$ ip route
+default via 192.168.1.1 dev eth0
+10.0.0.0/8 via 10.10.10.1 dev eth1
+192.168.1.0/24 dev eth0 proto kernel scope link</code></pre>
+
+        <p>
+          더 세밀한 제어가 필요하면 Linux는
+          <strong>policy-based routing(PBR)</strong>도 지원한다.
+          <code>ip rule</code>과 별도 라우팅 테이블을 조합해서
+          "이 source IP에서 나가는 트래픽은 다른 라우팅 테이블을 쓴다",
+          "이 fwmark이 붙은 패킷은 eth2를 쓴다" 같은 룰을 세울 수 있다.
+          한 호스트 안에서 동일 목적지로 가는 트래픽을 출발지·종류에 따라 다르게 라우팅한다.
+        </p>
+
+        <h3>클라우드에도 같은 패턴이 있다</h3>
+
+        <p>
+          클라우드 인스턴스도 NIC을 여러 장 붙일 수 있다.
+          AWS의 ENI(Elastic Network Interface), GCP의 multiple network interfaces가 그것이다.
+          각 ENI에 별도 보안 그룹과 서브넷을 두면 온프레미스의 멀티 NIC 분리 패턴이 그대로 재현된다.
+        </p>
+
+        <h3>백엔드가 알아두면 좋은 점</h3>
+
+        <p>
+          자기 서비스의 외부 호출이 어느 NIC로 나가는지 모르면 진단이 어렵다.
+          "카카오 API 호출이 안 되는데 DB 통신은 멀쩡하다"는 증상이
+          단일 NIC 환경과 멀티 NIC 환경에서 의미가 완전히 다르다.
+          단일 NIC면 카카오 측 문제일 가능성이 크고,
+          멀티 NIC면 외부망 NIC 또는 그 경로 어딘가의 문제일 가능성이 크다.
+        </p>
+
+        <pre><code>$ ip route get 1.2.3.4
+1.2.3.4 via 192.168.1.1 dev eth0 src 192.168.1.10</code></pre>
+
+        <p>
+          <code>ip route get</code>은 특정 IP가 현재 어느 NIC로 나가게 되는지 알려주는 명령이다.
+          외부 API 통합을 새로 추가할 때 이 명령으로 미리 확인해두면
+          나중에 진단할 때 그림이 명확해진다.
+        </p>
+
+        <h2>5. qdisc — 패킷을 줄 세우는 곳</h2>
+
+        <p>
+          IP 레이어를 지난 패킷은 곧장 NIC으로 가지 않는다.
+          그 사이에 <strong>qdisc(queueing discipline)</strong>가 있다.
+          이 큐가 트래픽 제어를 담당한다. 우선순위 정렬, 대역폭 제한,
+          공평 분배 같은 정책이 여기서 적용된다.
+        </p>
+
+        <pre><code>$ tc -s qdisc show dev eth0
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 ...</code></pre>
+
+        <p>
+          출력에서 보이는 <code>tc</code>는 traffic control의 약자로, qdisc 룰을 보거나 바꾸는 Linux 명령이다.
+          <code>fq_codel</code>은 그 호스트가 현재 쓰고 있는 알고리즘 이름이다.
+          기본 알고리즘은 시대에 따라 두 종류가 있다.
+        </p>
+
+        <h3>pfifo_fast — 옛날 기본</h3>
+
+        <p>
+          이름 그대로 <strong>priority FIFO</strong>다.
+          큐 세 개를 두고 패킷의 우선순위(IP 헤더의 ToS 필드)에 따라 어느 큐에 넣을지를 정한다.
+          높은 우선순위 큐의 패킷부터 먼저 내보낸다. 같은 큐 안에서는 단순 선입선출이다.
+          단순하고 빠르지만 한 가지 함정이 있는데, 큐가 너무 크면
+          <strong>bufferbloat</strong>가 발생한다.
+        </p>
+
+        <h3>bufferbloat — 큰 버퍼가 latency를 망친다</h3>
+
+        <p>
+          큐가 클수록 패킷이 안 떨어지니 throughput에는 좋다.
+          그런데 큐 안에서 줄을 선 패킷은 그만큼 오래 기다려야 한다.
+          예를 들어 큰 버퍼가 가득 차서 1만 개 패킷이 줄 서있으면
+          뒤에 들어온 패킷은 그 1만 개가 다 나가야 자기 차례가 된다.
+          그동안 latency는 폭증한다.
+        </p>
+
+        <p>
+          가정용 라우터가 켜져있는데 한 사람이 큰 파일을 다운로드하기 시작하면
+          같은 네트워크의 게임 핑이 갑자기 200ms로 튀는 게 이 현상이다.
+          공유기가 다운로드 패킷으로 큐를 채우니, 게임 패킷이 그 줄 뒤에 서서 한참 기다린다.
+        </p>
+
+        <h3>fq_codel — 요즘 기본</h3>
+
+        <p>
+          <strong>fq_codel</strong>은 fair queue + controlled delay의 줄임말이다.
+          이름 그대로 두 가지 일을 같이 한다.
+        </p>
+
+        <p>
+          첫째, <strong>fair queue</strong>는 통신 흐름(연결)별로 큐를 따로 둔다.
+          한 흐름이 큐를 다 차지하지 못하게 막는다. 그래서 게임 트래픽이
+          큰 다운로드 패킷에 묻히지 않는다.
+        </p>
+
+        <p>
+          둘째, <strong>controlled delay</strong>는 큐 안에 너무 오래 머문 패킷을 의도적으로 버린다.
+          역설적으로 보이지만 효과가 좋다. 패킷이 버려지면 TCP가 "혼잡이군"하고 송신 속도를 줄이니
+          큐 길이가 자연스럽게 짧아져서 latency가 안정된다.
+          throughput은 약간 손해보지만 latency가 일정하게 유지된다.
+        </p>
+
+        <p>
+          2012년쯤 등장해서 2018년 전후로 RHEL 8 같은 주요 배포판이 기본 qdisc로 채택했다.
+          백엔드 개발자가 qdisc를 직접 건드릴 일은 거의 없지만,
+          한 호스트 안에서 트래픽 종류별로 우선순위를 다르게 두고 싶을 때
+          <code>tc</code> 명령으로 룰을 잡는 곳이 여기다.
+        </p>
+
+        <h2>6. 드라이버 큐 — 하드웨어로 넘기기 직전</h2>
+
+        <p>
+          잠깐. NIC <strong>드라이버</strong>는 OS 커널과 NIC 하드웨어 사이의 통역사다.
+          NIC 제조사마다 칩셋이 다르니 OS가 직접 NIC를 다루지 않고
+          그 NIC 전용 드라이버가 제어한다.
+          앞서 본 qdisc까지는 OS의 일반 네트워크 코드,
+          그 다음부터는 드라이버가 책임진다.
+        </p>
+
+        <p>
+          qdisc를 통과한 패킷은 그 드라이버가 관리하는 송신 큐로 들어간다.
+          이 큐를 흔히 <strong>드라이버 큐</strong>라고 부른다.
+        </p>
+
+        <h3>ring buffer라는 자료구조</h3>
+
+        <p>
+          드라이버 큐는 보통 <strong>ring buffer</strong> 형태다.
+          정해진 크기의 배열을 원형으로 쓰는 자료구조로,
+          머리(head)와 꼬리(tail) 포인터가 돌면서 패킷을 넣고 빼는 식이다.
+          새 메모리 할당이 필요 없어서 빠르고, 한 번 만들어두면 그 자리에서 계속 재사용된다.
+          큐 길이가 정해져 있어 가득 차면 새 패킷은 더 못 들어간다.
+        </p>
+
+        <h3>DMA — NIC이 메모리에 직접 손을 댄다</h3>
+
+        <p>
+          이 ring buffer는 NIC 하드웨어가 직접 접근할 수 있게
+          <strong>DMA(Direct Memory Access)</strong>로 매핑되어 있다.
+          DMA는 CPU를 거치지 않고 디바이스가 RAM에 직접 읽고 쓰는 기능이다.
+          드라이버가 ring buffer에 패킷을 넣고 NIC에게 신호만 주면,
+          NIC이 자기가 알아서 RAM에서 데이터를 가져간다.
+          CPU는 그동안 다른 일을 할 수 있다.
+          요즘 10Gbps 이상의 빠른 NIC은 DMA 없이는 작동 자체가 불가능하다.
+          CPU가 패킷 하나하나 옮기다간 못 따라가기 때문이다.
+        </p>
+
+        <h3>txqueuelen — 이 큐의 길이</h3>
+
+        <p>
+          ring buffer의 길이는 보통 <code>txqueuelen</code> 파라미터로 정해진다.
+          기본값은 1000이고 NIC마다 조금씩 다르다.
+          패킷이 이 길이를 넘어 쌓이면 더 들어갈 자리가 없어 그냥 버려진다(drop).
+          이 drop은 <code>ip -s link</code>나 <code>ifconfig</code>의
+          dropped 카운터로 보인다. 트래픽이 폭증하는 환경에서 dropped가 늘어나면
+          이 큐가 오버플로되고 있다는 뜻이고,
+          <code>txqueuelen</code>을 더 크게 잡거나 NIC 자체를 더 빠른 것으로 바꿔야 한다.
+        </p>
+
+        <pre><code>$ ip -s link show eth0
+2: eth0: ...
+    RX: bytes  packets  errors  dropped overrun mcast
+    ...
+    TX: bytes  packets  errors  dropped carrier collsns
+    ...                          0      ...        ↑ 여기가 0보다 크면 신호</code></pre>
+
+        <h2>7. NIC — 와이어로 나가는 마지막 단계</h2>
+
+        <p>
+          NIC은 받은 데이터에 이더넷 프레임 헤더를 추가하고,
+          전기 신호 또는 광 신호로 변환해서 케이블로 내보낸다.
+          여기서부터는 호스트의 손을 떠난다. 다음 단계는 케이블 너머의 스위치다.
+        </p>
+
+        <p>
+          NIC 자체에도 처리 한도가 있다. 1Gbps NIC은 초당 약 1.25억 비트가 한계다.
+          이 한도가 호스트 전체의 송수신 가능 대역폭이 된다.
+          클라우드 인스턴스를 고를 때 "네트워크 성능"이라고 표기되는 게 정확히 이 NIC 한도다.
+        </p>
+
+        <h2>그래서 어디서 막히면 어떻게 보이나</h2>
+
+        <p>
+          이 흐름을 알면 증상으로부터 원인 단계를 추정할 수 있다.
+        </p>
+
+        <pre><code>증상                                   의심 단계
+─────────────────────────────────────  ─────────────────
+write()가 자주 블로킹된다              소켓 송신 큐가 참 (반대편이 느림)
+시스템콜 비용이 CPU profile에 크게 잡힌다  버퍼링 부족 (작은 write 남발)
+대역폭이 NIC 한도 근처에서 멈춘다       qdisc / NIC 한도
+드라이버 통계의 dropped가 늘어난다      드라이버 큐 오버플로 (txqueuelen 부족)
+ifconfig errors / overruns가 보인다     NIC 자체 또는 케이블 문제</code></pre>
+
+        <p>
+          평소엔 다 잘 흐르다가 한 단계가 막히면 위쪽이 줄줄이 밀린다.
+          맨 위 애플리케이션은 가장 마지막에 증상이 보이지만, 원인은 보통 중간 어디다.
+          그래서 호스트 안의 큐들 중 어느 게 차 있는지 보는 게 진단의 출발점이다.
+        </p>
+
+        <h2>호스트를 떠난 다음에는</h2>
+
+        <p>
+          여기까지가 호스트 한 대 안의 일이다.
+          NIC을 통해 케이블로 나간 패킷은 이제 사내망으로 진입한다.
+          랙 안의 스위치를 거쳐 코어 스위치로 올라가고,
+          방화벽을 통과해 ISP 회선으로 빠져나가야 한다.
+        </p>
+
+        <p>
+          이 사내망 토폴로지가 어떻게 생겼는지, 그 안에서 어디가 흔히 병목이 되는지는
+          다음 편에서 다룬다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>외부 API 호출이 ephemeral port를 갉아먹는다 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 3/4</div>
+        <h1>외부 API 호출이 ephemeral port를 갉아먹는다</h1>
+        <p class="subtitle">
+          새벽에 갑자기 "Cannot assign requested address" 가 폭발한다.
+          풀 사이즈는 충분한데 왜? 클라이언트 측 TIME_WAIT의 정체.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP Connection Pool 운영</div>
+        <ol>
+          <li><a href="./01-keep-alive-운영.html">Keep-Alive를 운영한다는 것</a></li>
+          <li><a href="./02-stale-connection.html">Pool 안의 좀비 — Stale Connection 3중 방어</a></li>
+          <li class="current">외부 API 호출이 ephemeral port를 갉아먹는다</li>
+          <li><a href="./04-spring-restclient-실전.html">Spring RestClient + Apache HttpClient5 실전 설정</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>풀 사이즈 100인데 왜 새 연결을 못 만들지</h2>
+
+        <p>
+          Connection Pool 사이즈는 넉넉하게 100으로 잡았다.
+          평소엔 10개 정도만 쓴다. 그런데 갑자기 모든 외부 API 호출이 이상한 에러로 실패한다.
+        </p>
+
+        <pre><code>java.net.NoRouteToHostException: Cannot assign requested address</code></pre>
+
+        <p>
+          Cannot assign requested address.
+          "주소를 할당할 수 없다"는 에러. 풀 사이즈는 멀쩡한데 왜?
+          OS 레벨에서 우리에게 더 이상 줄 자원이 없다는 의미다.
+          그 자원의 이름이 <strong>ephemeral port</strong>다.
+        </p>
+
+        <h2>Ephemeral Port — OS가 클라이언트 연결마다 빌려주는 임시 번호</h2>
+
+        <p>
+          TCP 연결 하나는 4-tuple로 식별된다.
+        </p>
+
+        <pre><code>(source IP, source Port, destination IP, destination Port)</code></pre>
+
+        <p>
+          서버는 자기 IP와 알려진 포트(443 등)를 갖고 있다.
+          클라이언트는 destination이 정해지면 자기 IP는 정해져 있고,
+          남은 건 source Port. OS가 이걸 자동으로 할당한다.
+          이게 ephemeral port다.
+        </p>
+
+        <pre><code>[GW: 192.168.1.10 : ?????] ──▶ [Kakao: 1.2.3.4:443]
+                ↑
+          OS가 ephemeral 풀에서 자동 할당
+          Linux 기본 범위: 32768~60999 (약 28,232개)</code></pre>
+
+        <p>
+          이 풀은 한 호스트당 약 28,000개. OS가 새 연결마다 하나씩 빌려준다.
+          연결이 닫히면 돌려받는다.
+          한도가 분명한 자원이지만 평소엔 충분하다.
+        </p>
+
+        <h2>그런데 닫힌 후 60초 동안은 못 돌려받는다</h2>
+
+        <p>
+          여기가 핵심이다. 연결이 정상적으로 닫혀도 그 source port는 즉시 회수되지 않는다.
+          <strong>TIME_WAIT 상태로 60초간 잡혀있다</strong>.
+        </p>
+
+        <pre><code>연결 close → TIME_WAIT 상태로 60초 → CLOSED (그제서야 port 회수 가능)</code></pre>
+
+        <p>
+          왜 60초인가는 별도 시리즈에서 자세히 다뤘다.
+          마지막 ACK 손실 대비, 늦게 도착하는 옛 패킷이 새 연결로 잘못 흡수되는 걸 막기 위함.
+          Linux 커널은 TCP_TIMEWAIT_LEN을 60초로 하드코딩해뒀다.
+          런타임에 sysctl로 조정 불가다.
+        </p>
+
+        <p>
+          이 60초가 실무에서 어떻게 위험으로 작동하는지가 이 편의 주제다.
+        </p>
+
+        <h2>폭망 시나리오 — keep-alive 안 쓰는 코드</h2>
+
+        <p>
+          1편에서 본 잘못된 패턴.
+        </p>
+
+        <pre><code>// 매 호출마다 새 RestClient
+public ResponseDto callKakao(Request req) {
+    RestClient client = RestClient.create();   // ❌
+    return client.post()...
+}</code></pre>
+
+        <p>
+          이 코드가 분당 1000회 호출된다고 하자.
+          매 호출마다 새 연결을 만들고 닫는다. 닫힌 연결은 60초간 TIME_WAIT.
+        </p>
+
+        <pre><code>0초:    1000개 연결 만들고 닫음 → 1000개 TIME_WAIT 누적
+1분:    또 1000개 → 2000개 TIME_WAIT
+2분:    3000개 ...
+...
+28분:   28,000개 TIME_WAIT → ephemeral 풀 고갈
+29분:   새 연결 시도 → "Cannot assign requested address"</code></pre>
+
+        <p>
+          평화롭게 출시하고 며칠 잘 돌다가 어느 날 갑자기 외부 API가 다 실패하기 시작한다.
+          처음엔 "카카오 장애인가?" 의심하고, 카카오 정상 확인 후 "우리 쪽 뭔가 이상"으로 옮겨가고,
+          한참 헤매다가 <code>ss -s</code> 또는 <code>netstat</code>으로 TIME_WAIT 폭증을 확인한다.
+        </p>
+
+        <h2>풀이 충분해도 막히는 이유</h2>
+
+        <p>
+          여기서 이상한 점이 있다. Connection Pool 사이즈가 100이라고 하자.
+          동시 활성 연결 100개면 ephemeral port는 100개만 점유돼야 한다.
+          그런데 왜 28,000개까지 갈 수 있는가?
+        </p>
+
+        <p>
+          답: <strong>닫힌 연결의 TIME_WAIT가 누적</strong>되기 때문이다.
+        </p>
+
+        <pre><code>활성 연결        : 100개 (풀 사이즈)
++ TIME_WAIT 연결 : 누적 (1초당 발생량 × 60초 분량)
+─────────────────────────────────
+ephemeral port 점유 = 활성 + TIME_WAIT</code></pre>
+
+        <p>
+          풀 사이즈는 활성 연결만 본다. 닫힌 연결의 잔재(TIME_WAIT)는 풀 통계에 안 보인다.
+          그런데 OS의 ephemeral port 풀 입장에선 둘 다 점유 중이다.
+        </p>
+
+        <p>
+          그래서 풀 사이즈가 충분해도 ephemeral port는 고갈될 수 있다.
+          연결을 자주 만들고 닫는 패턴 자체가 위험한 것이다.
+        </p>
+
+        <h2>왜 클라이언트만 이 문제가 심각한가</h2>
+
+        <p>
+          서버 측은 TIME_WAIT가 별로 문제 안 된다.
+          서버가 끊었을 때 TIME_WAIT가 잡히는 건 4-tuple 단위.
+        </p>
+
+        <pre><code>서버 측 TIME_WAIT 4-tuple 점유:
+  (server:443, client_A:50000)  ← 이 4-tuple만 60초 잡힘
+  (server:443, client_B:60000)
+  (server:443, client_C:55000)
+  ...
+
+서버의 listen port 443 자체는 그대로 살아있음.
+새 클라이언트가 다른 (IP:port)로 들어오면 정상 수립.</code></pre>
+
+        <p>
+          서버 입장에서 같은 dest(443)으로 들어오는 무수한 client들의 4-tuple은
+          source 쪽(IP+port)이 다 다르니 거의 무한히 다양하다.
+        </p>
+
+        <p>
+          반대로 클라이언트 측은 dest(예: 카카오:443)가 고정이고,
+          source의 다양성은 자기 ephemeral port 28,000개로 한정된다.
+        </p>
+
+        <pre><code>클라이언트 측 TIME_WAIT 4-tuple 점유:
+  (192.168.1.10:50000, 1.2.3.4:443)  ← 50000번 포트 60초 잡힘
+  (192.168.1.10:50001, 1.2.3.4:443)  ← 50001번 포트 60초 잡힘
+  ...
+
+같은 dest로 가려면 source port를 다르게 써야 하는데
+ephemeral 풀이 28K로 한정.</code></pre>
+
+        <p>
+          외부 API 호출이 많은 서비스(우리 같은 알림톡 GW)는 이 문제의 직접 영향권이다.
+          한 destination(카카오)으로 가는 동시/연속 호출이 많아질수록 ephemeral 풀이 빨리 소진된다.
+        </p>
+
+        <h2>진단 — TIME_WAIT를 어떻게 보는가</h2>
+
+        <pre><code>$ ss -s
+Total: 35821
+TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)
+                            ↑                              ↑
+                       활성 연결 230               TIME_WAIT 32,099</code></pre>
+
+        <p>
+          activated가 230인데 timewait이 32,099다.
+          비율로 보면 활성의 140배. 이건 keep-alive가 작동 안 한다는 강한 신호.
+          정상이라면 timewait이 활성과 비슷하거나 한 자릿수 배수여야 한다.
+        </p>
+
+        <pre><code>$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
+   3 CLOSE_WAIT
+  18 ESTABLISHED
+   2 LISTEN
+32099 TIME_WAIT</code></pre>
+
+        <p>
+          ESTABLISHED 18에 TIME_WAIT 32,099. 이미 위험 수준이다.
+          ephemeral 풀 28K에 근접해서 곧 새 연결을 못 만들기 시작한다.
+        </p>
+
+        <pre><code># 어느 destination으로 TIME_WAIT가 쌓이는지 확인
+$ ss -tan state time-wait | awk '{print $4}' | sort | uniq -c | sort -rn | head
+  31845 1.2.3.4:443    ← 카카오 IP에 모두 쌓임
+    154 5.6.7.8:443
+     ...</code></pre>
+
+        <p>
+          어느 외부 서비스 호출에서 TIME_WAIT가 폭증하는지 출처를 찾을 수 있다.
+          이게 보이면 그 서비스 호출의 keep-alive 동작을 점검할 차례다.
+        </p>
+
+        <h2>해결 — 우선순위 순서대로</h2>
+
+        <h3>1순위 — Keep-Alive와 Connection Pool</h3>
+
+        <p>
+          근본 해결은 1편에서 다룬 그것이다.
+          <strong>연결을 자주 만들고 닫지 않는다.</strong>
+          한 번 만든 연결을 풀에 두고 재사용한다.
+          연결을 안 닫으니 TIME_WAIT가 거의 안 생긴다.
+        </p>
+
+        <p>
+          이 글의 모든 해결책 중 99%는 이거다. 다른 건 부차적이다.
+          1편의 "RestClient를 싱글톤 빈으로"가 그래서 절대 절대 양보 못 하는 원칙이다.
+          <code>RestClient.create()</code>를 메서드마다 호출하는 코드는
+          며칠~몇 주 안에 ephemeral 고갈로 터진다.
+        </p>
+
+        <h3>2순위 — net.ipv4.tcp_tw_reuse 켜기</h3>
+
+        <p>
+          OS 레벨에서 TIME_WAIT 상태인 source port를 새 outbound 연결에 안전하게 재사용하도록 허용.
+        </p>
+
+        <pre><code>$ sysctl -w net.ipv4.tcp_tw_reuse=1</code></pre>
+
+        <p>
+          무작정 재사용하는 게 아니다. TCP timestamp 옵션을 이용해서
+          새 연결의 시작 시점이 옛 연결보다 충분히 뒤라는 걸 확인한 후 재사용한다.
+          중요한 건 이 옵션이 <strong>outbound 연결에만 적용</strong>된다는 점.
+          서버 측 incoming 연결에는 영향 없음.
+          외부 API 호출하는 클라이언트(우리)에게 안전한 옵션이다.
+        </p>
+
+        <p>
+          단, 이건 보조 수단. keep-alive를 제대로 쓰면 처음부터 TIME_WAIT가 안 쌓이니
+          이 옵션이 거의 의미 없다. keep-alive가 부족할 때 임시 방편으로 활용 가능.
+        </p>
+
+        <h3>3순위 — ephemeral 풀 자체를 늘리기</h3>
+
+        <pre><code>$ sysctl -w net.ipv4.ip_local_port_range="10000 65000"</code></pre>
+
+        <p>
+          기본 28,000개를 55,000개로 늘리는 식.
+          시간을 벌어주는 정도지 근본 해결은 아니다. 1순위를 안 잡고 이것만 늘리면
+          결국 더 큰 숫자에서 같은 문제가 터진다.
+        </p>
+
+        <h3>절대 켜지 말 것 — net.ipv4.tcp_tw_recycle</h3>
+
+        <p>
+          옛날 자료에 자주 나오지만 이건 함정이다.
+          NAT 환경에서 같은 출발 IP를 공유하는 다수 클라이언트의 timestamp가 충돌해서
+          연결이 무작위로 거부된다. 이 부작용 때문에
+          <strong>Linux 4.12에서 옵션 자체가 제거됐다</strong>.
+          요즘 커널에는 존재하지도 않는다.
+        </p>
+
+        <h2>풀의 상태와 OS의 상태는 다르다</h2>
+
+        <p>
+          이 편의 핵심 메시지는 한 줄로 정리된다.
+        </p>
+
+        <p>
+          <strong>풀의 활성 연결 수와 OS의 TCP 상태 통계는 다른 그림을 보여준다.</strong>
+        </p>
+
+        <pre><code>풀 통계가 보여주는 것:
+  - 현재 활성 연결 수
+  - 풀 사이즈 대비 사용률
+  - pending 요청 수
+
+OS 통계가 보여주는 것:
+  - ESTABLISHED (활성, 풀과 거의 일치)
+  - TIME_WAIT (닫힌 후 60초)
+  - CLOSE_WAIT (상대가 끊었는데 우리가 close 안 함)
+  - ephemeral port 풀 사용량</code></pre>
+
+        <p>
+          풀만 보고 운영하면 OS 자원 고갈을 못 본다.
+          반대로 OS만 보면 애플리케이션의 동작 패턴을 못 본다.
+          둘을 같이 봐야 한다.
+        </p>
+
+        <p>
+          1편에서 본 풀 사이즈와 이 편의 ephemeral port가 둘 다 한도다.
+          어느 한 쪽이 먼저 차면 외부 호출이 막힌다.
+          모니터링 대시보드도 둘 다 떠야 한다.
+        </p>
+
+        <h2>지금까지가 이론, 다음 편이 실전</h2>
+
+        <p>
+          1, 2, 3편을 거치며 풀 운영의 핵심 원칙들을 정리했다.
+        </p>
+
+        <pre><code>1편: 싱글톤 빈으로 풀 만들기, 풀 사이즈 결정
+2편: stale connection 3중 방어
+3편: TIME_WAIT와 ephemeral port 고갈 막기</code></pre>
+
+        <p>
+          이론은 충분하니 이제 실제 코드로 짜본다.
+          Spring Boot 4.x + RestClient + Apache HttpClient5 조합으로
+          위 원칙들이 다 들어간 운영 가능한 설정이 어떻게 생겼는지가 마지막 편이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

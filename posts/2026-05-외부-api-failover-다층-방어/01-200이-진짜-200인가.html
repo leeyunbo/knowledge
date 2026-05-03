@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>200이 진짜 200인가 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.02 · 시리즈 1/4</div>
+        <h1>200이 진짜 200인가</h1>
+        <p class="subtitle">
+          외부 API 통합에서 마주치는 가장 흔한 함정.
+          HTTP 응답 코드와 비즈니스 결과 코드가 다른 이야기를 하는 순간.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">외부 API Failover 다층 방어</div>
+        <ol>
+          <li class="current">200이 진짜 200인가</li>
+          <li>LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</li>
+          <li>CircuitBreaker가 LB로 못 잡는 것</li>
+          <li>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>알림톡 실패율이 갑자기 30%로 튀었다</h2>
+
+        <p>
+          ALIO-GW에서 카카오 알림톡 발송 모니터링을 보고 있었다.
+          평소엔 99% 성공률이 갑자기 70%로 떨어졌다.
+          알림톡이 안 가고 있다는 CS 문의도 늘었다.
+        </p>
+
+        <p>
+          첫 의심은 카카오 API 장애였다. 모니터링을 봤다.
+          HTTP 200 OK가 나오고 있었다. 응답 코드 통계는 평소와 똑같이 모두 200이었다.
+          뭐가 문제일까.
+        </p>
+
+        <p>
+          응답 본문을 까봤다.
+        </p>
+
+        <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "resultCode": "RECEIVER_BLOCKED",
+  "resultMessage": "수신자가 알림톡 수신을 차단함",
+  "messageId": null
+}</code></pre>
+
+        <p>
+          200 응답이지만 실제로는 발송 실패였다.
+          카카오 시스템은 "요청을 잘 받았다"고 200을 줬을 뿐, 결과가 성공이라고 한 적이 없다.
+          우리 모니터링이 HTTP 응답 코드만 보고 있어서 이 비즈니스 실패를 못 잡았다.
+        </p>
+
+        <p>
+          이게 외부 API 통합에서 가장 흔한 함정이다.
+          <strong>HTTP 의미론과 비즈니스 의미론이 분리되는 순간</strong>이다.
+        </p>
+
+        <h2>왜 이렇게 설계되는가</h2>
+
+        <p>
+          API 설계자 입장에서 보면 사실 합리적이다.
+        </p>
+
+        <ul>
+          <li><strong>HTTP 200</strong>: "내(API 서버)가 요청을 정상적으로 받아 처리했다"</li>
+          <li><strong>body의 resultCode</strong>: "그 처리 결과가 무엇이었다"</li>
+        </ul>
+
+        <p>
+          카카오 입장에서는 "요청을 잘 받아서 검증하고 큐에 넣었다"가 자기 시스템 관점의 성공이다.
+          그 후 사용자에게 발송했을 때 "수신 거부"든 "유효하지 않은 번호"든 결과는 다양하니
+          그건 body로 알려준다.
+        </p>
+
+        <p>
+          문제는 클라이언트가 200만 보고 안심하면 데이터가 어긋난다는 것이다.
+          "알림톡 발송 완료"라고 사용자에게 표시했는데 실제론 수신자가 차단한 케이스가 그렇다.
+        </p>
+
+        <h2>HTTP 상태 코드부터 다시 정리</h2>
+
+        <p>
+          외부 API 응답을 처리할 때 시작은 HTTP 코드의 의미를 정확히 분류하는 것이다.
+        </p>
+
+        <pre><code>2xx (200~299)  성공                            - 추가 처리: body 파싱
+3xx (300~399)  리다이렉트                       - 추가 처리: follow
+4xx (400~499)  클라이언트 에러 (요청이 잘못됨)
+5xx (500~599)  서버 에러 (서버가 처리 못 함)</code></pre>
+
+        <p>
+          여기서 핵심은 <strong>4xx와 5xx의 결정적 차이</strong>다.
+          같은 요청을 다른 서버에 보냈을 때 결과가 달라질 수 있는가.
+        </p>
+
+        <pre><code>4xx: 같은 요청을 다른 카카오 서버에 보내도 똑같이 4xx 받음
+     → 요청 자체가 잘못된 거니까
+     → failover/retry 무의미
+
+5xx: 다른 서버에선 200 받을 수도 있음
+     → 서버 문제니까
+     → failover/retry 의미 있음</code></pre>
+
+        <p>
+          이 구분이 안 되면 4xx가 잔뜩 떴을 때 secondary 카카오로 failover시키는데,
+          어차피 같은 4xx가 거기서도 떨어진다.
+          무의미한 부하만 두 배로 만들고 만다.
+        </p>
+
+        <h2>상태 코드별 처리 정책</h2>
+
+        <pre><code>코드   의미                  재시도?         Failover?
+─────  ──────────────────  ─────────────   ───────────
+200    성공                 -                -
+3xx    리다이렉트            follow           -
+
+400    Bad Request          ❌               ❌
+401    인증 실패             토큰 갱신 후 1회   ❌
+403    권한 없음             ❌               ❌
+404    없음                  ❌               ❌
+409    Conflict             ❌               ❌
+422    의미적 오류           ❌               ❌
+429    Rate Limit          ✅ (backoff)      ⚠️ (다른 IP면)
+
+500    Internal Error      ⚠️ (멱등하면)      ✅
+502    Bad Gateway         ✅                ✅
+503    Service Unavailable ✅                ✅
+504    Gateway Timeout     ⚠️ (멱등하면)      ✅</code></pre>
+
+        <p>
+          핵심 원칙:
+        </p>
+
+        <ul>
+          <li><strong>4xx는 우리 요청을 고쳐야 풀린다</strong> → 재시도/failover 무의미. 사용자에게 즉시 반환</li>
+          <li><strong>5xx는 시간이나 서버를 바꾸면 풀릴 수 있다</strong> → 재시도/failover 의미 있음</li>
+          <li><strong>429는 특수</strong> → 시간만 지나면 풀리니 backoff. 다른 IP가 별도 quota면 failover도 가능</li>
+        </ul>
+
+        <p>
+          그리고 504는 5xx지만 조심해야 한다.
+          요청이 서버에 도달해서 처리는 됐는데 응답만 못 받은 케이스도 있어서다.
+          멱등하지 않은 호출(예: 결제 생성)은 504 받았다고 그냥 재시도하면 중복 처리될 수 있다.
+        </p>
+
+        <h2>비즈니스 결과 코드라는 또 하나의 차원</h2>
+
+        <p>
+          여기까지가 HTTP 레이어 얘기다. 실제 외부 API들은 그 위에 자기들 결과 코드를 또 둔다.
+        </p>
+
+        <pre><code>카카오 알림톡 응답 (HTTP 200 + body):
+  resultCode: "SUCCESS"                  → 정상 발송
+  resultCode: "INVALID_PHONE_NUMBER"      → 번호 오류 (재시도 무의미)
+  resultCode: "RECEIVER_BLOCKED"          → 수신 거부 (재시도 무의미)
+  resultCode: "TEMPORARILY_UNAVAILABLE"   → 일시 오류 (재시도 가능)
+  resultCode: "KAKAO_SYSTEM_ERROR"        → 카카오 시스템 장애 (failover)
+
+결제 PG 응답 (HTTP 200 + body):
+  resultCode: "FAIL_INSUFFICIENT_BALANCE" → 잔고 부족 (재시도 무의미)
+  resultCode: "TIMEOUT_TRY_AGAIN"         → 일시 타임아웃 (재시도 가능)
+
+SMS 응답:
+  status: "SENT"                          → 발송됨
+  status: "REJECTED"                      → 차단됨 (재시도 무의미)
+  status: "GATEWAY_BUSY"                  → 일시 혼잡 (재시도 가능)</code></pre>
+
+        <p>
+          외부 API마다 코드 체계가 다르지만 분류는 거의 비슷하다.
+          결국 <strong>네 가지 카테고리</strong>로 정리된다.
+        </p>
+
+        <pre><code>1. SUCCESS             — 처리 완료
+2. BUSINESS_FAIL       — 비즈니스 실패 (재시도 무의미, 사용자에게 반환)
+3. RETRYABLE_FAIL      — 일시 실패 (backoff 후 재시도)
+4. SYSTEM_FAIL         — 시스템 장애 (failover, CircuitBreaker 카운트)</code></pre>
+
+        <h2>Spring 코드에서 이 분류를 살리는 법</h2>
+
+        <p>
+          외부 API의 응답을 받으면 HTTP 코드와 비즈니스 코드를 같이 보고
+          이 네 가지 중 하나로 매핑하는 게 시작이다.
+        </p>
+
+        <pre><code>public enum SendResult {
+    SUCCESS,
+    BUSINESS_FAIL,
+    RETRYABLE_FAIL,
+    SYSTEM_FAIL
+}
+
+public SendResult classify(KakaoResponse res) {
+    return switch (res.resultCode()) {
+        case "SUCCESS", "SUCCESS_FRIENDTALK"
+            -> SendResult.SUCCESS;
+
+        case "INVALID_PHONE_NUMBER", "RECEIVER_BLOCKED",
+             "TEMPLATE_NOT_FOUND", "PROFILE_BLOCKED"
+            -> SendResult.BUSINESS_FAIL;
+
+        case "TEMPORARILY_UNAVAILABLE", "RATE_LIMIT_EXCEEDED", "TIMEOUT"
+            -> SendResult.RETRYABLE_FAIL;
+
+        case "KAKAO_SYSTEM_ERROR", "GATEWAY_ERROR"
+            -> SendResult.SYSTEM_FAIL;
+
+        default
+            -> SendResult.SYSTEM_FAIL;  // 모르는 코드는 보수적으로 시스템 실패
+    };
+}</code></pre>
+
+        <p>
+          그리고 결과별로 처리 정책을 분리한다.
+        </p>
+
+        <pre><code>public void handleSend(SendRequest req) {
+    KakaoResponse res = kakaoClient.send(req);
+    SendResult result = classify(res);
+
+    switch (result) {
+        case SUCCESS         -> saveSuccess(req, res.messageId());
+        case BUSINESS_FAIL   -> saveBusinessFailure(req, res.resultCode());
+        case RETRYABLE_FAIL  -> requeueWithBackoff(req);
+        case SYSTEM_FAIL     -> triggerFailover(req);
+    }
+}</code></pre>
+
+        <p>
+          BUSINESS_FAIL은 사용자에게 즉시 결과를 돌려줘야 한다.
+          RETRYABLE_FAIL은 메시지를 큐에 다시 넣어 일정 시간 후 재시도.
+          SYSTEM_FAIL은 secondary endpoint로 failover를 발동한다.
+          여기서 "어떻게 failover를 발동하는지"가 다음 편들의 주제가 된다.
+        </p>
+
+        <h2>모니터링도 같이 바뀌어야 한다</h2>
+
+        <p>
+          코드만 바꾸는 걸론 부족하다.
+          모니터링 대시보드의 "성공률" 지표도 HTTP 200을 기준으로 잡혀있으면 의미가 없다.
+        </p>
+
+        <pre><code>나쁜 모니터링:                  좋은 모니터링:
+  HTTP 200 비율                  비즈니스 성공률 (SendResult.SUCCESS)
+  HTTP 5xx 비율                  비즈니스 카테고리별 비율
+                                   - SUCCESS
+                                   - BUSINESS_FAIL (resultCode별)
+                                   - RETRYABLE_FAIL
+                                   - SYSTEM_FAIL</code></pre>
+
+        <p>
+          비즈니스 카테고리별로 추적하면 "수신 거부가 늘어났다"와
+          "카카오 시스템 장애가 났다"를 구분할 수 있다.
+          전자는 우리 비즈니스 영업 이슈고, 후자는 운영 사고다. 대응 방식이 완전히 다르다.
+        </p>
+
+        <h2>그럼 이 분류 위에 무엇이 얹히는가</h2>
+
+        <p>
+          여기까지가 토대다.
+          외부 API의 응답을 정확히 분류하고 카테고리별 정책을 세운 다음에야
+          그 위에 LoadBalancer, CircuitBreaker, Failover 메커니즘을 의미 있게 얹을 수 있다.
+        </p>
+
+        <p>
+          분류가 없으면 4xx에도 secondary로 보내는 무의미한 failover를 하고,
+          200 OK는 잘 받는데 비즈니스 실패율이 50%인 부분 장애를 못 잡는다.
+        </p>
+
+        <p>
+          다음 편에서는 LoadBalancer를 어떻게 둘지 본다.
+          별도 서버, sidecar, client-side 라이브러리 — 세 패턴의 trade-off와
+          각 환경에 맞는 선택이 무엇인지.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

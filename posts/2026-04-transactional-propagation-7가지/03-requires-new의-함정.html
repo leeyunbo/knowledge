@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REQUIRES_NEW — 진짜 새 트랜잭션의 함정 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.30 · 시리즈 3/4</div>
+        <h1>REQUIRES_NEW — 진짜 새 트랜잭션의 함정</h1>
+        <p class="subtitle">
+          외부 tx와 완전히 독립된 새 트랜잭션. 그 독립성이
+          DB 락과 만나면 자기 자신을 데드락에 빠뜨린다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">@Transactional Propagation 7가지</div>
+        <ol>
+          <li><a href="./01-propagation이-왜-있는가.html">Propagation이 왜 있는가</a></li>
+          <li><a href="./02-required의-함정.html">REQUIRED — 가장 흔하지만 가장 위험한 디폴트</a></li>
+          <li class="current">REQUIRES_NEW — 진짜 새 트랜잭션의 함정</li>
+          <li><a href="./04-나머지-5가지.html">나머지 5가지와 선택 가이드</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>REQUIRES_NEW가 약속하는 것</h2>
+
+        <p>
+          Spring 공식 문서가 한 줄로 정의한다.
+        </p>
+
+        <blockquote>
+          "PROPAGATION_REQUIRES_NEW, in contrast to PROPAGATION_REQUIRED,
+          always uses an independent physical transaction for each affected
+          transaction scope, never participating in an existing transaction
+          for an outer scope."
+          <br><br>
+          (REQUIRES_NEW는 REQUIRED와 달리, 각 영향 받는 트랜잭션 scope마다 항상
+          독립된 physical transaction을 사용하며, 외부 scope의 기존 트랜잭션에
+          절대 참여하지 않는다.)
+        </blockquote>
+
+        <p>
+          핵심 단어는 <strong>"independent physical transaction"</strong>.
+          REQUIRED가 logical만 분리하고 physical은 공유했다면,
+          REQUIRES_NEW는 physical까지 분리한다. 진짜 새 트랜잭션이다.
+        </p>
+
+        <h2>suspend 메커니즘</h2>
+
+        <p>
+          REQUIRES_NEW로 진입할 때 Spring이 하는 일을 단계별로 보면:
+        </p>
+
+        <pre><code>outerMethod() 호출 (REQUIRED, TX1 시작)
+  ├─ Connection A 풀에서 가져옴
+  ├─ TX1을 Connection A에 바인딩
+  │
+  └─ innerMethod() 호출 (REQUIRES_NEW)
+     ├─ Spring이 TX1을 suspend
+     │  └─ Connection A는 그대로 보관 (락도 그대로)
+     ├─ Connection B 풀에서 새로 가져옴
+     ├─ TX2 시작 on Connection B
+     ├─ ... 작업 수행 ...
+     ├─ TX2 commit/rollback
+     ├─ Connection B 풀에 반납
+     └─ TX1 resume (Connection A로 복귀)</code></pre>
+
+        <p>
+          여기서 중요한 점:
+        </p>
+        <ul>
+          <li>Connection A와 Connection B는 <strong>다른 커넥션</strong>이다</li>
+          <li>TX1과 TX2는 DB 입장에서 별개의 트랜잭션</li>
+          <li>TX2가 롤백돼도 TX1엔 영향 없음 (그래서 REQUIRES_NEW를 쓰는 것)</li>
+        </ul>
+
+        <p>
+          여기까지는 의도대로다. 그런데 이 "Connection이 두 개"라는 사실이
+          DB 락과 만나면 함정이 생긴다.
+        </p>
+
+        <h2>DB 락은 Spring tx 라이프사이클과 다르다</h2>
+
+        <p>
+          MySQL InnoDB 공식 문서가 락 해제 시점을 명확히 정의한다.
+        </p>
+
+        <blockquote>
+          "All locks set by FOR SHARE and FOR UPDATE queries are released when
+          the transaction is committed or rolled back."
+          <br><br>
+          (FOR SHARE와 FOR UPDATE 쿼리로 잡힌 모든 락은 트랜잭션이 commit되거나
+          rollback될 때 해제된다.)
+        </blockquote>
+
+        <p>
+          즉 DB 락은 트랜잭션이 끝날 때까지 유지된다. 정확히 말하면
+          <strong>그 트랜잭션을 잡고 있는 connection</strong>이
+          <code>COMMIT</code>이나 <code>ROLLBACK</code>을 보낼 때까지.
+        </p>
+
+        <p>
+          여기서 결정적인 차이가 드러난다:
+        </p>
+
+        <pre><code>Spring 관점: REQUIRES_NEW 진입 → 외부 tx suspend
+DB 관점:     외부 tx는 여전히 active, 락도 그대로</code></pre>
+
+        <p>
+          Spring이 "suspend"한다는 건 그 스레드가 외부 tx로 돌아올 때까지
+          잠시 보관해두는 것일 뿐, DB는 그 트랜잭션이 살아있다고 본다.
+          Connection A는 여전히 BEGIN 상태고, 거기서 잡은 락도 그대로 들고 있다.
+        </p>
+
+        <h2>self-deadlock 시나리오</h2>
+
+        <p>
+          이 차이가 self-deadlock으로 이어지는 경로를 그려보자.
+          외부 tx가 PESSIMISTIC_WRITE 락을 잡고 있고, 내부 REQUIRES_NEW가
+          같은 row를 건드리는 상황이다.
+        </p>
+
+        <pre><code>@Transactional
+public void poll() {
+    // SELECT ... FOR UPDATE → row 1, 2, 3에 락
+    List&lt;Notification&gt; rows = repo.findReadyToSendForUpdate();
+    for (Notification n : rows) {
+        enqueuer.enqueue(n);   // 안에 REQUIRES_NEW
+    }
+}
+
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+public void enqueue(Notification n) {
+    repo.markInProgress(n.getId());   // UPDATE row
+}</code></pre>
+
+        <p>
+          벌어지는 일:
+        </p>
+
+        <pre><code>1. poll() 시작 → TX1 on Connection A
+2. SELECT FOR UPDATE → Connection A가 row 1, 2, 3에 락
+3. enqueue(row1) 호출 (REQUIRES_NEW)
+   ├─ Spring이 TX1 suspend
+   │  └─ Connection A는 보관, 락도 그대로 유지
+   ├─ Connection B 풀에서 가져옴
+   ├─ TX2 시작 on Connection B
+   ├─ markInProgress(row1) → UPDATE row1 시도
+   │  └─ Connection B가 row1에 write lock 시도
+   │     └─ row1은 Connection A가 FOR UPDATE 잡고 있음
+   │     └─ Connection B 블로킹
+   │     └─ Connection A는 같은 스레드의 TX1 resume을 기다림
+   │     └─ TX1 resume은 enqueue() 종료 시점
+   │     └─ enqueue()는 Connection B의 락 획득을 기다림
+   │     └─ 무한 대기</code></pre>
+
+        <p>
+          한 스레드가 두 connection을 동시에 들고 서로의 결과를 기다리는 구조.
+          DB 입장에선 "Connection B가 Connection A의 락을 기다리는" 단방향 wait이라
+          deadlock detection에 잡히지도 않는다.
+          DB의 lock wait timeout이 만료될 때까지 그냥 hang.
+        </p>
+
+        <h2>왜 detection에 안 잡히나</h2>
+
+        <p>
+          DB의 deadlock detection은 wait-for graph에 사이클이 있을 때 작동한다.
+          A가 B를 기다리고 B가 A를 기다리는 식의 사이클.
+        </p>
+
+        <p>
+          그런데 위 시나리오는 사이클이 아니다.
+          Connection B가 Connection A의 락을 기다린다 — 일방향이다.
+          Connection A는 어떤 락도 기다리지 않는다 (그저 노는 중).
+          DB가 보기엔 정상 동작이다.
+        </p>
+
+        <p>
+          사이클을 만드는 건 DB 위의 layer — 같은 스레드가 두 connection을 동시에
+          잡고 있다는 사실. 이건 DB는 모른다.
+          그래서 lock wait timeout(MySQL 기본 50초)이 지나면 그제야
+          <code>Lock wait timeout exceeded</code>로 깨진다.
+        </p>
+
+        <h2>Connection pool 부담은 덤</h2>
+
+        <p>
+          REQUIRES_NEW는 self-deadlock 위험 외에도 connection pool에 부담을 준다.
+          공식 문서가 명시적으로 경고한다.
+        </p>
+
+        <blockquote>
+          "This may lead to exhaustion of the connection pool and potentially to
+          a deadlock if several threads have an active outer transaction and
+          wait to acquire a new connection for their inner transaction, with
+          the pool not being able to hand out any such inner connection anymore.
+          Do not use PROPAGATION_REQUIRES_NEW unless your connection pool is
+          appropriately sized, exceeding the number of concurrent threads by
+          at least 1."
+          <br><br>
+          (이는 connection pool 고갈로 이어지고, 잠재적으로 데드락을 일으킬 수
+          있다. 여러 스레드가 외부 tx를 들고 있는 상태에서 내부 tx용 새 커넥션을
+          기다리는데 pool이 더 이상 커넥션을 내줄 수 없게 되는 상황이다.
+          Connection pool이 동시 스레드 수보다 최소 1 이상 크지 않다면
+          REQUIRES_NEW를 쓰지 마라.)
+        </blockquote>
+
+        <p>
+          REQUIRES_NEW를 쓰는 모든 스레드는 동시에 두 개의 커넥션을 점유한다.
+          외부 tx의 커넥션 + 내부 tx의 커넥션. Pool 크기가 빠듯하면
+          모든 스레드가 내부 커넥션을 기다리며 멈춘다.
+          이건 공식 문서가 직접 경고하는 deadlock이다.
+        </p>
+
+        <h2>그럼 REQUIRES_NEW는 언제 쓰나</h2>
+
+        <p>
+          위험을 다 짚었으니, 그래도 정당한 사용처를 정리한다.
+        </p>
+
+        <ul>
+          <li><strong>외부 tx와 무관한 작업</strong> — 외부 tx의 락이 닿지 않는 row를 건드릴 때만 안전</li>
+          <li><strong>외부 tx 결과와 무관하게 남겨야 하는 기록</strong> — 감사 로그, 알림 발송 이력 같은 것</li>
+          <li><strong>외부 tx의 실패가 영향 주면 안 되는 외부 호출 결과 저장</strong> — 결제 결과 기록 같은 케이스</li>
+        </ul>
+
+        <p>체크리스트:</p>
+        <ul>
+          <li>이 메서드가 외부 tx가 잡은 락과 같은 row를 건드리는가? → 그렇다면 REQUIRES_NEW 금지</li>
+          <li>Connection pool 사이즈가 동시 처리 스레드 수보다 충분히 큰가?</li>
+          <li>외부 tx와 진짜로 독립되어야 하는 비즈니스 요구가 있는가?</li>
+        </ul>
+
+        <h2>정리</h2>
+
+        <ul>
+          <li>REQUIRES_NEW는 외부 tx를 suspend하고 새 connection으로 새 tx를 만든다</li>
+          <li>Spring tx 라이프사이클 ≠ DB 락 라이프사이클 — suspend해도 락은 안 풀림</li>
+          <li>외부 tx가 잡은 락과 같은 row를 내부 REQUIRES_NEW가 건드리면 self-deadlock</li>
+          <li>DB deadlock detection은 사이클 기반이라 일방향 wait는 못 잡고 lock timeout까지 hang</li>
+          <li>Connection pool 부담도 함께 — 공식 문서가 직접 경고</li>
+          <li>외부 tx의 락과 무관한 작업, 외부 tx와 독립되어야 하는 기록에만 사용</li>
+        </ul>
+
+        <h2>다음 편</h2>
+
+        <p>
+          남은 5가지 — NESTED, SUPPORTS, NOT_SUPPORTED, NEVER, MANDATORY.
+          각각 어떤 상황을 위해 만들어졌는지, 그리고 7가지 중에서
+          실제로 어떤 걸 골라야 하는지 의사결정 가이드까지 정리한다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

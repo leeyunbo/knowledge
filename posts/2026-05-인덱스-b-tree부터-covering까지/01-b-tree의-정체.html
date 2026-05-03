@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>인덱스가 왜 빠른가 — B+Tree의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 1/4</div>
+        <h1>인덱스가 왜 빠른가 — B+Tree의 정체</h1>
+        <p class="subtitle">
+          1억 건 테이블에서 한 행을 찾는 데 디스크 읽기 3~4번이면 끝나는 이유.
+          그리고 왜 Hash가 아닌 B+Tree인가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인덱스 — B-Tree부터 Covering까지</div>
+        <ol>
+          <li class="current">인덱스가 왜 빠른가 — B+Tree의 정체</li>
+          <li><a href="./02-클러스터드-보조-커버링.html">클러스터드 vs 보조 — Back to Table과 커버링 인덱스</a></li>
+          <li><a href="./03-복합-인덱스-운영.html">복합 인덱스 운영 — Left-most Prefix와 카디널리티</a></li>
+          <li><a href="./04-explain-실전-튜닝.html">EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>인덱스가 빠른 진짜 이유</h2>
+
+        <p>
+          인덱스가 빠르다고 한다. 풀스캔보다 빠르다고 한다.
+          그런데 정확히 왜 빠른지 말로 풀어보라고 하면 망설이는 경우가 많다.
+        </p>
+
+        <p>
+          본질은 한 줄이다. <strong>인덱스는 정렬된 자료구조다.</strong>
+          정렬돼있으니 이진 탐색 방식으로 빠르게 찾을 수 있다.
+        </p>
+
+        <pre><code>풀스캔 (인덱스 없음):
+  1억 건을 처음부터 끝까지 본다 → O(N)
+
+인덱스:
+  정렬된 트리에서 이진 탐색 방식으로 찾는다 → O(log N)
+  1억 건도 약 27번 비교면 도달 (log2(1억) ≈ 27)</code></pre>
+
+        <p>
+          그런데 디스크 기반 DB는 한 발 더 들어가야 한다.
+          단순 이진 탐색으로 27번 비교면 좋겠지만,
+          그게 27번의 디스크 페이지 읽기로 이어지면 너무 느리다.
+          디스크 페이지 한 번 읽기가 메모리 비교보다 수만 배 비싸다.
+        </p>
+
+        <p>
+          그래서 디스크 기반 DB는 <strong>한 페이지 안에 키를 가능한 한 많이 담는</strong>
+          자료구조를 쓴다. 그게 B+Tree다.
+        </p>
+
+        <h2>B+Tree — 디스크에 최적화된 트리</h2>
+
+        <p>
+          B+Tree는 한 노드가 한 디스크 페이지에 대응한다.
+          페이지 안에 키를 수백~수천 개 담을 수 있어 트리의 가지(fanout)가 매우 넓고,
+          그래서 트리 높이가 매우 낮다.
+        </p>
+
+        <pre><code>InnoDB 기준 (MySQL 8.0 공식 문서):
+  - 기본 페이지 크기: 16KB
+  - Leaf 페이지에 약 468 records (PK 기준 perfect packing 가정)
+  - Non-leaf 페이지에 약 1203 records
+
+→ 1억 건 테이블의 트리 높이: 보통 3~4 레벨
+→ 한 행 찾는 데 페이지 읽기 3~4번이면 끝</code></pre>
+
+        <p>
+          1억 건 테이블에서 PK로 한 행을 찾는다고 해보자.
+          이론상 디스크 I/O는 4번 이내. 메모리에 인덱스 상위 노드가 캐시돼있으면(Buffer Pool)
+          실제로는 1~2번 정도다.
+        </p>
+
+        <h2>구조 시각화</h2>
+
+        <pre><code>                    [Root 페이지 — 1203개 키]
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+     [Branch 1203개 키] [Branch 1203개 키] ... (수천 개)
+              │             │
+        ┌─────┼─────┐
+        ▼     ▼     ▼
+   [Leaf 468 records] ... (수만~수십만 개)
+        │
+        └─▶ [Leaf] ─▶ [Leaf] ─▶ [Leaf] ...   ← 리프끼리 Linked List로 연결</code></pre>
+
+        <p>
+          핵심 특징 두 가지.
+        </p>
+
+        <p>
+          <strong>1. 트리 높이가 매우 낮다.</strong>
+          fanout이 1000을 넘으니 1000^3 = 10억까지 3 레벨로 커버 가능.
+          페이지 읽기 횟수가 데이터 양에 거의 무관하게 일정.
+        </p>
+
+        <p>
+          <strong>2. 리프 노드끼리 Linked List로 연결된다.</strong>
+          이게 B-Tree와 B+Tree의 결정적 차이.
+          리프만 연결돼있으니 범위 검색(BETWEEN, &gt;, &lt;)에서
+          시작점 한 번 찾고 그 다음은 옆 리프로 순차 탐색만 하면 된다.
+        </p>
+
+        <h2>B-Tree와 B+Tree의 차이</h2>
+
+        <pre><code>B-Tree:
+  - 모든 노드(Branch + Leaf)에 데이터 저장
+  - 리프끼리 연결 안 됨
+  - 범위 검색에 불리 (트리를 다시 타고 올라갔다 내려와야 함)
+
+B+Tree:
+  - 데이터는 Leaf에만 저장
+  - Branch 노드는 키와 자식 포인터만 (더 많은 키를 담을 수 있음 → fanout 증가)
+  - Leaf끼리 Linked List 연결
+  - 범위 검색에 매우 유리</code></pre>
+
+        <p>
+          DB의 인덱스가 거의 항상 B+Tree인 이유가 여기 있다.
+          단일 키 조회만 빠른 게 아니라 범위 조회까지 빠르다.
+          애플리케이션 쿼리는 거의 항상 둘 중 하나니까.
+        </p>
+
+        <h2>그럼 왜 Hash 인덱스는 안 쓰는가</h2>
+
+        <p>
+          Hash 인덱스는 등호 검색에 O(1)이라 이론상 B+Tree보다 빠르다.
+          그런데 디스크 기반 RDBMS의 기본 인덱스가 거의 다 B+Tree인 데는 이유가 있다.
+        </p>
+
+        <h3>1. 범위 검색 불가</h3>
+
+        <pre><code>WHERE id = 100        → Hash가 빠름 (O(1))
+WHERE id BETWEEN 100 AND 200   → Hash 전혀 못 씀
+WHERE id > 100        → Hash 전혀 못 씀
+ORDER BY id           → Hash 정렬 못 함</code></pre>
+
+        <p>
+          해시는 정렬을 보장하지 않는다.
+          "키와 그에 매핑된 위치"만 알 뿐 키들 사이의 순서를 모른다.
+          애플리케이션 쿼리의 절반 이상이 범위 또는 정렬을 요구하니
+          이게 치명적이다.
+        </p>
+
+        <h3>2. Left-most Prefix 활용 불가</h3>
+
+        <p>
+          복합 인덱스 (a, b, c)가 있을 때 B+Tree는
+          <code>WHERE a = ?</code>, <code>WHERE a = ? AND b = ?</code>처럼
+          앞쪽 prefix만 매칭해도 인덱스를 탄다.
+          Hash는 정확히 (a, b, c) 조합 전체를 키로 해시하니
+          <code>WHERE a = ?</code>만으로는 그 인덱스를 못 쓴다.
+        </p>
+
+        <h3>3. 해시 충돌 처리 비용</h3>
+
+        <p>
+          여러 키가 같은 버킷에 들어가면 chaining이나 open addressing 같은 처리가 필요.
+          데이터가 많아지면 충돌률이 올라가 O(1) 보장이 깨진다.
+        </p>
+
+        <h3>그래서 Hash는 어디 쓰는가</h3>
+
+        <pre><code>Memory storage engine: 명시적으로 Hash 인덱스 가능 (단순 lookup 용도)
+InnoDB Adaptive Hash Index: 자주 쓰는 인덱스 페이지를 자동으로 hash 매핑
+                              (사용자가 직접 만드는 게 아니라 InnoDB가 알아서)
+Redis: 키-값 lookup, in-memory 환경
+URL shortener, session store 등 단순 lookup 워크로드</code></pre>
+
+        <p>
+          정리: <strong>등호 검색만 하는 in-memory 환경엔 Hash, 그 외엔 B+Tree</strong>.
+          RDBMS의 디스크 기반 워크로드는 거의 다 후자다.
+        </p>
+
+        <h2>정렬돼있다는 게 만드는 두 가지 능력</h2>
+
+        <p>
+          B+Tree의 빠름은 정렬에서 나온다. 그게 두 가지 능력으로 이어진다.
+        </p>
+
+        <pre><code>능력 1. 빠른 lookup (O(log N))
+  정렬돼있으니 이진 탐색 방식 가능
+
+능력 2. 범위 검색 + 정렬 결과 자동 제공
+  정렬돼있으니 시작점 찾고 옆으로 순차 탐색
+  ORDER BY가 인덱스 순서와 일치하면 별도 정렬(filesort) 불필요</code></pre>
+
+        <p>
+          이 둘이 함께 갖춰지는 게 B+Tree의 핵심 가치.
+          단일 lookup만이라면 Hash가 더 빠를 수 있지만,
+          현실 쿼리는 거의 항상 범위나 정렬이 섞인다.
+        </p>
+
+        <h2>트레이드오프 — 인덱스의 비용</h2>
+
+        <p>
+          인덱스가 만능이면 모든 컬럼에 다 걸면 된다. 그런데 그러지 않는다. 비용이 있기 때문.
+        </p>
+
+        <pre><code>1. 쓰기 비용 증가
+   - INSERT 시 모든 인덱스에 새 항목 추가
+   - UPDATE 시 변경된 컬럼의 인덱스에 갱신
+   - DELETE 시 모든 인덱스에서 제거
+   - 인덱스 N개면 쓰기 비용도 대략 N배
+
+2. 저장 공간
+   - 각 인덱스가 별도 B+Tree로 저장
+   - 큰 테이블은 인덱스 합산이 데이터보다 클 수 있음
+
+3. Buffer Pool 압박
+   - 인덱스도 메모리(Buffer Pool)를 차지
+   - 인덱스가 많으면 자주 쓰는 데이터가 캐시에서 밀려남</code></pre>
+
+        <p>
+          그래서 원칙은 <strong>"읽기가 빈번한 컬럼에 선별적으로"</strong>다.
+          쓰기가 압도적인 로그 테이블 같은 곳에 인덱스 잔뜩 걸면
+          쓰기 throughput이 무너진다.
+          반대로 OLTP의 자주 조회되는 컬럼은 인덱스 없이는 못 산다.
+        </p>
+
+        <h2>정리 — 한 줄로</h2>
+
+        <p>
+          <strong>인덱스가 빠른 이유는 정렬돼있기 때문이다.</strong>
+          정렬돼있어 이진 탐색이 가능하고(O(log N)),
+          B+Tree로 디스크 페이지에 키를 많이 담아 트리 높이를 낮추고,
+          리프끼리 Linked List로 연결해 범위 검색까지 빠르게 만든다.
+        </p>
+
+        <p>
+          Hash가 등호 검색은 O(1)로 더 빠르지만 범위/정렬을 못 하니
+          현실 쿼리에 안 맞아 RDBMS의 기본은 B+Tree다.
+        </p>
+
+        <p>
+          여기까지가 인덱스의 토대.
+          그런데 InnoDB의 인덱스에는 한 가지 디테일이 더 있다.
+          PK 인덱스와 보조 인덱스가 다르게 생겼다는 점.
+          그 차이가 "왜 PK는 짧게 잡아야 하는가", "왜 보조 인덱스로 검색하면 트리를 두 번 타는가"
+          같은 흔한 면접 질문의 답이 된다.
+          다음 편에서 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

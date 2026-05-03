@@ -50,6 +50,146 @@
       </div>
     </section>
 
+    <section class="cs-category">
+      <h2 class="cs-category-title">Spring</h2>
+      <div class="post-list">
+
+        <a href="./posts/2026-04-transactional-propagation-7가지/01-propagation이-왜-있는가.html" class="post-item">
+          <div class="post-date">2026.04.30 · 시리즈 (4편)</div>
+          <div class="post-title">@Transactional Propagation 7가지</div>
+          <div class="post-summary">
+            @Transactional 두 개가 만났을 때 무슨 일이 생기나. REQUIRED의 UnexpectedRollbackException 함정부터 REQUIRES_NEW + DB Lock의 self-deadlock까지, 7가지 propagation을 1차 자료 기반으로 깊게 본다.
+          </div>
+          <div class="post-tags">
+            <span class="tag">Spring</span>
+            <span class="tag">Transaction</span>
+            <span class="tag">JPA</span>
+            <span class="tag">Concurrency</span>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
+    <section class="cs-category">
+      <h2 class="cs-category-title">HTTP / 네트워크</h2>
+      <div class="post-list">
+
+        <a href="./posts/2026-05-tcp-연결의-일생/01-연결을-만든다.html" class="post-item">
+          <div class="post-date">2026.05.01 · 시리즈 (3편)</div>
+          <div class="post-title">TCP 연결의 일생</div>
+          <div class="post-summary">
+            HTTP 요청 한 줄 뒤에 숨어있는 TCP 3-way handshake와 TLS handshake 비용. 연결을 끊는 4-way handshake. 그리고 TIME_WAIT가 외부 API 호출이 많은 클라이언트의 ephemeral port를 어떻게 잡아먹는지.
+          </div>
+          <div class="post-tags">
+            <span class="tag">TCP</span>
+            <span class="tag">TLS</span>
+            <span class="tag">Keep-Alive</span>
+            <span class="tag">TIME_WAIT</span>
+          </div>
+        </a>
+
+        <a href="./posts/2026-05-패킷-한-개의-여정/01-호스트-안의-여정.html" class="post-item">
+          <div class="post-date">2026.05.01 · 시리즈 (3편)</div>
+          <div class="post-title">패킷 한 개의 여정</div>
+          <div class="post-summary">
+            API 호출 한 줄이 카카오 서버에 도달하기까지 패킷이 거치는 모든 단계. 애플리케이션부터 NIC까지의 호스트 내부, 사내망 토폴로지와 방화벽·NAT·ISP, 그리고 인터넷을 건너 도착하는 동안의 BDP와 congestion control.
+          </div>
+          <div class="post-tags">
+            <span class="tag">Network</span>
+            <span class="tag">Linux</span>
+            <span class="tag">qdisc</span>
+            <span class="tag">BDP</span>
+          </div>
+        </a>
+
+        <a href="./posts/2026-05-tcp-backpressure/01-흐름-제어.html" class="post-item">
+          <div class="post-date">2026.05.01 · 시리즈 (2편)</div>
+          <div class="post-title">TCP Backpressure</div>
+          <div class="post-summary">
+            4GB 파일을 받아 외부 API로 흘려보내는 게이트웨이가 메모리 8KB만 쓰는 마법의 정체. TCP window와 zero window probe, 양방향 backpressure가 자동 동기화하는 메커니즘. 그리고 Spring 코드에서 그걸 살리는 법과 망가뜨리는 패턴들.
+          </div>
+          <div class="post-tags">
+            <span class="tag">TCP</span>
+            <span class="tag">Backpressure</span>
+            <span class="tag">Spring</span>
+            <span class="tag">Streaming</span>
+          </div>
+        </a>
+
+        <a href="./posts/2026-05-http-connection-pool/01-keep-alive-운영.html" class="post-item">
+          <div class="post-date">2026.05.03 · 시리즈 (4편)</div>
+          <div class="post-title">HTTP Connection Pool 운영</div>
+          <div class="post-summary">
+            Keep-Alive를 코드에서 살리는 법. Pool 안의 좀비 stale connection을 막는 3중 방어(validate / evict / retry). 외부 API 호출이 ephemeral port를 갉아먹는 메커니즘. Spring RestClient + Apache HttpClient5의 운영 가능한 실전 설정.
+          </div>
+          <div class="post-tags">
+            <span class="tag">Connection Pool</span>
+            <span class="tag">Keep-Alive</span>
+            <span class="tag">Apache HttpClient</span>
+            <span class="tag">Spring</span>
+          </div>
+        </a>
+
+        <a href="./posts/2026-05-cors-깊이-이해/01-same-origin-policy.html" class="post-item">
+          <div class="post-date">2026.05.03 · 시리즈 (3편)</div>
+          <div class="post-title">CORS 깊이 이해</div>
+          <div class="post-summary">
+            curl로는 잘 되는데 브라우저에선 막히는 이유. Same-Origin Policy의 진짜 목적과 CSRF 방지. Preflight(OPTIONS)가 왜 한 번 더 가는지와 캐시(Max-Age). credentials, Vary, Spring Security 같이 쓸 때의 운영 함정.
+          </div>
+          <div class="post-tags">
+            <span class="tag">CORS</span>
+            <span class="tag">SOP</span>
+            <span class="tag">Preflight</span>
+            <span class="tag">Browser</span>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
+    <section class="cs-category">
+      <h2 class="cs-category-title">DB</h2>
+      <div class="post-list">
+
+        <a href="./posts/2026-05-인덱스-b-tree부터-covering까지/01-b-tree의-정체.html" class="post-item">
+          <div class="post-date">2026.05.03 · 시리즈 (4편)</div>
+          <div class="post-title">인덱스 — B-Tree부터 Covering까지</div>
+          <div class="post-summary">
+            인덱스가 왜 빠른가의 본질부터. B+Tree가 디스크에 최적화된 이유, 클러스터드 vs 보조 인덱스와 Back to Table, 커버링 인덱스의 위력, Random I/O가 만드는 옵티마이저의 풀스캔 선택, 복합 인덱스의 Left-most Prefix Rule과 컬럼 순서 결정, EXPLAIN으로 1억 건 테이블 튜닝하기.
+          </div>
+          <div class="post-tags">
+            <span class="tag">B+Tree</span>
+            <span class="tag">InnoDB</span>
+            <span class="tag">EXPLAIN</span>
+            <span class="tag">MySQL</span>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
+    <section class="cs-category">
+      <h2 class="cs-category-title">Resilience / 외부 API</h2>
+      <div class="post-list">
+
+        <a href="./posts/2026-05-외부-api-failover-다층-방어/01-200이-진짜-200인가.html" class="post-item">
+          <div class="post-date">2026.05.02 · 시리즈 (4편)</div>
+          <div class="post-title">외부 API Failover의 다층 방어</div>
+          <div class="post-summary">
+            HTTP 200인데 body는 실패인 카카오 알림톡 응답이 던지는 질문. LoadBalancer 세 패턴(Standalone / Sidecar / Client-side)의 trade-off. CircuitBreaker가 LB로 못 잡는 영역. 그리고 sender split-brain을 RabbitMQ Fanout Exchange로 푼 ALIO-GW 실전.
+          </div>
+          <div class="post-tags">
+            <span class="tag">CircuitBreaker</span>
+            <span class="tag">LoadBalancer</span>
+            <span class="tag">RabbitMQ</span>
+            <span class="tag">Failover</span>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
   </main>
 
   <footer class="site-footer">

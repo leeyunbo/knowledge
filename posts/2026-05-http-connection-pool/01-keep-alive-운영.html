@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keep-Alive를 운영한다는 것 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 1/4</div>
+        <h1>Keep-Alive를 운영한다는 것</h1>
+        <p class="subtitle">
+          연결을 재사용하면 빠르다. 그런데 누가 그 연결을 들고 있는가.
+          Connection Pool이라는 운영 단위의 시작.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP Connection Pool 운영</div>
+        <ol>
+          <li class="current">Keep-Alive를 운영한다는 것</li>
+          <li><a href="./02-stale-connection.html">Pool 안의 좀비 — Stale Connection 3중 방어</a></li>
+          <li><a href="./03-ephemeral-port-고갈.html">외부 API 호출이 ephemeral port를 갉아먹는다</a></li>
+          <li><a href="./04-spring-restclient-실전.html">Spring RestClient + Apache HttpClient5 실전 설정</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>매 요청마다 잃는 100ms</h2>
+
+        <p>
+          외부 API를 부르는 코드 한 줄.
+        </p>
+
+        <pre><code>restClient.post().uri("https://api.kakao.com/...").body(req).retrieve();</code></pre>
+
+        <p>
+          이 호출이 카카오 서버에 닿기 전에, 우리는 처음 보는 사이라면
+          TCP 3-way handshake와 TLS handshake를 먼저 해야 한다.
+          별도 시리즈에서 자세히 다뤘지만, 합치면 RTT 30ms 환경에서 약 75~105ms.
+          데이터 한 바이트 보내기도 전에 그만큼이 사라진다.
+        </p>
+
+        <p>
+          요청이 100번 들어오면 매번 새 연결을 만들 경우 약 10초.
+          요청이 만 번이면 1000초. 이게 실측 지연으로 쌓인다.
+          외부 API 호출이 많은 서비스에서는 손실이 무시 못 할 규모가 된다.
+        </p>
+
+        <p>
+          해법은 단순하다. <strong>한 번 만든 연결을 재사용</strong>한다.
+          이걸 가능하게 하는 게 HTTP의 Keep-Alive.
+          그런데 Keep-Alive를 "켜기만 하면" 되는 게 아니다.
+          누가 그 연결을 들고 있을지가 또 다른 질문이다. 그 답이 Connection Pool이다.
+        </p>
+
+        <h2>Keep-Alive — HTTP 1.1의 기본값</h2>
+
+        <p>
+          HTTP/1.0은 기본적으로 요청 한 번 끝나면 연결을 끊었다.
+          명시적으로 <code>Connection: keep-alive</code>를 헤더에 넣어야 유지됐다.
+        </p>
+
+        <pre><code>HTTP/1.0:
+  GET / HTTP/1.0
+  Connection: keep-alive   ← 이거 명시 안 하면 응답 후 끊김
+
+HTTP/1.1:
+  GET / HTTP/1.1
+                           ← 명시 안 해도 keep-alive가 기본
+                           ← 끊고 싶으면 Connection: close</code></pre>
+
+        <p>
+          요즘 거의 모든 HTTP 통신은 1.1 이상이라 Keep-Alive는 자동으로 켜져있다고 보면 된다.
+          서버 응답에는 보통 Keep-Alive 헤더에 timeout과 max 정보가 같이 온다.
+        </p>
+
+        <pre><code>HTTP/1.1 200 OK
+Keep-Alive: timeout=60, max=100
+              ↑          ↑
+       60초 idle 후 끊음, 최대 100요청 처리 후 끊음</code></pre>
+
+        <p>
+          이게 의미하는 바는 분명하다. 서버는 "60초 동안 새 요청 안 오면 끊을게"라고 알려준다.
+          클라이언트가 그 시간 안에 다음 요청을 보내면 같은 연결로 처리되고,
+          시간을 넘기면 다음 요청은 새 연결로 시작한다.
+        </p>
+
+        <h2>그런데 Keep-Alive를 누가 들고 있는가</h2>
+
+        <p>
+          여기서 흔한 함정이 시작된다.
+          애플리케이션 코드에서 매 호출마다 HTTP 클라이언트를 새로 만들면 어떻게 될까.
+        </p>
+
+        <pre><code>// 잘못된 패턴
+public ResponseDto callKakao(Request req) {
+    RestClient client = RestClient.create();   // ❌ 매번 새로 생성
+    return client.post()
+        .uri("https://api.kakao.com/...")
+        .body(req)
+        .retrieve()
+        .body(ResponseDto.class);
+}</code></pre>
+
+        <p>
+          <code>RestClient.create()</code>가 매번 새 connection pool을 만든다.
+          그 pool이 새 TCP 연결을 만들어 카카오로 보내고, 응답 받자마자 GC 대상이 된다.
+          연결도 같이 정리된다. 다음 호출은 또 새 pool, 또 새 연결.
+        </p>
+
+        <p>
+          Keep-Alive 헤더는 잘 켜져 있다. HTTP 1.1도 잘 쓴다.
+          그런데 우리 코드가 매번 client를 버리니, 재사용할 기회가 없다.
+          모든 호출이 첫 호출이고, 모든 호출에 100ms씩 잃는다.
+        </p>
+
+        <h2>올바른 모양 — 싱글톤 빈으로 관리</h2>
+
+        <pre><code>@Configuration
+public class KakaoClientConfig {
+
+    @Bean
+    public RestClient kakaoRestClient() {
+        return RestClient.builder()
+            .baseUrl("https://api.kakao.com")
+            .build();
+    }
+}
+
+@Service
+public class KakaoService {
+
+    private final RestClient kakaoRestClient;  // ← 싱글톤 주입
+
+    public KakaoService(RestClient kakaoRestClient) {
+        this.kakaoRestClient = kakaoRestClient;
+    }
+
+    public ResponseDto callKakao(Request req) {
+        return kakaoRestClient.post()
+            .uri("/api/...")
+            .body(req)
+            .retrieve()
+            .body(ResponseDto.class);
+    }
+}</code></pre>
+
+        <p>
+          Spring 컨테이너가 RestClient를 한 번만 만들고 모든 호출에 같은 인스턴스를 쓴다.
+          그 안의 connection pool도 하나. 풀 안의 연결들이 모든 호출 사이에 재사용된다.
+          첫 호출만 handshake 비용을 치르고 이후는 그 연결을 다시 쓴다.
+        </p>
+
+        <h2>Connection Pool의 정체 — 운영 단위로서의 의미</h2>
+
+        <p>
+          Connection Pool은 단순히 "연결 여러 개 모아둔 배열"이 아니다.
+          그 자체가 외부 API 통합의 운영 단위다. 다음 책임들이 모두 pool에 모인다.
+        </p>
+
+        <pre><code>1. 동시 연결 수 제어
+   - 한 번에 몇 개의 연결까지 허용할 것인가
+   - 무제한이면 외부 API에 부하 줘서 우리도 차단당함
+   - 너무 적으면 우리 thread가 연결 기다리며 대기
+
+2. 연결 수명 관리
+   - 만들 시점, 재사용할 시점, 폐기할 시점
+   - 너무 오래된 연결은 stale 위험
+   - 너무 빨리 폐기하면 재사용 효과 못 봄
+
+3. 도메인별 격리
+   - 카카오 API와 결제 PG가 같은 풀 쓰면 안 됨
+   - 한 쪽이 폭증해도 다른 쪽 영향 안 받게
+
+4. 통계 노출
+   - 활성 연결 수, 대기 중인 요청 수
+   - 모니터링과 alert의 입력</code></pre>
+
+        <p>
+          이 책임들을 잘 갖춘 게 <strong>Apache HttpClient5</strong>의 PoolingHttpClientConnectionManager.
+          Spring RestClient의 백엔드로 끼워 쓰는 게 사실상 표준이다.
+          기본 JDK HttpClient도 keep-alive는 하지만, 위 책임들의 정밀 제어는 부족하다.
+        </p>
+
+        <h2>풀 사이즈 — 두 가지 한도</h2>
+
+        <p>
+          PoolingHttpClientConnectionManager는 두 가지 동시 연결 한도를 가진다.
+        </p>
+
+        <pre><code>maxTotal           = 전체 풀 크기 (모든 도메인 합산)
+maxPerRoute        = 도메인 하나당 최대 동시 연결 수</code></pre>
+
+        <p>
+          기본값은 양쪽 다 작다(보통 25/5 정도). 외부 API 호출이 많은 서비스라면
+          이걸 안 늘리면 thread가 풀 대기에서 풀려나지 못해 throughput이 막힌다.
+        </p>
+
+        <pre><code>예: 카카오 한 곳만 호출, 동시 발송 50건이 목표
+  maxPerRoute = 50 (또는 약간 여유 두고 60)
+  maxTotal    = 50 (또는 다른 외부 호출 있으면 더 크게)
+
+예: 카카오 + 결제 PG + SMS 세 군데 호출, 각각 동시 30건 목표
+  maxPerRoute = 30
+  maxTotal    = 100 (3개 도메인 × 30 + 여유)</code></pre>
+
+        <p>
+          한도를 넘는 호출이 들어오면 우리 thread는 풀에서 connection을 빌릴 때까지 대기한다.
+          이 대기 시간이 곧 latency 추가로 이어진다.
+          풀 사이즈 결정의 핵심은 <strong>peak 시점의 동시 호출 수를 추정하고 그것보다 약간 크게 잡는 것</strong>이다.
+        </p>
+
+        <h2>풀이 너무 크면 — 또 다른 함정</h2>
+
+        <p>
+          그럼 그냥 1000으로 잡으면 안전한가? 그렇지 않다.
+        </p>
+
+        <ul>
+          <li><strong>외부 API의 connection 한도 초과</strong>: 카카오가 우리 IP에서 동시 N개까지만 받겠다고 정하면 그 위는 거부된다</li>
+          <li><strong>NAT/방화벽의 conntrack 테이블 부담</strong>: 사내 방화벽 통과 연결이 많으면 conntrack이 가득 찰 수 있음</li>
+          <li><strong>ephemeral port 압박</strong>: 한 외부 IP로 갈 수 있는 동시 연결이 약 6만 개로 제한 (자세한 건 3편)</li>
+          <li><strong>메모리</strong>: 각 연결이 send/recv 버퍼와 socket 객체로 수십 KB 점유. 1000개면 수십 MB</li>
+        </ul>
+
+        <p>
+          그래서 풀 사이즈는 "충분히 크되 과도하지 않게".
+          peak 동시 호출 수를 모니터링으로 측정하고 그 값의 1.5~2배 정도가 일반적 가이드다.
+          처음엔 보수적으로 잡고 모니터링 보면서 조정하는 게 안전하다.
+        </p>
+
+        <h2>풀 사이즈 결정에 영향 주는 또 하나 — 외부 API의 latency</h2>
+
+        <p>
+          요청 처리 시간이 풀 사이즈와 직접 연결된다.
+          한 호출이 100ms 걸리고 초당 100 요청이면, 평균 동시 진행 호출 수는 10이다.
+          (Little's Law)
+        </p>
+
+        <pre><code>동시 진행 호출 수 = 초당 호출 수 × 평균 응답 시간
+
+초당 100 호출, 응답 100ms → 동시 10
+초당 100 호출, 응답 500ms → 동시 50  (응답 느려지면 풀 압박)
+초당 500 호출, 응답 200ms → 동시 100</code></pre>
+
+        <p>
+          외부 API가 갑자기 느려지면 풀 사용량이 급증한다.
+          평소 동시 10건이던 호출이 응답 시간 5배 늘면 동시 50건이 된다.
+          풀 사이즈를 10으로 잡았다면 그 시점에 새 호출은 모두 대기 또는 거부.
+          <strong>외부 API의 정상 latency 기준이 아니라 최악 latency까지 고려해야 안전</strong>하다.
+        </p>
+
+        <h2>여기까지가 1편의 핵심</h2>
+
+        <p>
+          정리하면 셋이다.
+        </p>
+
+        <pre><code>1. HTTP 클라이언트는 싱글톤 빈으로 등록.
+   매번 .create()하면 keep-alive 무효화.
+
+2. Connection Pool이 운영 단위.
+   동시 연결 수 제어, 수명 관리, 도메인별 격리, 통계 노출이 다 여기에 모임.
+
+3. 풀 사이즈는 peak 동시 호출 수 + 외부 API 최악 latency를 함께 고려.
+   너무 작아도 너무 커도 문제. 모니터링 기반 조정.</code></pre>
+
+        <p>
+          여기까지가 "잘 운영되는" Connection Pool의 토대다.
+          그런데 풀 안에서 또 하나의 위험이 자라고 있다.
+          시간이 지나면 풀 안의 연결 일부가 silently 죽어있을 수 있다.
+          내가 모르는 사이 좀비가 된 연결을 들고 있다가 다음 호출에 터진다.
+          이걸 stale connection이라고 부르는데, 이걸 어떻게 막는지가 다음 편이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

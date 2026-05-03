@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>복합 인덱스 운영 — Left-most Prefix와 카디널리티 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.03 · 시리즈 3/4</div>
+        <h1>복합 인덱스 운영 — Left-most Prefix와 카디널리티</h1>
+        <p class="subtitle">
+          (A, B, C)로 만들었는데 WHERE B = ?에선 인덱스를 못 탄다.
+          그 이유와, 컬럼 순서를 정하는 세 가지 원칙.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인덱스 — B-Tree부터 Covering까지</div>
+        <ol>
+          <li><a href="./01-b-tree의-정체.html">인덱스가 왜 빠른가 — B+Tree의 정체</a></li>
+          <li><a href="./02-클러스터드-보조-커버링.html">클러스터드 vs 보조 — Back to Table과 커버링 인덱스</a></li>
+          <li class="current">복합 인덱스 운영 — Left-most Prefix와 카디널리티</li>
+          <li><a href="./04-explain-실전-튜닝.html">EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>현실의 인덱스는 거의 다 복합 인덱스다</h2>
+
+        <p>
+          단일 컬럼 인덱스는 교과서에선 자주 보이지만 실무에선 잘 안 쓴다.
+          현실 쿼리는 거의 항상 여러 조건이 같이 걸린다.
+        </p>
+
+        <pre><code>WHERE user_id = ? AND status = ?
+WHERE user_id = ? AND created_at &gt; ?
+WHERE store_id = ? AND order_status = ? ORDER BY created_at DESC</code></pre>
+
+        <p>
+          이런 쿼리에 단일 컬럼 인덱스 두 개를 만들면(<code>(user_id)</code>, <code>(status)</code>) 비효율적이다.
+          복합 인덱스 <code>(user_id, status)</code> 하나가 훨씬 효과적이다.
+          왜 그런지, 그리고 컬럼 순서를 어떻게 정해야 하는지가 이 편의 주제다.
+        </p>
+
+        <h2>Left-most Prefix Rule — 인덱스의 정렬 방식</h2>
+
+        <p>
+          복합 인덱스 <code>(A, B, C)</code>는 어떻게 정렬돼있는가?
+        </p>
+
+        <pre><code>(A, B, C) 인덱스 정렬:
+
+A=1, B=10, C=100
+A=1, B=10, C=200
+A=1, B=20, C=50
+A=1, B=20, C=150
+A=2, B=5,  C=300
+A=2, B=15, C=80
+A=3, B=10, C=120
+...</code></pre>
+
+        <p>
+          A를 1차 정렬 키로, A 같은 값들 안에서 B를 2차 정렬 키로,
+          B 같은 값들 안에서 C를 3차 정렬 키로 정렬돼있다.
+        </p>
+
+        <p>
+          이 정렬을 활용하려면 <strong>왼쪽부터 연속해서 매칭</strong>해야 한다.
+          이게 Left-most Prefix Rule이다.
+        </p>
+
+        <h2>어떤 쿼리가 인덱스를 타는가</h2>
+
+        <pre><code>(A, B, C) 인덱스 기준:
+
+WHERE A = ?                       ✅ A로 인덱스 탐
+WHERE A = ? AND B = ?             ✅ A, B로 인덱스 탐
+WHERE A = ? AND B = ? AND C = ?   ✅ 완전히 활용
+WHERE A = ? AND C = ?             ⚠️ A까지만 인덱스, C는 메모리 필터링
+WHERE B = ?                       ❌ 인덱스 못 탐
+WHERE B = ? AND C = ?             ❌ 인덱스 못 탐
+WHERE A = ? ORDER BY B            ✅ A로 좁히고 B 정렬을 인덱스 순서로 활용</code></pre>
+
+        <h3>왜 WHERE B = ? 는 인덱스를 못 타는가</h3>
+
+        <p>
+          책의 목차로 비유하면 명확해진다.
+        </p>
+
+        <pre><code>책 목차:
+  1. 1장 ─┬─ 1.1 ─┬─ 1.1.1
+          │       └─ 1.1.2
+          └─ 1.2 ─── ...
+  2. 2장 ─┬─ 2.1 ─── ...
+          └─ 2.2 ─── ...
+
+"1.2.3절을 찾아라"  → ✅ 1장 → 1.2절 → 1.2.3 순서대로 찾을 수 있음
+"X.2절을 찾아라"   → ❌ 모든 장을 다 봐야 함 (1.2, 2.2, 3.2, ...)</code></pre>
+
+        <p>
+          B만 가지고는 인덱스의 "어디서부터 시작할지"를 알 수가 없다.
+          A 값별로 B 정렬이 따로따로 되어있으니
+          B를 찾으려면 결국 모든 A를 다 뒤져야 한다.
+          그러면 인덱스를 타는 의미가 없다.
+        </p>
+
+        <h3>WHERE A = ? AND C = ? 의 모호한 처리</h3>
+
+        <p>
+          이건 복잡하다. A는 인덱스로 타지만 C는 인덱스 정렬을 활용 못 한다.
+          MySQL은 두 가지 동작 중 하나로 간다.
+        </p>
+
+        <pre><code>1. Index Condition Pushdown 켜져있으면 (MySQL 5.6+):
+   인덱스 탐색 단계에서 A 조건으로 좁히고
+   리프에 있는 C 값을 그 자리에서 필터링 (스토리지 엔진 수준)
+   → Back to Table 횟수가 줄어듦
+
+2. 그렇지 않으면:
+   A로 좁히고 매칭되는 모든 행을 Back to Table 한 후
+   C 조건으로 메모리에서 필터링
+   → Back to Table 비용 큼</code></pre>
+
+        <p>
+          어느 쪽이든 C는 인덱스 정렬의 도움을 못 받는다.
+          그래서 자주 쓰는 패턴이라면 인덱스를 <code>(A, C, B)</code> 또는 <code>(A, C)</code>로
+          재설계하는 게 맞다.
+        </p>
+
+        <h2>컬럼 순서를 정하는 세 가지 원칙</h2>
+
+        <p>
+          그럼 어떤 컬럼을 앞에 두고 어떤 컬럼을 뒤에 둬야 하는가.
+          세 가지 원칙으로 결정한다.
+        </p>
+
+        <h3>원칙 1 — 등호 조건 먼저, 범위 조건은 나중</h3>
+
+        <pre><code>쿼리: WHERE user_id = ? AND created_at &gt; ?
+
+좋은 인덱스: (user_id, created_at)
+나쁜 인덱스: (created_at, user_id)</code></pre>
+
+        <p>
+          왜 등호가 먼저인가. 범위 조건이 걸리는 컬럼 이후로는
+          <strong>인덱스의 정렬을 활용하지 못한다</strong>.
+        </p>
+
+        <pre><code>(created_at, user_id) 인덱스 정렬:
+
+created_at=2024-01-01, user_id=5
+created_at=2024-01-01, user_id=10
+created_at=2024-01-02, user_id=3
+created_at=2024-01-02, user_id=7
+created_at=2024-01-03, user_id=5
+...
+
+쿼리: WHERE user_id = 5 AND created_at &gt; '2024-01-01'
+
+→ created_at &gt; '2024-01-01' 인 모든 행을 인덱스에서 가져오고
+→ 그 안에서 user_id = 5 인 것만 메모리 필터
+→ 범위로 가져온 결과가 클수록 비효율</code></pre>
+
+        <p>
+          반대로 (user_id, created_at)이면:
+        </p>
+
+        <pre><code>(user_id, created_at) 인덱스 정렬:
+
+user_id=1, created_at=2024-01-01
+user_id=1, created_at=2024-01-05
+user_id=5, created_at=2024-01-01
+user_id=5, created_at=2024-01-02
+user_id=5, created_at=2024-01-03
+user_id=10, created_at=2024-01-01
+...
+
+쿼리: WHERE user_id = 5 AND created_at &gt; '2024-01-01'
+
+→ user_id=5 위치를 정확히 찾고
+→ 그 안에서 created_at &gt; '2024-01-01' 범위만 순차 읽기
+→ 정확히 매칭되는 행만 가져옴, 매우 효율적</code></pre>
+
+        <p>
+          등호가 앞에 와야 인덱스가 좁혀지고, 그 안에서 범위가 정렬을 활용한다.
+        </p>
+
+        <h3>원칙 2 — 카디널리티가 높은 컬럼 먼저</h3>
+
+        <p>
+          카디널리티(cardinality) = 그 컬럼의 distinct 값 수.
+          높을수록 한 번의 매칭으로 후보를 더 많이 좁힌다.
+        </p>
+
+        <pre><code>orders 테이블:
+  user_id: 100만 명 (고유값 100만, 카디널리티 매우 높음)
+  status: 5종류 (PENDING, PAID, SHIPPED, DELIVERED, CANCELLED)
+
+쿼리: WHERE user_id = ? AND status = ?
+
+좋은 인덱스: (user_id, status)
+  → user_id로 한 번에 100만분의 1로 좁힘
+  → 그 안에서 status로 추가 필터링
+
+나쁜 인덱스: (status, user_id)
+  → status로 한 번 좁히지만 5분의 1 정도밖에 안 됨
+  → 그 다음에 user_id로 추가 좁힘</code></pre>
+
+        <p>
+          첫 단계에서 후보를 최대한 줄이는 게 효율적.
+          카디널리티 높은 컬럼이 그 일을 해준다.
+        </p>
+
+        <h3>원칙 3 — 실제 쿼리 패턴 우선</h3>
+
+        <p>
+          앞 두 원칙이 이론적으로 옳아도, <strong>그 인덱스가 실제 쿼리에 안 쓰이면 의미 없다</strong>.
+          운영 쿼리 분석이 항상 우선이다.
+        </p>
+
+        <pre><code>예: orders 테이블
+
+이론적 최적: (user_id, status)
+  → user_id 카디널리티 높음, 등호 조건이라 둘 다 적합
+
+실제 운영 쿼리들:
+  - 대부분: WHERE store_id = ? AND status = ? ORDER BY created_at DESC
+  - 일부:   WHERE user_id = ? AND status = ?
+
+→ 자주 쓰이는 (store_id, status, created_at)이 더 가치 있는 인덱스</code></pre>
+
+        <p>
+          이론을 적용하기 전에 <code>SHOW PROCESSLIST</code>나
+          slow query log, performance schema의 statement summary로
+          실제 어떤 쿼리가 자주 도는지 먼저 확인.
+        </p>
+
+        <h2>인덱스가 안 타는 대표적인 패턴들</h2>
+
+        <p>
+          복합 인덱스를 잘 만들어도 쿼리가 잘못 짜이면 인덱스를 못 탄다.
+          본질은 모두 같다. <strong>인덱스의 정렬 순서를 활용 못 하게 만드는 패턴</strong>들이다.
+        </p>
+
+        <h3>① 인덱스 컬럼에 함수나 연산 적용</h3>
+
+        <pre><code>WHERE YEAR(created_at) = 2024              ❌
+WHERE created_at &gt;= '2024-01-01'           ✅
+   AND created_at &lt;  '2025-01-01'
+
+WHERE name + '_test' = 'alice_test'        ❌
+WHERE LOWER(email) = 'alice@x.com'         ❌
+
+WHERE substring(phone, 1, 3) = '010'       ❌</code></pre>
+
+        <p>
+          인덱스는 원본 값으로 정렬돼있다.
+          가공된 값으로 비교하면 모든 행에 함수를 적용해 봐야 매칭 여부를 알 수 있다.
+          정렬이 무용지물이 된다.
+        </p>
+
+        <p>
+          MySQL 8.0+는 <strong>함수 기반 인덱스</strong>를 지원해서 이런 케이스를 우회할 수 있다.
+          <code>CREATE INDEX idx_year ON t ((YEAR(created_at)))</code> 같은 식.
+          그래도 가능하면 쿼리를 함수 없이 작성하는 게 일반적이다.
+        </p>
+
+        <h3>② 앞쪽 와일드카드 LIKE</h3>
+
+        <pre><code>WHERE name LIKE 'Kim%'    ✅ 인덱스 탐 (앞쪽이 고정)
+WHERE name LIKE '%Kim'    ❌ 인덱스 못 탐
+WHERE name LIKE '%Kim%'   ❌ 인덱스 못 탐</code></pre>
+
+        <p>
+          인덱스는 시작 글자 기준으로 정렬돼있어 prefix가 고정돼야 활용 가능.
+          뒤쪽 검색이 정말 필요하면 Full-text Search 인덱스를 별도로 만들거나
+          역순 정렬한 컬럼을 추가로 두는 패턴을 쓴다.
+        </p>
+
+        <h3>③ 묵시적 타입 변환</h3>
+
+        <pre><code>phone 컬럼이 VARCHAR라고 하자.
+
+WHERE phone = 01012345678    ❌ (정수형 비교, 컬럼에 형변환)
+WHERE phone = '01012345678'  ✅ (문자열 비교, 정상)</code></pre>
+
+        <p>
+          타입이 다르면 DB가 컬럼 쪽에 형변환을 적용한다.
+          그게 사실상 ①번(함수 적용)과 같은 상황을 만든다.
+          코드 짤 때 파라미터 타입을 컬럼 타입과 일치시키는 게 안전.
+        </p>
+
+        <h3>④ OR 조건</h3>
+
+        <pre><code>WHERE user_id = 100 OR email = 'a@x'
+
+각 컬럼에 별도 인덱스 (user_id), (email)이 있어도
+한 쿼리에서 두 인덱스를 동시에 쓰는 건 어렵다.
+
+해법: UNION으로 분리
+
+  SELECT * FROM users WHERE user_id = 100
+  UNION
+  SELECT * FROM users WHERE email = 'a@x'
+
+→ 각 쿼리가 독립적으로 자기 인덱스를 탐</code></pre>
+
+        <p>
+          Index Merge라는 옵티마이저 기능이 둘을 합쳐주기도 하지만,
+          항상 좋은 결과를 내진 않는다. UNION이 더 안전한 경우가 많다.
+        </p>
+
+        <h3>⑤ 부정 조건 (!=, NOT IN, NOT LIKE)</h3>
+
+        <pre><code>WHERE status != 'CANCELLED'    ❌ 거의 인덱스 못 탐
+WHERE id NOT IN (1, 2, 3)      ❌ 거의 인덱스 못 탐</code></pre>
+
+        <p>
+          "X가 아닌 것"은 결국 거의 모든 데이터를 봐야 한다.
+          인덱스의 정렬을 활용할 수 없다.
+          가능하면 긍정 조건으로 바꿔 작성한다.
+        </p>
+
+        <pre><code>WHERE status IN ('PAID', 'SHIPPED', 'DELIVERED')   ✅ 인덱스 탐</code></pre>
+
+        <h2>실전 — JPA에서 흔한 함정</h2>
+
+        <p>
+          Spring + JPA 환경에서 자주 만나는 함정 몇 가지.
+        </p>
+
+        <h3>1. JPQL의 LOWER 자동 적용</h3>
+
+        <pre><code>@Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")
+List&lt;User&gt; findByEmailIgnoreCase(@Param("email") String email);
+
+→ 인덱스 못 탐 (① 패턴)</code></pre>
+
+        <p>
+          대소문자 무관 검색을 위해 LOWER를 쓰면 인덱스를 못 탄다.
+          해법은 컬럼 자체를 소문자로 저장하거나, 함수 기반 인덱스 만들기.
+        </p>
+
+        <h3>2. Spring Data JPA의 Containing</h3>
+
+        <pre><code>List&lt;User&gt; findByNameContaining(String name);
+→ LIKE '%name%' 으로 변환됨
+→ 인덱스 못 탐 (② 패턴)</code></pre>
+
+        <p>
+          무심코 쓰면 풀스캔 발동. <code>StartingWith</code>(prefix만)는 인덱스를 탄다.</p>
+
+        <h3>3. 자동 생성된 PK가 UUID</h3>
+
+        <pre><code>@Id
+@GeneratedValue(strategy = GenerationType.UUID)
+private UUID id;
+
+→ UUID v4 PK
+→ 2편에서 본 페이지 분할 문제 + 보조 인덱스 비대화</code></pre>
+
+        <p>
+          UUID PK가 정말 필요한지 검토. 가능하면 BIGINT auto increment.
+          정 UUID여야 하면 ULID나 UUIDv7 같은 단조 증가형으로.
+        </p>
+
+        <h2>인덱스가 너무 많을 때의 비용</h2>
+
+        <p>
+          마지막으로 한 가지 짚자. 복합 인덱스를 잘 만들면 좋지만,
+          모든 쿼리 패턴마다 만들면 또 다른 문제가 생긴다.
+        </p>
+
+        <pre><code>orders 테이블에 인덱스 10개 있음:
+  - PK (id)
+  - (user_id, status)
+  - (store_id, status, created_at)
+  - (status, created_at)
+  - (created_at)
+  - (product_id)
+  - (coupon_id)
+  - ...
+
+INSERT 한 건이 10개 인덱스 모두 갱신
+→ 쓰기 비용 ×10
+→ 주문 폭증 시간엔 쓰기 throughput이 무너질 수 있음</code></pre>
+
+        <p>
+          인덱스 추가는 신중해야 한다. 주기적으로 사용 통계를 봐서
+          쓰지 않는 인덱스는 제거. MySQL은 <code>sys.schema_unused_indexes</code>로 안 쓰는 인덱스를 볼 수 있다.
+        </p>
+
+        <h2>정리</h2>
+
+        <pre><code>1. Left-most Prefix Rule
+   - (A, B, C) 인덱스는 WHERE A, WHERE A, B, WHERE A, B, C에만 활용
+   - WHERE B, WHERE C는 못 탐
+
+2. 컬럼 순서 결정 원칙 셋
+   - 등호 먼저, 범위 나중
+   - 카디널리티 높은 컬럼 앞에
+   - 실제 쿼리 패턴 우선
+
+3. 인덱스 못 타게 만드는 5가지 패턴
+   - 함수/연산 적용
+   - 앞쪽 와일드카드 LIKE
+   - 묵시적 타입 변환
+   - OR 조건
+   - 부정 조건 (!=, NOT IN)
+
+4. 인덱스 추가 비용도 항상 고려
+   - 쓰기 비용 ×N (N = 인덱스 수)
+   - 안 쓰는 인덱스는 제거</code></pre>
+
+        <p>
+          여기까지가 인덱스 설계의 핵심.
+          그런데 진짜 실전은 "인덱스 만들었는데도 쿼리가 느림" 상황을 푸는 것이다.
+          EXPLAIN을 어떻게 읽고, 1억 건 테이블의 느린 쿼리를 어떻게 단계적으로 튜닝하는지가 마지막 편이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Propagation이 왜 있는가 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.04.30 · 시리즈 1/4</div>
+        <h1>Propagation이 왜 있는가</h1>
+        <p class="subtitle">
+          @Transactional 두 개가 만났을 때 무슨 일이 생기나.
+          그리고 Spring이 7가지 답을 준비한 이유.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">@Transactional Propagation 7가지</div>
+        <ol>
+          <li class="current">Propagation이 왜 있는가</li>
+          <li><a href="./02-required의-함정.html">REQUIRED — 가장 흔하지만 가장 위험한 디폴트</a></li>
+          <li><a href="./03-requires-new의-함정.html">REQUIRES_NEW — 진짜 새 트랜잭션의 함정</a></li>
+          <li><a href="./04-나머지-5가지.html">나머지 5가지와 선택 가이드</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>트랜잭션은 메서드 단위가 아니다</h2>
+
+        <p>
+          <code>@Transactional</code>을 메서드에 붙이면 그 메서드는 트랜잭션 안에서 돈다.
+          여기까지는 다들 안다.
+        </p>
+
+        <pre><code>@Transactional
+public Order placeOrder(OrderRequest request) {
+    Order order = orderRepository.save(...);
+    paymentService.charge(order);
+    return order;
+}</code></pre>
+
+        <p>
+          <code>placeOrder</code>가 시작되면 트랜잭션이 열리고,
+          정상 종료되면 커밋, 예외가 던져지면 롤백. 단순하다.
+        </p>
+
+        <p>
+          문제는 <code>paymentService.charge()</code> 안에도
+          <code>@Transactional</code>이 있을 때 생긴다.
+        </p>
+
+        <pre><code>@Service
+public class PaymentService {
+
+    @Transactional
+    public void charge(Order order) {
+        Payment payment = paymentRepository.save(...);
+        externalGatewayClient.charge(...);
+    }
+}</code></pre>
+
+        <p>
+          <code>placeOrder</code>의 트랜잭션과 <code>charge</code>의 트랜잭션, 이 둘은
+          <strong>같은 트랜잭션인가, 다른 트랜잭션인가?</strong>
+        </p>
+
+        <h2>합쳐야 할 때, 분리해야 할 때</h2>
+
+        <p>같은 트랜잭션이라면:</p>
+        <ul>
+          <li><code>charge</code>에서 예외가 나면 <code>placeOrder</code>가 했던 INSERT까지 같이 롤백</li>
+          <li>둘이 한 단위로 묶인다. 깔끔하다.</li>
+        </ul>
+
+        <p>다른 트랜잭션이라면:</p>
+        <ul>
+          <li><code>charge</code>는 자체 트랜잭션을 가지고, 끝나면 즉시 커밋</li>
+          <li>그 후 <code>placeOrder</code>에서 무슨 일이 생겨도 <code>charge</code>의 결과는 살아있음</li>
+          <li>결제는 성공했는데 주문은 실패하는 상황이 발생할 수 있음</li>
+        </ul>
+
+        <p>
+          비즈니스 요구에 따라 답이 다르다.
+          트랜잭션을 합쳐야 할 때도 있고, 분리해야 할 때도 있다.
+          예를 들어 감사 로그(audit log)는 본 작업이 롤백돼도 남기고 싶을 때가 많다.
+          그럼 audit는 분리된 트랜잭션이어야 한다.
+        </p>
+
+        <h2>그래서 Spring이 7가지 옵션을 만들었다</h2>
+
+        <p>
+          <code>@Transactional(propagation = ...)</code>로 이 동작을 지정한다.
+          7가지를 한 줄씩 정리하면:
+        </p>
+
+        <pre><code>REQUIRED      외부 tx 있으면 합류, 없으면 새로 (디폴트)
+REQUIRES_NEW  항상 새 tx, 외부 tx는 일시 중단
+NESTED        외부 tx 안에 savepoint, 없으면 REQUIRED처럼
+SUPPORTS      외부 tx 있으면 합류, 없으면 tx 없이
+NOT_SUPPORTED 외부 tx 있으면 중단, 없으면 tx 없이
+MANDATORY     외부 tx 있으면 합류, 없으면 예외
+NEVER         외부 tx 있으면 예외, 없으면 tx 없이</code></pre>
+
+        <p>
+          7가지가 많아 보이지만, 모두 같은 두 가지 질문에 다른 조합으로 답할 뿐이다.
+        </p>
+
+        <h2>핵심 축은 두 개</h2>
+
+        <p>각 propagation은 결국 두 질문에 답한다.</p>
+
+        <p><strong>1) 외부 트랜잭션이 있을 때 어떻게 하나?</strong></p>
+        <ul>
+          <li>합류한다 — REQUIRED, SUPPORTS, MANDATORY</li>
+          <li>새로 만든다 — REQUIRES_NEW</li>
+          <li>savepoint를 만든다 — NESTED</li>
+          <li>일시 중단한다 — NOT_SUPPORTED</li>
+          <li>예외를 던진다 — NEVER</li>
+        </ul>
+
+        <p><strong>2) 외부 트랜잭션이 없을 때 어떻게 하나?</strong></p>
+        <ul>
+          <li>새로 만든다 — REQUIRED, REQUIRES_NEW, NESTED</li>
+          <li>트랜잭션 없이 실행한다 — SUPPORTS, NOT_SUPPORTED, NEVER</li>
+          <li>예외를 던진다 — MANDATORY</li>
+        </ul>
+
+        <p>
+          이 두 축을 머리에 넣어두면 7가지가 외워지는 게 아니라 <strong>유도된다.</strong>
+          외부 tx에 대한 동작 5가지 × 외부 tx 없을 때 동작 3가지 중에서
+          의미 있는 조합을 추린 것이 7가지다.
+        </p>
+
+        <h2>physical transaction vs logical transaction</h2>
+
+        <p>
+          Spring 공식 문서는 의도적으로 두 개념을 구분한다.
+          이 구분이 다음 편의 핵심 함정과 직결되니 미리 잡아두자.
+        </p>
+
+        <blockquote>
+          "Each such logical transaction scope can determine rollback-only status
+          individually, with an outer transaction scope being logically independent
+          from the inner transaction scope. In the case of standard
+          PROPAGATION_REQUIRED behavior, all these scopes are mapped to the same
+          physical transaction."
+          <br><br>
+          (각 logical transaction scope는 rollback-only 상태를 독립적으로 결정할 수
+          있고, 외부 scope는 내부 scope로부터 logical하게 독립적이다. REQUIRED의 경우
+          이 모든 scope가 같은 physical transaction에 매핑된다.)
+        </blockquote>
+
+        <p>풀어 쓰면:</p>
+        <ul>
+          <li><strong>Physical transaction</strong> — 진짜 DB 트랜잭션. BEGIN ~ COMMIT/ROLLBACK 한 사이클.</li>
+          <li><strong>Logical transaction</strong> — <code>@Transactional</code>이 붙은 메서드 하나의 범위. 자신만의 rollback-only 플래그를 가짐.</li>
+        </ul>
+
+        <p>
+          REQUIRED로 합류하면 logical은 따로지만 physical은 하나다.
+          REQUIRES_NEW면 logical도 physical도 새로 만든다.
+        </p>
+
+        <p>
+          이 구분이 왜 중요한가? 다음 편의 핵심 함정,
+          <strong>"REQUIRED인데 catch했더니 UnexpectedRollbackException이 터지는"</strong>
+          현상이 바로 logical과 physical이 다르게 동작해서 생기는 일이다.
+        </p>
+
+        <h2>다음 편</h2>
+
+        <p>
+          다음 편에서는 디폴트인 REQUIRED를 깊게 본다.
+          합류 메커니즘, rollback-only 마킹, 그리고 catch했는데도 트랜잭션이 죽는 함정.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

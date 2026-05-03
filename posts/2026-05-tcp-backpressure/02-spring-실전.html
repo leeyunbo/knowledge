@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring 코드에서 backpressure를 살리는 법 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="../../index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="../../cs.html">cs</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.01 · 시리즈 2/2</div>
+        <h1>Spring 코드에서 backpressure를 살리는 법</h1>
+        <p class="subtitle">
+          4GB 카카오 동영상 업로드 게이트웨이 실전 narrative.
+          망가뜨리는 코드와 살리는 코드의 결정적 차이.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">TCP Backpressure</div>
+        <ol>
+          <li><a href="./01-흐름-제어.html">TCP 흐름 제어의 정체</a></li>
+          <li class="current">Spring 코드에서 backpressure를 살리는 법</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>실전 — 카카오 동영상 업로드 게이트웨이</h2>
+
+        <p>
+          상황은 이렇다.
+          내부 서비스들이 사용자에게서 받은 동영상 파일을 카카오 프리미엄 동영상 API로
+          업로드해야 한다. 파일 크기는 최대 4GB.
+          모든 외부 API 호출은 사내 GW를 거치는 정책이다.
+          GW는 Spring Boot 4.x + Spring MVC.
+        </p>
+
+        <p>
+          요구사항을 그대로 옮기면 한 줄이다.
+          "GW가 4GB 파일을 받아 카카오로 forward한다."
+          이 한 줄이 우리에게 던지는 진짜 질문은 다음이다.
+          GW의 메모리는 4GB × 동시 N개 만큼 잡히면 안 된다.
+        </p>
+
+        <h2>망가뜨리는 패턴 셋</h2>
+
+        <h3>1. <code>MultipartFile</code> 받기</h3>
+
+        <pre><code>@PostMapping("/v1/kakao/videos")
+public Response upload(@RequestParam MultipartFile file) {  // 위험
+    // ...
+}</code></pre>
+
+        <p>
+          Spring 기본 multipart resolver는 multipart 파싱을 위해
+          <strong>요청 body를 끝까지 다 읽고 디스크 임시 파일에 떨군 다음</strong>에야 컨트롤러 메서드를 호출한다.
+          4GB 파일이면 그 모든 처리가 끝난 뒤에야 컨트롤러 진입이다.
+          그 사이 디스크 IO와 임시 파일 관리 비용이 크고,
+          무엇보다 흐름 제어로 타고 흐르던 4GB가 디스크에 통째로 쌓인다.
+        </p>
+
+        <h3>2. <code>readAllBytes()</code></h3>
+
+        <pre><code>byte[] all = request.getInputStream().readAllBytes();   // 위험
+restClient.post().uri(...).body(all)...</code></pre>
+
+        <p>
+          이건 더 직관적인 사고다.
+          하지만 <code>readAllBytes()</code>는 정확히 흐름 제어를 무효화하는 코드다.
+          JVM이 InputStream에서 무한정 read를 해버리니
+          OS 입장에선 receive 버퍼가 빠르게 비워진다.
+          window=0이 뜨지 않으니 클라이언트는 계속 보내고,
+          그 4GB는 모두 JVM heap에 통째로 적재된다. OOM.
+        </p>
+
+        <h3>3. <code>byte[]</code>로 RestClient에 넘기기</h3>
+
+        <pre><code>byte[] data = ...;                                       // 4GB heap에 적재
+restClient.post().uri(uploadUrl).body(data).retrieve();  // 위험</code></pre>
+
+        <p>
+          <code>RestClient.body(Object)</code>에 <code>byte[]</code>를 넘기면
+          그 배열은 통째로 송신 직전까지 heap에 머문다.
+          여기서 흐름 제어가 작동하지 않는다는 뜻은 아니다.
+          단지 그 4GB가 이미 heap에 올라와 있다는 점이다.
+          OOM은 송신 전에 일어난다.
+        </p>
+
+        <h2>살리는 패턴 — InputStream을 끝까지 살려둔다</h2>
+
+        <p>
+          앞 편에서 본 흐름 제어가 자기 일을 하려면 받는 곳과 보내는 곳을
+          <strong>InputStream으로 직결</strong>해서 한 번에 8KB씩만 메모리에 머물게 해야 한다.
+          이 그림이다.
+        </p>
+
+        <pre><code>[Client] ──▶ [GW 수신 버퍼] ──▶ getInputStream() ──▶ JVM 8KB
+                                                          │
+                                          InputStreamResource로 RestClient에 전달
+                                                          │
+                                          ──▶ RestClient send buffer ──▶ [Kakao]</code></pre>
+
+        <h3>1단계 — multipart 비활성화</h3>
+
+        <pre><code># application.yml
+spring:
+  servlet:
+    multipart:
+      enabled: false      # 우리는 multipart 안 쓴다
+
+server:
+  tomcat:
+    max-swallow-size: -1
+    max-http-form-post-size: -1</code></pre>
+
+        <p>
+          클라이언트가 <code>application/octet-stream</code>으로 raw body 전송하게 한다.
+          파일 메타데이터는 헤더로(<code>X-File-Name</code>,
+          <code>X-File-Size</code>, <code>X-Bitrate</code>).
+          이러면 Spring 기본 resolver를 우회하고 그냥 raw InputStream을 받는다.
+        </p>
+
+        <h3>2단계 — 컨트롤러는 InputStream을 직접 다룬다</h3>
+
+        <pre><code>@PostMapping(
+    value = "/v1/kakao/videos",
+    consumes = APPLICATION_OCTET_STREAM_VALUE
+)
+public UploadResponse upload(
+    @RequestHeader("X-File-Name") String fileName,
+    @RequestHeader("X-File-Size") long fileSize,
+    @RequestHeader("X-Bitrate") int bitrate,
+    HttpServletRequest req
+) throws IOException {
+    var token = kakaoClient.register(fileName, fileSize, bitrate);
+    try (var in = req.getInputStream()) {
+        return kakaoClient.uploadStream(token, fileName, fileSize, in);
+    }
+}</code></pre>
+
+        <p>
+          여기서 핵심은 <code>req.getInputStream()</code>을 받아 그대로
+          <code>kakaoClient.uploadStream(...)</code>에 넘긴다는 점이다.
+          중간에 byte 배열로 변환하지 않는다. 디스크에 떨구지 않는다. 그냥 핸들만 넘긴다.
+        </p>
+
+        <h3>3단계 — RestClient에 InputStreamResource로 넘긴다</h3>
+
+        <pre><code>public UploadResponse uploadStream(
+    RegisterRes token, String fileName, long fileSize, InputStream in
+) {
+    var body = new MultipartBodyBuilder();
+    body.part("file", new InputStreamResource(in) {
+            @Override public long contentLength() { return fileSize; }
+            @Override public String getFilename() { return fileName; }
+        })
+        .header("Content-Type", "application/octet-stream");
+
+    return restClient.post()
+        .uri(token.uploadUrl())
+        .header("x-kakao-upload-token", token.token())
+        .contentType(MediaType.MULTIPART_FORM_DATA)
+        .body(body.build())
+        .retrieve()
+        .body(UploadResponse.class);
+}</code></pre>
+
+        <p>
+          이 코드의 모든 디테일에 의미가 있다.
+        </p>
+
+        <h2><code>InputStreamResource</code>의 두 가지 함정</h2>
+
+        <h3>함정 1 — <code>contentLength()</code> 오버라이드를 빼먹으면</h3>
+
+        <p>
+          기본 <code>InputStreamResource</code>는 자기 길이를 모른다.
+          그래서 RestClient가 송신할 때 어쩔 수 없이 두 가지 중 하나를 한다.
+        </p>
+
+        <ul>
+          <li><strong>chunked transfer-encoding으로 전환</strong>해서 보냄.
+            카카오가 multipart 안에서 chunked를 잘 받아주면 OK지만 항상 그런 건 아니다.</li>
+          <li><strong>InputStream을 한 번 다 읽어 길이를 측정</strong>한 다음 본 송신 시작.
+            이러면 4GB가 메모리에 올라간다. OOM.</li>
+        </ul>
+
+        <p>
+          그래서 우리가 헤더로 받은 <code>fileSize</code>를
+          <code>contentLength()</code>로 명시적으로 알려준다.
+          이러면 Content-Length가 정확히 박히고 stream이 그대로 흐른다.
+        </p>
+
+        <h3>함정 2 — multipart의 part Content-Type</h3>
+
+        <pre><code>.header("Content-Type", "application/octet-stream");</code></pre>
+
+        <p>
+          <code>MultipartBodyBuilder</code>의 part에 추가하는 이 헤더는
+          전체 요청의 Content-Type이 아니라 <strong>part 내용물의 Content-Type</strong>이다.
+          part 안의 데이터가 임의 바이너리(=동영상)임을 명시하는 용도다.
+        </p>
+
+        <p>
+          전체 요청의 Content-Type은 위쪽 <code>.contentType(MULTIPART_FORM_DATA)</code>다.
+          이 둘은 다른 레이어다.
+        </p>
+
+        <h2>실제 데이터가 어디 흐르는가</h2>
+
+        <p>
+          위 코드가 작동하는 동안 GW의 메모리 그림은 정확히 이렇다.
+        </p>
+
+        <pre><code>[Client]
+   │ TCP 송신 (4GB)
+   ▼
+[GW 클라이언트 방향 수신 버퍼] (커널, 수백 KB)
+   │
+   │ Tomcat이 read(8KB) — JVM heap에 8KB만 머묾
+   │
+   ▼
+[InputStreamResource → RestClient]
+   │
+   │ 같은 8KB를 카카오 방향으로 write
+   │
+   ▼
+[GW 카카오 방향 송신 버퍼] (커널, 수백 KB)
+   │
+   ▼ TCP 송신
+[Kakao]</code></pre>
+
+        <p>
+          한 시점에 GW에 존재하는 4GB의 실제 양은 양쪽 소켓 버퍼 + JVM 8KB ≈ 수 MB다.
+          동시 업로드 N개라도 N × 수 MB 정도. 4GB × N이 절대 아니다.
+        </p>
+
+        <p>
+          그리고 카카오가 느리면 자동으로 클라이언트가 느려지는 양방향 backpressure가
+          여기서도 그대로 작동한다. 우리 코드가 별도로 한 일은 없다.
+          그저 InputStream을 변환하지 않고 그대로 흘려 보낸 것뿐이다.
+        </p>
+
+        <h2>모니터링 포인트</h2>
+
+        <p>
+          이 코드가 진짜로 흐름 제어를 살려서 작동하는지 확인하는 방법.
+        </p>
+
+        <pre><code>1. JVM heap 사용량
+   업로드 중에도 평소와 거의 같아야 함.
+   4GB 업로드 중 heap이 4GB 늘면 어딘가에서 byte[]로 변환되고 있다.
+
+2. 수신 버퍼 / 송신 버퍼 사용률
+   $ ss -tm
+   skmem:(r256000,rb524288, ...)   ← Recv-Q와 buffer 한도
+   업로드 중에 r 값이 차오르다 비워지다 반복하면 정상.
+   r이 항상 가득 차 있으면 우리가 read를 못 하고 있음 (카카오 forward 병목).
+
+3. 카카오로 가는 throughput
+   업로드 시간 ≈ 4GB / min(클라이언트 회선, 카카오 회선)
+   양쪽 중 느린 쪽 속도에 맞춰지면 정상.</code></pre>
+
+        <h2>한 줄 요약</h2>
+
+        <p>
+          OS와 TCP는 이미 흐름 제어를 갖고 있다.
+          백엔드 개발자가 할 일은 그걸 망가뜨리지 않는 것뿐이다.
+          망가뜨리는 방법은 단순하다.
+          <strong>InputStream을 byte 배열로 변환하거나, 디스크에 떨구거나, 길이를 모른다고 만드는 것</strong>이다.
+          이 셋 중 하나도 안 하고 InputStream을 끝에서 끝까지 직결하면,
+          4GB 파일은 메모리 8KB 버퍼만 갖고도 통과한다.
+        </p>
+
+        <p>
+          이게 4GB 외부 API 통합을 운영 수준으로 만드는 가장 단단한 토대다.
+          나머지(타임아웃, retry, 폭증 대응)는 이 토대 위에 얹는 것뿐이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
