@@ -16,11 +16,45 @@
 - [ ] ★ GC 진화사 — Serial → ZGC, Shenandoah (5편)
 - [ ] ★ ClassLoader 동작 — 부모 위임 모델 (3편)
 
-### 동시성
-- [ ] ★ volatile / synchronized / atomic — 셋의 차이 (3편)
-- [ ] ★ ThreadLocal — 메모리 누수 함정 (2편)
-- [ ] ★ ConcurrentHashMap 내부 (3편)
-- [ ] ★ ThreadPoolExecutor 튜닝 (4편)
+### 동시성 (Level 2 — j.u.c 별자리 23개)
+
+> **Single source**: 진행 상태는 `concurrency.html`의 노드 `data-state`(locked/progress/done)와 이 섹션 체크박스를 동시 갱신.
+> 별자리 페이지 링크: [/concurrency.html](./concurrency.html)
+
+#### Group A — 기초 동기화 (파랑)
+- [ ] ★ 1. `synchronized` & 모니터 락 — 객체 헤더, biased/lightweight/heavyweight (3편)
+- [ ] ★ 2. `volatile` & JMM — 가시성 vs 원자성, happens-before (3편)
+- [ ] ★ 3. `ReentrantLock` — tryLock, 인터럽트 가능, Condition (3편)
+- [ ] 4. `ReadWriteLock` / `StampedLock` — optimistic read (2편)
+
+#### Group B — 락 없는 동시성 (보라)
+- [ ] ★ 5. CAS (Compare-And-Swap) — CPU 명령어, ABA 문제 (2편)
+- [ ] ★ 6. `Atomic*` 패밀리 — `AtomicInteger`부터 `LongAdder`까지 (2편)
+- [ ] ★ 7. 동시성 컬렉션 — `ConcurrentHashMap` 내부, `COWArrayList`, `ConcLinkedQueue` (3편)
+
+#### Group C — 스레드풀 (초록)
+- [ ] 8. `ExecutorService` — Runnable vs Callable, `Executors` 팩토리 함정 (2편)
+- [ ] ★ 9. `ThreadPoolExecutor` 7인자 — core/max, queue, RejectedHandler (4편)
+- [ ] 10. `Future` / `Callable` — `get()` 블로킹, `cancel()`의 진짜 의미 (2편)
+- [ ] ★ 11. 풀 사이징 이론 — CPU vs I/O bound, Little's Law (2편)
+
+#### Group D — 큐와 생산자/소비자 (주황)
+- [ ] 12. `BlockingQueue` 패밀리 — Array/Linked/Synchronous/Priority/Delay (2편)
+- [ ] 13. 생산자/소비자 패턴 — put/take/offer/poll, graceful shutdown (2편)
+
+#### Group E — 동기화 도구 (핑크)
+- [ ] 14. `CountDownLatch` — N개 끝날 때까지 대기 (1편)
+- [ ] 15. `CyclicBarrier` — N명 모일 때까지 (재사용) (1편)
+- [ ] 16. `Semaphore` — 동시 N개만 통과 (Rate limit 토대) (1편)
+- [ ] 17. `Phaser` — Latch+Barrier 합성, 동적 참여자 (1편)
+- [ ] 18. `Exchanger` — 두 스레드 1:1 데이터 교환 (1편)
+
+#### Group F — 함정 (회색)
+- [ ] ★ 19. Deadlock — 4조건, 예방/회피/탐지 (3편)
+- [ ] 20. Livelock / Starvation — 굶는 스레드 (1편)
+- [ ] ★ 21. `ThreadLocal` 함정 — 메모리 누수, 스레드풀과 상극 (2편)
+- [ ] 22. `InterruptedException` 처리법 — 삼키지 말고 복원 (1편)
+- [ ] 23. Double-Checked Locking — `volatile` 없으면 깨지는 이유 (1편)
 
 ### DB
 - [ ] ★ 트랜잭션 격리 수준 deep dive (5편)
@@ -95,11 +129,13 @@
 - [ ] String Pool과 String.intern() (2편)
 - [ ] Java Memory Model 완전 이해 (4편)
 
-### 동시성
-- [ ] ReentrantLock vs synchronized — Condition까지 (3편)
-- [ ] CompletableFuture (3편)
-- [ ] Virtual Thread (Project Loom) (3편)
-- [ ] Race / Deadlock / Livelock — 종류와 진단 (3편)
+### 동시성 (Level 3+ — L2 별자리 끝낸 뒤)
+- [ ] CompletableFuture (3편) — Level 3
+- [ ] ForkJoinPool 내부 — work-stealing, compensation thread (3편) — Level 3
+- [ ] `parallelStream` 함정 — commonPool 공유의 위험 (2편) — Level 3
+- [ ] Reactor `Schedulers` — parallel/boundedElastic/single 차이 (3편) — Level 4
+- [ ] Virtual Thread (Project Loom) — 풀 사이징의 종말 (3편) — Level 5
+- [ ] Structured Concurrency — 자식 스레드 생명주기 (2편) — Level 5
 
 ### DB
 - [ ] 낙관적 락 vs 비관적 락 vs CAS (3편)

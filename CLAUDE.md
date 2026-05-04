@@ -131,6 +131,20 @@ CSS는 이미 `@media (max-width: 640px)` 대응 있음 (`assets/style.css`). �
 - 시리즈 시작 시 `_backlog.md`에서 `[ ]` → `[~]`, 완료 시 `[x]`
 - 신규 토픽 발견 시 `_backlog.md`에 추가
 
+### 동시성(Level 2) 시리즈 — 별자리 시각화 single source
+
+`concurrency.html`의 23개 별자리는 동시성 학습의 진행 트래커이자 시각화 페이지다. **`_backlog.md` "동시성" 섹션과 동기화해서 갱신**한다.
+
+토픽 작업할 때 두 곳 동시 갱신:
+
+| 단계 | `_backlog.md` | `concurrency.html` |
+|---|---|---|
+| 작업 시작 | `[ ]` → `[~]` | 해당 노드 `data-state="locked"` → `"progress"` |
+| 발행 완료 | `[~]` → `[x]` | `data-state="progress"` → `"done"`, `href="#"` → 시리즈 첫 편 경로 |
+| 발행 완료 | (그대로) | 해당 그룹의 `<div class="series-empty">` → `<a class="post-item">` 시리즈 카드로 교체 |
+
+진행률 바 / 의존선 활성화는 별자리 페이지 JS가 자동 계산하므로 수동 갱신 불필요.
+
 ---
 
 ## 8. 작업 시작 전 체크리스트

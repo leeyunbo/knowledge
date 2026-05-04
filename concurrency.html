@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>동시성 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="./assets/style.css">
+  <style>
+    /* 동시성 페이지: 라이트 사이트 + 본문 가운데 다크 캔버스 */
+    .concurrency-container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 4rem 1.5rem 6rem;
+    }
+
+    .concurrency-hero { text-align: center; margin-bottom: 3rem; }
+    .concurrency-hero h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+    .concurrency-hero p {
+      color: var(--text-muted);
+      font-size: 15px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    /* === 다크 캔버스 === */
+    .roadmap-canvas {
+      position: relative;
+      background:
+        radial-gradient(ellipse 60% 40% at 25% 15%, rgba(192, 132, 252, 0.10) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 50% at 80% 85%, rgba(74, 222, 128, 0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 70% 50% at 60% 50%, rgba(108, 181, 255, 0.10) 0%, transparent 70%),
+        radial-gradient(ellipse at 50% 30%, #0d1224 0%, #050811 70%);
+      border-radius: 16px;
+      padding: 2.5rem 1.5rem 2rem;
+      margin-bottom: 4rem;
+      overflow: hidden;
+      box-shadow:
+        0 20px 60px rgba(10, 14, 39, 0.18),
+        0 0 0 1px rgba(255,255,255,0.05) inset,
+        0 0 80px rgba(108, 181, 255, 0.05) inset;
+      color: #e4e4e7;
+    }
+    /* 우주 배경 별 1차 (큰 별, 천천히 깜빡) */
+    .roadmap-canvas::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(1.5px 1.5px at 12% 18%, rgba(255,255,255,0.85), transparent),
+        radial-gradient(1.5px 1.5px at 28% 72%, rgba(255,255,255,0.7), transparent),
+        radial-gradient(1.5px 1.5px at 47% 35%, rgba(255,255,255,0.8), transparent),
+        radial-gradient(2px 2px at 65% 88%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(1.5px 1.5px at 78% 22%, rgba(255,255,255,0.8), transparent),
+        radial-gradient(1.5px 1.5px at 88% 56%, rgba(255,255,255,0.7), transparent),
+        radial-gradient(2px 2px at 5% 80%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(1.5px 1.5px at 95% 10%, rgba(255,255,255,0.85), transparent),
+        radial-gradient(1.5px 1.5px at 38% 9%, rgba(255,255,255,0.7), transparent),
+        radial-gradient(1.5px 1.5px at 60% 50%, rgba(255,255,255,0.6), transparent);
+      background-size: 700px 700px;
+      pointer-events: none;
+      animation: twinkle 4s ease-in-out infinite, drift 180s linear infinite;
+      opacity: 0.8;
+    }
+    /* 우주 배경 별 2차 (작은 별, 빨리 깜빡) */
+    .roadmap-canvas::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(0.5px 0.5px at 8% 35%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(0.5px 0.5px at 22% 50%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(0.5px 0.5px at 35% 80%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(0.5px 0.5px at 52% 18%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(0.5px 0.5px at 68% 65%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(0.5px 0.5px at 85% 30%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(0.5px 0.5px at 92% 75%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(0.5px 0.5px at 18% 95%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(0.5px 0.5px at 75% 5%, rgba(255,255,255,0.7), transparent);
+      background-size: 500px 500px;
+      pointer-events: none;
+      animation: twinkleFast 2.5s ease-in-out infinite alternate;
+      opacity: 0.7;
+    }
+    @keyframes drift {
+      from { background-position: 0 0; }
+      to { background-position: 700px 700px; }
+    }
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.85; }
+      50% { opacity: 0.45; }
+    }
+    @keyframes twinkleFast {
+      from { opacity: 0.4; }
+      to { opacity: 0.8; }
+    }
+    .canvas-content { position: relative; z-index: 1; }
+
+    .canvas-header { text-align: center; margin-bottom: 1.5rem; }
+    .canvas-header h2 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      background: linear-gradient(135deg, #c084fc 0%, #6db5ff 50%, #4ade80 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    .canvas-header p { color: #a1a1aa; font-size: 13px; }
+
+    .progress-section { max-width: 480px; margin: 0 auto 2rem; }
+    .progress-bar {
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #c084fc, #6db5ff, #4ade80);
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 12px rgba(108, 181, 255, 0.6);
+    }
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #71717a;
+      margin-top: 0.4rem;
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-mono);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem 1.2rem;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+      font-size: 11px;
+      color: #a1a1aa;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.4rem; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+
+    .roadmap-svg {
+      display: block;
+      width: 100%;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    .link {
+      stroke: rgba(255,255,255,0.07);
+      stroke-width: 1;
+      fill: none;
+      transition: all 0.6s ease;
+    }
+    .link.active {
+      stroke: rgba(180, 200, 255, 0.45);
+      stroke-width: 1.4;
+      filter: drop-shadow(0 0 4px rgba(108, 181, 255, 0.6));
+    }
+
+    .node { cursor: pointer; transition: opacity 0.3s; }
+    .node-circle { transition: all 0.4s ease; }
+    .node-glow {
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      pointer-events: none;
+    }
+    .node-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-anchor: middle;
+      pointer-events: none;
+      transition: all 0.4s;
+      font-family: inherit;
+      letter-spacing: 0.01em;
+      /* 어두운 배경 위에서 또렷하게 보이도록 외곽선 처리 */
+      paint-order: stroke;
+      stroke: rgba(5, 8, 17, 0.95);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+    .node-num {
+      font-size: 11px;
+      font-weight: 800;
+      text-anchor: middle;
+      pointer-events: none;
+      font-family: inherit;
+    }
+
+    /* 잠긴 별 */
+    .node[data-state="locked"] { cursor: default; }
+    .node[data-state="locked"] .node-circle {
+      fill: rgba(255,255,255,0.05);
+      stroke: rgba(255,255,255,0.22);
+      stroke-width: 0.8;
+    }
+    .node[data-state="locked"] .node-label { fill: #a1a1aa; }
+    .node[data-state="locked"] .node-num { fill: #a1a1aa; }
+
+    /* 학습 중 — 펄스 */
+    .node[data-state="progress"] .node-circle {
+      fill: rgba(180, 200, 255, 0.18);
+      stroke: var(--node-color, #6db5ff);
+      stroke-width: 1.6;
+      animation: nodePulse 2.4s ease-in-out infinite;
+    }
+    .node[data-state="progress"] .node-label { fill: #ffffff; font-weight: 700; }
+    .node[data-state="progress"] .node-num { fill: var(--node-color, #6db5ff); }
+    @keyframes nodePulse {
+      0%, 100% { filter: drop-shadow(0 0 3px var(--node-color, #6db5ff)); }
+      50% { filter: drop-shadow(0 0 12px var(--node-color, #6db5ff)); }
+    }
+
+    /* 완료 — 빛나는 별 (이중 글로우 + 십자 빛살) */
+    .node[data-state="done"] .node-circle {
+      fill: var(--node-color, #6db5ff);
+      stroke: rgba(255,255,255,0.85);
+      stroke-width: 0.4;
+      filter:
+        drop-shadow(0 0 4px var(--node-color, #6db5ff))
+        drop-shadow(0 0 12px var(--node-color, #6db5ff))
+        drop-shadow(0 0 24px var(--node-color, #6db5ff));
+      animation: nodeShine 3s ease-in-out infinite;
+    }
+    .node[data-state="done"] .node-glow {
+      opacity: 0.7;
+      stroke: var(--node-color, #6db5ff);
+      stroke-width: 1.2;
+      stroke-linecap: round;
+      filter: drop-shadow(0 0 3px var(--node-color, #6db5ff));
+      animation: shineFlare 4s ease-in-out infinite;
+    }
+    .node[data-state="done"] .node-label { fill: #ffffff; font-weight: 700; }
+    .node[data-state="done"] .node-num { fill: #050811; stroke: none; }
+    @keyframes nodeShine {
+      0%, 100% { filter: drop-shadow(0 0 4px var(--node-color, #6db5ff)) drop-shadow(0 0 12px var(--node-color, #6db5ff)); }
+      50% { filter: drop-shadow(0 0 6px var(--node-color, #6db5ff)) drop-shadow(0 0 20px var(--node-color, #6db5ff)) drop-shadow(0 0 32px var(--node-color, #6db5ff)); }
+    }
+    @keyframes shineFlare {
+      0%, 100% { opacity: 0.5; transform: rotate(0deg); }
+      50% { opacity: 0.85; transform: rotate(45deg); }
+    }
+
+    .node[data-state="progress"]:hover .node-circle,
+    .node[data-state="done"]:hover .node-circle {
+      stroke: #fff;
+      stroke-width: 1.8;
+      transform: scale(1.15);
+      transform-origin: center;
+      transform-box: fill-box;
+    }
+
+    .group-A { --node-color: #6db5ff; }
+    .group-B { --node-color: #c084fc; }
+    .group-C { --node-color: #4ade80; }
+    .group-D { --node-color: #fb923c; }
+    .group-E { --node-color: #f472b6; }
+    .group-F { --node-color: #9ca3af; }
+
+    /* 툴팁 */
+    .tooltip {
+      position: fixed;
+      background: rgba(15, 18, 30, 0.96);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      max-width: 300px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      color: #e4e4e7;
+    }
+    .tooltip.show { opacity: 1; }
+    .tooltip-title { font-weight: 600; margin-bottom: 4px; color: #e4e4e7; font-size: 13px; }
+    .tooltip-desc { color: #a1a1aa; font-size: 11px; line-height: 1.55; }
+    .tooltip-state { display: inline-block; margin-top: 6px; font-size: 10px; padding: 2px 6px; border-radius: 3px; }
+    .tooltip-state.locked { background: rgba(107,114,128,0.2); color: #9ca3af; }
+    .tooltip-state.progress { background: rgba(108,181,255,0.2); color: #93c5fd; }
+    .tooltip-state.done { background: rgba(74,222,128,0.2); color: #86efac; }
+
+    /* === 시리즈 목록 (라이트 톤) === */
+    .series-section { margin-top: 4rem; }
+    .series-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--text-faint);
+      margin-bottom: 2rem;
+      text-transform: uppercase;
+      text-align: center;
+      position: relative;
+    }
+    .series-section-title::before,
+    .series-section-title::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: calc(50% - 60px);
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+    }
+    .series-section-title::before { left: 0; }
+    .series-section-title::after { right: 0; }
+
+    .series-group {
+      margin-bottom: 2rem;
+      padding: 1.5rem 1.5rem 1.5rem 1.75rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      border-left: 3px solid var(--group-color, var(--border));
+      transition: all 0.3s ease;
+    }
+    .series-group:hover {
+      border-color: var(--border-hover);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+    .series-group.group-A { --group-color: #6db5ff; }
+    .series-group.group-B { --group-color: #c084fc; }
+    .series-group.group-C { --group-color: #4ade80; }
+    .series-group.group-D { --group-color: #fb923c; }
+    .series-group.group-E { --group-color: #f472b6; }
+    .series-group.group-F { --group-color: #9ca3af; }
+
+    .series-group h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .series-group h3 .group-tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--group-color, var(--text-muted));
+      letter-spacing: 0.05em;
+      padding: 2px 7px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--group-color, #999) 10%, transparent);
+    }
+    .series-group .group-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      line-height: 1.55;
+    }
+    .series-empty {
+      padding: 0.9rem 1rem;
+      color: var(--text-faint);
+      font-size: 12px;
+      background: var(--code-bg);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .series-empty::before {
+      content: '✦';
+      color: var(--group-color, var(--text-faint));
+      opacity: 0.5;
+    }
+
+    /* === 모바일 대응 === */
+    @media (max-width: 640px) {
+      .concurrency-container { padding: 2rem 1rem 4rem; }
+      .concurrency-hero h1 { font-size: 24px; }
+      .concurrency-hero p { font-size: 13px; }
+      .canvas-header h2 { font-size: 18px; }
+      .canvas-header p { font-size: 11px; }
+      .roadmap-canvas {
+        padding: 1.5rem 0.5rem 1rem;
+        border-radius: 12px;
+      }
+      .legend { font-size: 10px; gap: 0.4rem 0.7rem; margin-bottom: 1rem; }
+      .legend-dot { width: 7px; height: 7px; }
+
+      /* 모바일에선 라벨 숨기고 번호만 키워서 표시 */
+      .node-label { display: none; }
+      .node-num { font-size: 12px; font-weight: 800; }
+      .node[data-state="locked"] .node-circle,
+      .node[data-state="progress"] .node-circle,
+      .node[data-state="done"] .node-circle {
+        r: 16;
+      }
+
+      .series-section { margin-top: 2.5rem; }
+      .series-group {
+        padding: 1.25rem 1rem 1.25rem 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .series-group h3 { font-size: 14px; }
+      .series-group .group-desc { font-size: 12px; }
+
+      .tooltip {
+        max-width: 80vw;
+        font-size: 11px;
+        padding: 8px 12px;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .roadmap-canvas { padding: 1rem 0.25rem; }
+      .legend { gap: 0.3rem 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="./index.html" class="site-title">bok's notes</a>
+      <nav class="site-nav">
+        <a href="./cs.html">cs</a>
+        <a href="./concurrency.html">concurrency</a>
+        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
+        <a href="https://github.com/leeyunbo" target="_blank">github</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="concurrency-container">
+    <section class="concurrency-hero">
+      <h1>동시성</h1>
+      <p>j.u.c 패키지를 마스터하는 23개의 토픽. 별자리로 펼쳐두고, 글이 발행될 때마다 별을 켠다.</p>
+    </section>
+
+    <!-- === 다크 캔버스: 별자리 === -->
+    <section class="roadmap-canvas">
+      <div class="canvas-content">
+        <div class="canvas-header">
+          <h2>Java 동시성 별자리</h2>
+          <p>Level 2 · java.util.concurrent</p>
+        </div>
+
+        <div class="progress-section">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progressText">0 / 23 켜짐</span>
+            <span id="progressPct">0%</span>
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#6db5ff;color:#6db5ff;"></div>A · 기초 동기화</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#c084fc;color:#c084fc;"></div>B · 락 없는 동시성</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#4ade80;color:#4ade80;"></div>C · 스레드풀</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#fb923c;color:#fb923c;"></div>D · 큐와 P/C</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f472b6;color:#f472b6;"></div>E · 동기화 도구</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#9ca3af;color:#9ca3af;"></div>F · 함정</div>
+        </div>
+
+        <svg class="roadmap-svg" viewBox="0 0 1000 1100" xmlns="http://www.w3.org/2000/svg" aria-label="Java 동시성 학습 로드맵">
+
+          <g id="links">
+            <line class="link" data-from="1" data-to="2" x1="500" y1="100" x2="340" y2="220" />
+            <line class="link" data-from="1" data-to="3" x1="500" y1="100" x2="660" y2="220" />
+            <line class="link" data-from="3" data-to="4" x1="660" y1="220" x2="790" y2="320" />
+            <line class="link" data-from="2" data-to="5" x1="340" y1="220" x2="430" y2="340" />
+            <line class="link" data-from="5" data-to="6" x1="430" y1="340" x2="500" y2="460" />
+            <line class="link" data-from="6" data-to="7" x1="500" y1="460" x2="630" y2="540" />
+            <line class="link" data-from="8" data-to="9" x1="180" y1="280" x2="160" y2="410" />
+            <line class="link" data-from="9" data-to="10" x1="160" y1="410" x2="280" y2="540" />
+            <line class="link" data-from="9" data-to="11" x1="160" y1="410" x2="100" y2="550" />
+            <line class="link" data-from="9" data-to="12" x1="160" y1="410" x2="380" y2="680" />
+            <line class="link" data-from="12" data-to="13" x1="380" y1="680" x2="270" y2="800" />
+            <line class="link" data-from="14" data-to="15" x1="700" y1="680" x2="820" y2="580" />
+            <line class="link" data-from="14" data-to="16" x1="700" y1="680" x2="870" y2="740" />
+            <line class="link" data-from="16" data-to="17" x1="870" y1="740" x2="910" y2="870" />
+            <line class="link" data-from="17" data-to="18" x1="910" y1="870" x2="770" y2="970" />
+            <line class="link" data-from="1" data-to="19" x1="500" y1="100" x2="490" y2="900" />
+            <line class="link" data-from="19" data-to="20" x1="490" y1="900" x2="580" y2="1000" />
+            <line class="link" data-from="2" data-to="23" x1="340" y1="220" x2="370" y2="970" />
+            <line class="link" data-from="8" data-to="22" x1="180" y1="280" x2="100" y2="900" />
+            <line class="link" data-from="9" data-to="21" x1="160" y1="410" x2="120" y2="740" />
+          </g>
+
+          <!-- Group A -->
+          <a class="node group-A" data-state="locked" data-id="1" data-title="1. synchronized & 모니터 락" data-desc="intrinsic lock의 정체. 객체 헤더, biased/lightweight/heavyweight 단계." href="#">
+            <g transform="translate(500,100)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">1</text>
+              <text class="node-label" y="34">synchronized</text>
+            </g>
+          </a>
+          <a class="node group-A" data-state="locked" data-id="2" data-title="2. volatile & JMM" data-desc="가시성 vs 원자성. happens-before. volatile이 못 막는 것." href="#">
+            <g transform="translate(340,220)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">2</text>
+              <text class="node-label" y="34">volatile · JMM</text>
+            </g>
+          </a>
+          <a class="node group-A" data-state="locked" data-id="3" data-title="3. ReentrantLock" data-desc="synchronized 대비 장점. tryLock, 인터럽트 가능, Condition 객체." href="#">
+            <g transform="translate(660,220)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">3</text>
+              <text class="node-label" y="34">ReentrantLock</text>
+            </g>
+          </a>
+          <a class="node group-A" data-state="locked" data-id="4" data-title="4. ReadWriteLock / StampedLock" data-desc="읽기 多 / 쓰기 少 시나리오. StampedLock의 optimistic read." href="#">
+            <g transform="translate(790,320)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">4</text>
+              <text class="node-label" y="34">RW · Stamped</text>
+            </g>
+          </a>
+
+          <!-- Group B -->
+          <a class="node group-B" data-state="locked" data-id="5" data-title="5. CAS (Compare-And-Swap)" data-desc="CPU 명령어 수준의 원자 연산. ABA 문제와 해결." href="#">
+            <g transform="translate(430,340)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">5</text>
+              <text class="node-label" y="34">CAS</text>
+            </g>
+          </a>
+          <a class="node group-B" data-state="locked" data-id="6" data-title="6. Atomic* 패밀리" data-desc="AtomicInteger, AtomicReference, AtomicStampedReference, LongAdder." href="#">
+            <g transform="translate(500,460)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">6</text>
+              <text class="node-label" y="34">Atomic*</text>
+            </g>
+          </a>
+          <a class="node group-B" data-state="locked" data-id="7" data-title="7. 동시성 컬렉션" data-desc="ConcurrentHashMap의 세그먼트/CAS, CopyOnWriteArrayList, ConcurrentLinkedQueue." href="#">
+            <g transform="translate(630,540)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">7</text>
+              <text class="node-label" y="34">Concurrent 컬렉션</text>
+            </g>
+          </a>
+
+          <!-- Group C -->
+          <a class="node group-C" data-state="locked" data-id="8" data-title="8. ExecutorService" data-desc="작업 제출 모델. Executors 팩토리의 함정. Runnable vs Callable. submit vs execute." href="#">
+            <g transform="translate(180,280)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">8</text>
+              <text class="node-label" y="34">ExecutorService</text>
+            </g>
+          </a>
+          <a class="node group-C" data-state="locked" data-id="9" data-title="9. ThreadPoolExecutor 7인자 분해" data-desc="core/max poolSize, keepAlive, workQueue, ThreadFactory, RejectedExecutionHandler." href="#">
+            <g transform="translate(160,410)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">9</text>
+              <text class="node-label" y="34">ThreadPoolExecutor</text>
+            </g>
+          </a>
+          <a class="node group-C" data-state="locked" data-id="10" data-title="10. Future / Callable" data-desc="get()의 블로킹과 타임아웃. cancel()의 진짜 의미 (인터럽트 시그널)." href="#">
+            <g transform="translate(280,540)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">10</text>
+              <text class="node-label" y="34">Future</text>
+            </g>
+          </a>
+          <a class="node group-C" data-state="locked" data-id="11" data-title="11. 풀 사이징 이론" data-desc="CPU bound vs I/O bound 공식. Little's Law. 모니터링 지표." href="#">
+            <g transform="translate(100,550)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">11</text>
+              <text class="node-label" y="34">풀 사이징</text>
+            </g>
+          </a>
+
+          <!-- Group D -->
+          <a class="node group-D" data-state="locked" data-id="12" data-title="12. BlockingQueue 패밀리" data-desc="ArrayBQ, LinkedBQ, SynchronousQueue, PriorityBQ, DelayQueue 차이와 선택." href="#">
+            <g transform="translate(380,680)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">12</text>
+              <text class="node-label" y="34">BlockingQueue</text>
+            </g>
+          </a>
+          <a class="node group-D" data-state="locked" data-id="13" data-title="13. 생산자 / 소비자 패턴" data-desc="put/take/offer/poll의 의미 차이. 백프레셔의 가장 단순한 형태. graceful shutdown." href="#">
+            <g transform="translate(270,800)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">13</text>
+              <text class="node-label" y="34">Producer · Consumer</text>
+            </g>
+          </a>
+
+          <!-- Group E -->
+          <a class="node group-E" data-state="locked" data-id="14" data-title="14. CountDownLatch" data-desc="N개 작업이 끝날 때까지 대기. 일회용 카운터." href="#">
+            <g transform="translate(700,680)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">14</text>
+              <text class="node-label" y="34">CountDownLatch</text>
+            </g>
+          </a>
+          <a class="node group-E" data-state="locked" data-id="15" data-title="15. CyclicBarrier" data-desc="N명이 모일 때까지 대기. Latch와 달리 재사용 가능." href="#">
+            <g transform="translate(820,580)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">15</text>
+              <text class="node-label" y="34">CyclicBarrier</text>
+            </g>
+          </a>
+          <a class="node group-E" data-state="locked" data-id="16" data-title="16. Semaphore" data-desc="동시 N개만 통과 허용. 자원 풀 제한 / Rate limit 토대." href="#">
+            <g transform="translate(870,740)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">16</text>
+              <text class="node-label" y="34">Semaphore</text>
+            </g>
+          </a>
+          <a class="node group-E" data-state="locked" data-id="17" data-title="17. Phaser" data-desc="Latch + Barrier 합성. 동적 참여자 등록 가능." href="#">
+            <g transform="translate(910,870)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">17</text>
+              <text class="node-label" y="34">Phaser</text>
+            </g>
+          </a>
+          <a class="node group-E" data-state="locked" data-id="18" data-title="18. Exchanger" data-desc="두 스레드 사이 1:1 데이터 교환점." href="#">
+            <g transform="translate(770,970)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">18</text>
+              <text class="node-label" y="34">Exchanger</text>
+            </g>
+          </a>
+
+          <!-- Group F -->
+          <a class="node group-F" data-state="locked" data-id="19" data-title="19. Deadlock" data-desc="4가지 필요 조건. 예방 / 회피 / 탐지의 차이." href="#">
+            <g transform="translate(490,900)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">19</text>
+              <text class="node-label" y="34">Deadlock</text>
+            </g>
+          </a>
+          <a class="node group-F" data-state="locked" data-id="20" data-title="20. Livelock / Starvation" data-desc="영원히 양보만 하다 끝나는 케이스, 우선순위에 밀려 굶는 스레드." href="#">
+            <g transform="translate(580,1000)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">20</text>
+              <text class="node-label" y="34">Livelock · Starve</text>
+            </g>
+          </a>
+          <a class="node group-F" data-state="locked" data-id="21" data-title="21. ThreadLocal 함정" data-desc="메모리 누수의 고전. 스레드풀과 만나면 더 위험." href="#">
+            <g transform="translate(120,740)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">21</text>
+              <text class="node-label" y="34">ThreadLocal</text>
+            </g>
+          </a>
+          <a class="node group-F" data-state="locked" data-id="22" data-title="22. InterruptedException 처리법" data-desc="삼키지 말고 복원하라. interrupt 시그널의 정체." href="#">
+            <g transform="translate(100,900)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">22</text>
+              <text class="node-label" y="34">Interrupted</text>
+            </g>
+          </a>
+          <a class="node group-F" data-state="locked" data-id="23" data-title="23. Double-Checked Locking" data-desc="volatile 없으면 깨지는 이유. 그 유명한 반쪽 초기화." href="#">
+            <g transform="translate(370,970)">
+              <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
+              <circle class="node-circle" r="14" />
+              <text class="node-num" dy="3">23</text>
+              <text class="node-label" y="34">DCL</text>
+            </g>
+          </a>
+
+        </svg>
+      </div>
+    </section>
+
+    <!-- === 시리즈 목록 (라이트) === -->
+    <section class="series-section">
+      <div class="series-section-title">시리즈</div>
+
+      <div class="series-group group-A">
+        <h3><span class="group-tag">A</span>기초 동기화</h3>
+        <p class="group-desc">스레드 간 상호배제와 메모리 가시성. 모든 동시성 도구의 토대.</p>
+        <div class="series-empty">아직 발행된 시리즈가 없다</div>
+      </div>
+
+      <div class="series-group group-B">
+        <h3><span class="group-tag">B</span>락 없는 동시성</h3>
+        <p class="group-desc">CAS 위에 세워진 lock-free의 세계. 락 경합을 우회하는 길.</p>
+        <div class="series-empty">아직 발행된 시리즈가 없다</div>
+      </div>
+
+      <div class="series-group group-C">
+        <h3><span class="group-tag">C</span>스레드풀</h3>
+        <p class="group-desc">실무에서 가장 자주 마주치는 영역. 풀 인자 7개의 의미와 사이징 이론.</p>
+        <div class="series-empty">아직 발행된 시리즈가 없다</div>
+      </div>
+
+      <div class="series-group group-D">
+        <h3><span class="group-tag">D</span>큐와 생산자/소비자</h3>
+        <p class="group-desc">BlockingQueue 패밀리와 백프레셔의 가장 단순한 형태.</p>
+        <div class="series-empty">아직 발행된 시리즈가 없다</div>
+      </div>
+
+      <div class="series-group group-E">
+        <h3><span class="group-tag">E</span>동기화 도구</h3>
+        <p class="group-desc">Latch, Barrier, Semaphore, Phaser, Exchanger — 스레드 사이를 조율하는 다섯 도구.</p>
+        <div class="series-empty">아직 발행된 시리즈가 없다</div>
+      </div>
+
+      <div class="series-group group-F">
+        <h3><span class="group-tag">F</span>함정</h3>
+        <p class="group-desc">데드락부터 ThreadLocal 메모리 누수, DCL의 깨진 가정까지 — 면접 단골.</p>
+        <div class="series-empty">아직 발행된 시리즈가 없다</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="tooltip">
+    <div class="tooltip-title" id="tooltipTitle"></div>
+    <div class="tooltip-desc" id="tooltipDesc"></div>
+    <span class="tooltip-state" id="tooltipState"></span>
+  </div>
+
+  <footer class="site-footer">bok · 2026</footer>
+
+  <script>
+    const tooltip = document.getElementById('tooltip');
+    const tooltipTitle = document.getElementById('tooltipTitle');
+    const tooltipDesc = document.getElementById('tooltipDesc');
+    const tooltipState = document.getElementById('tooltipState');
+
+    const stateLabel = { locked: '🔒 미공개', progress: '✦ 학습 중', done: '★ 완료' };
+
+    document.querySelectorAll('.node').forEach(node => {
+      node.addEventListener('mouseenter', () => {
+        tooltipTitle.textContent = node.dataset.title;
+        tooltipDesc.textContent = node.dataset.desc;
+        const s = node.dataset.state;
+        tooltipState.textContent = stateLabel[s] || '';
+        tooltipState.className = 'tooltip-state ' + s;
+        tooltip.classList.add('show');
+      });
+      node.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+      node.addEventListener('mousemove', (e) => {
+        const x = Math.min(e.clientX + 16, window.innerWidth - 320);
+        const y = Math.min(e.clientY + 16, window.innerHeight - 100);
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+      });
+    });
+
+    const doneIds = new Set();
+    document.querySelectorAll('.node[data-state="done"]').forEach(n => doneIds.add(n.dataset.id));
+    document.querySelectorAll('.link').forEach(link => {
+      if (doneIds.has(link.dataset.from) && doneIds.has(link.dataset.to)) {
+        link.classList.add('active');
+      }
+    });
+
+    const total = document.querySelectorAll('.node').length;
+    const done = doneIds.size;
+    const pct = Math.round((done / total) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').textContent = done + ' / ' + total + ' 켜짐';
+    document.getElementById('progressPct').textContent = pct + '%';
+
+    document.querySelectorAll('.node[data-state="locked"]').forEach(node => {
+      node.addEventListener('click', (e) => e.preventDefault());
+    });
+  </script>
+</body>
+</html>
