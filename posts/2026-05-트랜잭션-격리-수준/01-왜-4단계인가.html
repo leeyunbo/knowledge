@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>격리 수준이 왜 4단계로 나뉘는가 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.04 · 시리즈 1/5</div>
+        <h1>격리 수준이 왜 4단계로 나뉘는가</h1>
+        <p class="subtitle">
+          동시 트랜잭션이 만드는 부정합. ANSI SQL이 4단계로 나누고 3가지 부정합을 정의한 이유.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">트랜잭션 격리 수준</div>
+        <ol>
+          <li class="current">격리 수준이 왜 4단계로 나뉘는가</li>
+          <li><a href="./02-read-uncommitted-committed.html">READ UNCOMMITTED와 READ COMMITTED</a></li>
+          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
+          <li><a href="./04-serializable.html">SERIALIZABLE — 완전 직렬화의 비용</a></li>
+          <li><a href="./05-mysql-innodb-실전.html">MySQL InnoDB의 REPEATABLE READ 실전</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 격리 수준이라는 게 필요한가</h2>
+
+        <p>
+          데이터베이스가 트랜잭션 한 개만 처리한다면 격리 수준 같은 건 필요 없다.
+          그런데 현실에선 수십, 수백, 때로는 수천 개의 트랜잭션이 동시에 일어난다.
+          그 사이에 같은 행을 읽고 쓰는 게 자연스러운 패턴이다.
+        </p>
+
+        <p>
+          이때 "동시에 일어나는 트랜잭션을 어떻게 격리할 것인가"가 결정해야 할 문제가 된다.
+          완벽하게 격리하면(=완전히 한 줄로 줄 세우면) 동시성이 죽고,
+          전혀 격리하지 않으면 데이터가 깨진다.
+          그 사이에서 적정선을 고를 수 있게 단계로 나눠둔 게 격리 수준이다.
+        </p>
+
+        <h2>ANSI SQL이 정의한 4단계</h2>
+
+        <p>
+          1992년 ANSI SQL 표준이 격리 수준을 4단계로 정의했다.
+          이 분류가 지금까지 거의 모든 RDBMS의 기본 골격이다.
+        </p>
+
+        <pre><code>READ UNCOMMITTED   — 가장 약한 격리. 거의 안 막음
+READ COMMITTED     — 커밋된 데이터만 본다
+REPEATABLE READ    — 한 트랜잭션 안에선 같은 결과
+SERIALIZABLE       — 가장 강한 격리. 한 줄로 직렬화한 것과 같음</code></pre>
+
+        <p>
+          위로 갈수록 약하고 동시성 좋음, 아래로 갈수록 강하고 동시성 나쁨.
+          단계마다 어떤 부정합을 막는지가 정의되어 있다.
+        </p>
+
+        <h2>3가지 부정합 — 격리 수준이 막아야 할 것들</h2>
+
+        <p>
+          ANSI SQL-92는 격리 수준을 3가지 부정합 현상(phenomena)으로 정의한다.
+          어떤 부정합을 허용하는지가 곧 그 격리 수준의 정의다.
+        </p>
+
+        <h3>P1. Dirty Read — 커밋되지 않은 데이터를 읽는다</h3>
+
+        <pre><code>T1: UPDATE balance SET amount = amount - 10000 WHERE id = 1
+T2: SELECT amount FROM balance WHERE id = 1     ← 9990 읽음
+T1: ROLLBACK    ← 사실 트랜잭션이 취소됨
+T2:             ← T2는 이미 9990을 읽었음. 잘못된 값.</code></pre>
+
+        <p>
+          T2가 T1의 미커밋 변경을 읽었다. T1이 롤백하면 T2가 본 값은
+          존재한 적 없는 값. 데이터 무결성이 깨지는 가장 심한 케이스.
+        </p>
+
+        <h3>P2. Non-Repeatable Read — 같은 행을 두 번 읽었는데 다른 값</h3>
+
+        <pre><code>T1: SELECT amount FROM balance WHERE id = 1     ← 10000 읽음
+T2: UPDATE balance SET amount = 9000 WHERE id = 1
+T2: COMMIT
+T1: SELECT amount FROM balance WHERE id = 1     ← 9000 읽음. 어? 달라졌다</code></pre>
+
+        <p>
+          T1은 이미 커밋된 데이터만 읽었다(P1은 안 일어남).
+          그런데 트랜잭션 도중에 다른 트랜잭션이 커밋되어
+          같은 행을 다시 읽으면 다른 값이 나온다.
+          한 트랜잭션 안에서 읽기가 일관성이 없다.
+        </p>
+
+        <h3>P3. Phantom Read — 같은 조건으로 두 번 조회했는데 새 행이 나타남</h3>
+
+        <pre><code>T1: SELECT * FROM users WHERE age &gt; 20    ← 5명 반환
+T2: INSERT INTO users (name, age) VALUES ('Alice', 25)
+T2: COMMIT
+T1: SELECT * FROM users WHERE age &gt; 20    ← 6명 반환. 새 사람이 나타났다</code></pre>
+
+        <p>
+          기존 행은 안 바뀌었다. 그런데 T2가 새 행을 추가하니
+          T1이 같은 조건으로 다시 조회하면 결과 집합이 달라진다.
+          유령처럼 새 행이 나타나서 phantom.
+        </p>
+
+        <h2>격리 수준 × 부정합 매트릭스</h2>
+
+        <pre><code>격리 수준              Dirty   Non-Repeatable   Phantom
+─────────────────────  ──────  ────────────────  ────────
+READ UNCOMMITTED       허용    허용              허용
+READ COMMITTED         차단    허용              허용
+REPEATABLE READ        차단    차단              허용 (ANSI 기준)
+SERIALIZABLE           차단    차단              차단</code></pre>
+
+        <p>
+          이 표가 ANSI SQL-92의 격리 수준 정의 그 자체다.
+          위에서 아래로 내려갈수록 더 많은 부정합을 막는다.
+        </p>
+
+        <h2>왜 4단계인가 — Trade-off의 단계</h2>
+
+        <p>
+          왜 그냥 SERIALIZABLE 하나만 쓰면 되지 않을까. 모든 부정합 막아주니까.
+          답은 <strong>동시성과 성능</strong>이다.
+        </p>
+
+        <pre><code>강한 격리 = 더 많은 락 / 더 긴 락 보유 시간
+        = 다른 트랜잭션이 더 자주 대기
+        = 동시 처리량 감소
+
+약한 격리 = 락이 적거나 짧음
+        = 동시 처리량 높음
+        = 그러나 부정합 위험 감수</code></pre>
+
+        <p>
+          격리 수준은 "정확성과 성능의 trade-off"를 운영자가 명시적으로 고를 수 있게 한 다이얼이다.
+          모든 데이터가 SERIALIZABLE 필요하지 않다.
+          은행 계좌 이체는 강한 격리가 필요하지만,
+          블로그 게시물 조회는 READ COMMITTED로도 충분하다.
+        </p>
+
+        <h2>격리 수준을 어디서 결정하는가</h2>
+
+        <pre><code>-- 세션 또는 트랜잭션 단위로 설정 가능
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
+-- 트랜잭션 시작 시
+START TRANSACTION;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+...</code></pre>
+
+        <p>
+          Spring 환경에서는 보통 <code>@Transactional(isolation = Isolation.READ_COMMITTED)</code> 식으로 메서드 단위로 명시한다.
+          명시하지 않으면 DB의 기본값을 따른다.
+        </p>
+
+        <h3>주요 DB의 기본값</h3>
+
+        <pre><code>MySQL InnoDB:        REPEATABLE READ
+PostgreSQL:          READ COMMITTED
+Oracle:              READ COMMITTED
+SQL Server:          READ COMMITTED</code></pre>
+
+        <p>
+          MySQL은 다른 RDBMS와 다르게 REPEATABLE READ가 기본이다.
+          그리고 MySQL의 REPEATABLE READ는 ANSI 정의와 다르게
+          <strong>Phantom까지 막아준다</strong>. 이 디테일은 5편에서 다룬다.
+        </p>
+
+        <h2>실무 선택 — 어떤 격리 수준을 쓰는가</h2>
+
+        <pre><code>READ UNCOMMITTED  — 거의 안 쓴다. 통계/리포트용 정도
+READ COMMITTED    — 가장 흔한 선택 (PostgreSQL, Oracle 기본)
+REPEATABLE READ   — MySQL 기본. 같은 트랜잭션 안 일관성 필요할 때
+SERIALIZABLE      — 자금 이체 같은 강한 무결성 필요. 성능 비용 큼</code></pre>
+
+        <p>
+          일반적인 OLTP 서비스는 <strong>READ COMMITTED</strong>가 가장 자주 쓰인다.
+          MySQL은 REPEATABLE READ가 기본이지만 운영자가 굳이 변경하지 않는 경우가 대부분이라 그냥 쓴다.
+          SERIALIZABLE은 정말 필요한 경우에만, 짧은 트랜잭션에 한정해서 쓴다.
+        </p>
+
+        <h2>이 시리즈가 답할 질문들</h2>
+
+        <pre><code>1. READ UNCOMMITTED는 정말 안 막는 게 있나? (2편)
+2. READ COMMITTED가 막은 Dirty Read의 진짜 의미는? (2편)
+3. REPEATABLE READ는 어떻게 같은 결과를 보장하나? (3편)
+4. ANSI 정의로 RR에선 Phantom이 가능한데, MySQL은 왜 막아주나? (5편)
+5. SERIALIZABLE은 진짜 한 줄씩 처리하나? (4편)
+6. 본인 쿠폰 narrative의 SKIP LOCKED는 어느 격리 수준에서 동작하나? (5편)</code></pre>
+
+        <p>
+          이 6가지 질문이 자연스럽게 풀릴 것이다.
+          격리 수준은 면접에서 가장 자주 묻는 DB 토픽 중 하나고,
+          현실 시스템 설계의 가장 기본적인 다이얼이다.
+        </p>
+
+        <p>
+          다음 편에서는 가장 약한 두 단계, READ UNCOMMITTED와 READ COMMITTED를 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

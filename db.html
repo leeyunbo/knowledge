@@ -85,7 +85,7 @@
 
     <section class="graph-canvas">
       <div class="graph-meta">
-        <span><span id="progressText">1 / 13</span> · <span id="progressPct">8%</span></span>
+        <span><span id="progressText">2 / 13</span> · <span id="progressPct">15%</span></span>
       </div>
 
       <svg class="graph-svg" viewBox="0 0 800 620" xmlns="http://www.w3.org/2000/svg" aria-label="DB 토픽 그래프">
@@ -121,8 +121,11 @@
           <g transform="translate(90,220)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">N+1</text></g>
         </a>
 
-        <a class="node group-B" data-state="locked" data-id="4" data-title="트랜잭션 격리 수준" data-desc="READ UNCOMMITTED부터 SERIALIZABLE까지, 부정합 종류" href="#">
-          <g transform="translate(400,130)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">격리 수준</text></g>
+        <a class="node group-B" data-state="done" data-id="4"
+           data-title="트랜잭션 격리 수준"
+           data-desc="ANSI 4단계, 3가지 부정합, MySQL InnoDB의 next-key lock"
+           href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
+          <g transform="translate(400,130)" style="--ring-delay: 0.4s;"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">격리 수준</text></g>
         </a>
         <a class="node group-B" data-state="locked" data-id="5" data-title="MVCC와 잠금" data-desc="언두 로그, 가시성 판단, 갭 락, 넥스트 키 락" href="#">
           <g transform="translate(470,250)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">MVCC</text></g>
@@ -173,7 +176,9 @@
         <h2>B · 트랜잭션</h2>
         <p class="group-desc">격리 수준과 MVCC가 만드는 동시성 의미론</p>
         <div class="topic-list">
-          <div class="topic-item locked"><span class="topic-num">04</span><span class="topic-title">트랜잭션 격리 수준</span><span class="topic-meta">예정</span></div>
+          <a class="topic-item done" href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
+            <span class="topic-num">04</span><span class="topic-title">트랜잭션 격리 수준</span><span class="topic-meta">5편</span>
+          </a>
           <div class="topic-item locked"><span class="topic-num">05</span><span class="topic-title">MVCC와 잠금</span><span class="topic-meta">예정</span></div>
         </div>
       </div>

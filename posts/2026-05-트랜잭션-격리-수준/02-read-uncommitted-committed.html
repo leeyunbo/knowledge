@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>READ UNCOMMITTED와 READ COMMITTED (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.04 · 시리즈 2/5</div>
+        <h1>READ UNCOMMITTED와 READ COMMITTED</h1>
+        <p class="subtitle">
+          가장 약한 두 단계. 무엇을 허용하고 무엇을 막는가.
+          그리고 Dirty Read를 막는 데 어떤 비용이 드는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">트랜잭션 격리 수준</div>
+        <ol>
+          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
+          <li class="current">READ UNCOMMITTED와 READ COMMITTED</li>
+          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
+          <li><a href="./04-serializable.html">SERIALIZABLE — 완전 직렬화의 비용</a></li>
+          <li><a href="./05-mysql-innodb-실전.html">MySQL InnoDB의 REPEATABLE READ 실전</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>READ UNCOMMITTED — 거의 안 막는 격리</h2>
+
+        <p>
+          ANSI SQL의 가장 약한 격리 수준.
+          이름 그대로 "커밋되지 않은 데이터를 읽도록 허용"한다.
+          즉 P1(Dirty Read)이 발생할 수 있다.
+        </p>
+
+        <pre><code>T1: BEGIN
+T1: UPDATE balance SET amount = 9000 WHERE id = 1   -- 아직 커밋 X
+T2: SELECT amount FROM balance WHERE id = 1          -- 9000 읽음
+T1: ROLLBACK                                         -- T1 취소
+
+→ T2는 존재한 적 없는 9000을 읽음. 그걸 기반으로 다른 작업했다면 데이터 오염</code></pre>
+
+        <p>
+          왜 이런 격리가 존재하나. 답은 <strong>락을 거의 안 걸어 동시성이 매우 좋다</strong>는 것.
+          쓰기 트랜잭션이 락을 걸어도 읽기는 그 락을 무시하고 그냥 읽어버린다.
+          쓰기와 읽기가 서로 막지 않는다.
+        </p>
+
+        <h3>실무 사용처 — 거의 없다</h3>
+
+        <pre><code>가능한 케이스:
+  - 비즈니스 정확성이 중요하지 않은 통계/리포트
+  - 어차피 부정확해도 OK인 모니터링 대시보드
+  - "대략적 수치"가 필요한 경우
+
+실제로는:
+  - 거의 안 씀
+  - 신중한 팀은 통계용 별도 read replica + 그 위에서도 READ COMMITTED 사용
+  - "동시성이 정말 critical한데 정확성은 좀 포기해도 되는" 상황이 현실에 별로 없음</code></pre>
+
+        <p>
+          MySQL InnoDB에서 READ UNCOMMITTED를 명시해도 사실 거의 안 쓰인다.
+          "이런 게 있구나" 정도로만 알아두면 된다.
+        </p>
+
+        <h2>READ COMMITTED — 가장 흔한 격리</h2>
+
+        <p>
+          한 단계 강한 격리. <strong>커밋된 데이터만 읽도록 보장</strong>한다.
+          즉 P1(Dirty Read)을 막는다.
+        </p>
+
+        <pre><code>T1: BEGIN
+T1: UPDATE balance SET amount = 9000 WHERE id = 1   -- 아직 커밋 X
+T2: SELECT amount FROM balance WHERE id = 1          -- T1의 변경 안 보임
+                                                     -- 옛 값(10000) 읽음
+                                                     -- 또는 대기
+
+T1: COMMIT
+T2: SELECT amount FROM balance WHERE id = 1          -- 이제 9000 보임</code></pre>
+
+        <p>
+          T2는 T1이 커밋하기 전엔 옛 값을 본다. 데이터 무결성이 보장된다.
+          PostgreSQL, Oracle, SQL Server의 기본 격리 수준이고
+          실무에서 가장 흔히 쓰이는 격리다.
+        </p>
+
+        <h3>두 가지 구현 방식</h3>
+
+        <p>
+          READ COMMITTED를 구현하는 방식은 두 가지다. DB마다 다른 선택을 한다.
+        </p>
+
+        <h4>1. 락 기반 (Locking)</h4>
+
+        <pre><code>T1이 쓰는 동안: T1이 그 행에 X락(exclusive)을 걸어둠
+T2가 읽으려 하면: T1의 락을 만나 대기
+T1이 커밋하면: 락 해제 → T2가 읽음</code></pre>
+
+        <p>
+          단순하지만 한계가 있다. 읽기가 쓰기를 기다린다.
+          긴 쓰기 트랜잭션이 있으면 모든 읽기가 그동안 멈춘다.
+        </p>
+
+        <h4>2. MVCC (Multi-Version Concurrency Control)</h4>
+
+        <pre><code>T1이 UPDATE: 옛 버전 따로 저장 (언두 로그에) + 새 버전을 행에 적용
+T2가 읽음: T1의 변경이 커밋 안 됐으니 옛 버전을 읽음
+        → T2는 락 없이 그냥 옛 값을 받음
+
+T1 COMMIT: 옛 버전은 더 이상 보일 일 없으면 정리
+T2가 또 읽음: 이번엔 새 버전 보임</code></pre>
+
+        <p>
+          MVCC는 같은 행의 여러 버전을 동시에 들고 있다가 트랜잭션마다 적절한 버전을 보여준다.
+          <strong>읽기와 쓰기가 서로 안 막는다</strong>. 동시성이 훨씬 좋다.
+          PostgreSQL, MySQL InnoDB, Oracle 모두 MVCC 기반이다.
+        </p>
+
+        <h2>READ COMMITTED에서 여전히 일어나는 부정합</h2>
+
+        <p>
+          Dirty Read는 막지만 P2(Non-Repeatable Read)와 P3(Phantom)은 여전히 가능하다.
+        </p>
+
+        <h3>Non-Repeatable Read 시나리오</h3>
+
+        <pre><code>T1: BEGIN
+T1: SELECT amount FROM balance WHERE id = 1   -- 10000 읽음
+T2: BEGIN
+T2: UPDATE balance SET amount = 9000 WHERE id = 1
+T2: COMMIT
+T1: SELECT amount FROM balance WHERE id = 1   -- 9000 읽음 ← 같은 트랜잭션 안인데 값 달라짐
+T1: COMMIT</code></pre>
+
+        <p>
+          T1 입장에서 같은 행을 두 번 읽었는데 결과가 다르다. 왜?
+          READ COMMITTED는 "각 SELECT 시점에 커밋된 최신 데이터를 본다".
+          첫 번째 SELECT 시점엔 10000이 최신이었고, 두 번째엔 9000이 최신.
+          둘 다 커밋된 값을 봤지만 같은 트랜잭션 안에서 일관성 없음.
+        </p>
+
+        <h3>이게 문제가 되는 케이스</h3>
+
+        <pre><code>T1: 영수증 생성
+  - SELECT amount FROM balance WHERE user_id = 1   -- 잔액 10000
+  - INSERT INTO receipt (user_balance) VALUES (10000)
+  - 이 시점에 T2가 잔액 변경
+  - SELECT total_used FROM stats WHERE user_id = 1  -- 9000 사용한 통계 (잔액 변경 후 기준)
+
+→ 영수증엔 잔액 10000, 통계엔 9000 사용. 9000 사용 + 10000 잔액이면 19000인데 그런 적 없음.</code></pre>
+
+        <p>
+          한 트랜잭션 안에서 일관된 스냅샷이 필요한 경우 READ COMMITTED는 부족하다.
+          그래서 다음 격리 수준 REPEATABLE READ가 등장한다.
+        </p>
+
+        <h2>현실에서 READ COMMITTED를 쓰는 이유</h2>
+
+        <p>
+          READ COMMITTED가 가장 흔한 선택인 이유는 단순하다.
+        </p>
+
+        <pre><code>1. Dirty Read만 막혀도 대부분의 비즈니스 로직은 OK
+2. 동시성이 매우 좋음 (MVCC 기반이면 읽기-쓰기 안 막음)
+3. 더 강한 격리는 락 비용이 크다
+4. 부정합이 우려되는 곳에는 명시적 락(SELECT ... FOR UPDATE)으로 보강 가능</code></pre>
+
+        <p>
+          PostgreSQL이 기본을 READ COMMITTED로 둔 이유,
+          많은 운영 시스템이 그대로 쓰는 이유가 여기 있다.
+          "기본은 약하게, 필요한 곳만 강하게" 패턴.
+        </p>
+
+        <h2>Spring에서 명시</h2>
+
+        <pre><code>@Transactional(isolation = Isolation.READ_COMMITTED)
+public void transferMoney(Long from, Long to, BigDecimal amount) {
+    // ...
+}</code></pre>
+
+        <p>
+          명시 안 하면 <code>Isolation.DEFAULT</code>로 DB 기본값을 따른다.
+          MySQL이면 REPEATABLE READ, PostgreSQL이면 READ COMMITTED.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>READ UNCOMMITTED — 거의 안 쓴다. 락 없이 무엇이든 읽음.
+READ COMMITTED   — Dirty Read 차단. 가장 흔한 실무 선택.
+                   같은 트랜잭션 안에서 일관성은 보장 안 함.</code></pre>
+
+        <p>
+          그러면 같은 트랜잭션 안에서 일관된 스냅샷이 필요할 땐 어떻게 하나.
+          그게 다음 단계인 REPEATABLE READ다.
+          그런데 REPEATABLE READ도 ANSI 정의대로면 Phantom Read는 못 막는다.
+          그 디테일이 다음 편 주제다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

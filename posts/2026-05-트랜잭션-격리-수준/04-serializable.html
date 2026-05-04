@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SERIALIZABLE — 완전 직렬화의 비용 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.04 · 시리즈 4/5</div>
+        <h1>SERIALIZABLE — 완전 직렬화의 비용</h1>
+        <p class="subtitle">
+          모든 부정합을 막는 가장 강한 격리. 그런데 왜 거의 안 쓰는가.
+          그 비용과 trade-off, 그리고 PostgreSQL의 SSI라는 영리한 절충.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">트랜잭션 격리 수준</div>
+        <ol>
+          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
+          <li><a href="./02-read-uncommitted-committed.html">READ UNCOMMITTED와 READ COMMITTED</a></li>
+          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
+          <li class="current">SERIALIZABLE — 완전 직렬화의 비용</li>
+          <li><a href="./05-mysql-innodb-실전.html">MySQL InnoDB의 REPEATABLE READ 실전</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>SERIALIZABLE의 의미</h2>
+
+        <p>
+          SERIALIZABLE은 ANSI SQL의 가장 강한 격리 수준이다.
+          이름이 의미하는 바: <strong>"여러 트랜잭션이 동시에 실행되어도 결과가 어떤 직렬 순서로 실행한 것과 같아야 한다"</strong>.
+        </p>
+
+        <pre><code>동시 실행:
+  T1: A → B → C
+  T2: D → E → F
+
+SERIALIZABLE이 보장하는 것:
+  실제 결과가 다음 중 하나와 같아야 함
+  - "T1 전부 → T2 전부" 순서로 실행한 결과
+  - 또는 "T2 전부 → T1 전부" 순서로 실행한 결과
+
+  즉 "마치 한 줄로 줄 세워 실행한 것처럼" 보여야 함</code></pre>
+
+        <p>
+          이 정의는 단순한 락 메커니즘으로 표현하기 어렵다.
+          DB마다 SERIALIZABLE을 구현하는 방식이 다르다.
+        </p>
+
+        <h2>전통적 구현 — 2PL (Two-Phase Locking)</h2>
+
+        <p>
+          가장 고전적인 SERIALIZABLE 구현은 2PL이다. 두 단계로 나뉜다.
+        </p>
+
+        <pre><code>1단계: Growing Phase
+  - 트랜잭션이 진행되면서 필요한 락을 모두 획득
+  - 한 번 획득한 락은 트랜잭션 끝까지 유지
+
+2단계: Shrinking Phase
+  - 트랜잭션 커밋 또는 롤백 시점에 모든 락 한번에 해제
+
+이러면:
+  - 트랜잭션 충돌이 락으로 직렬화됨
+  - 한 트랜잭션이 끝날 때까지 다른 트랜잭션은 같은 자원 못 만짐</code></pre>
+
+        <p>
+          이게 진짜 직렬화다. 그러나 동시성 비용이 매우 크다.
+          모든 행에 락을 걸고 트랜잭션 끝날 때까지 유지하니
+          짧은 시간 안에도 락 대기가 폭증한다.
+        </p>
+
+        <h3>Strict 2PL의 비용</h3>
+
+        <pre><code>예: 3개 트랜잭션이 같은 행을 만지려고 함
+
+T1: 시작 → 행 락 → ... 5초 작업 ... → 커밋 → 락 해제
+T2: T1 락 만남 → 5초 대기 → T1 끝 → 락 → ... 작업 ... → 커밋
+T3: T2 락 만남 → 10초 대기 → T2 끝 → 락 → ...
+
+T1, T2, T3가 동시 시작인데 사실상 직렬 처리. 처리량 1/N.</code></pre>
+
+        <p>
+          그래서 단순 2PL을 SERIALIZABLE로 쓰는 RDBMS는 거의 없다.
+          이론적 정확성을 위해 동시성을 거의 포기하는 셈이라 운영 못 함.
+        </p>
+
+        <h2>현대적 구현 1 — MySQL InnoDB의 SERIALIZABLE</h2>
+
+        <p>
+          MySQL InnoDB는 SERIALIZABLE에서 모든 SELECT를 자동으로 LOCK IN SHARE MODE처럼 처리한다.
+        </p>
+
+        <pre><code>SELECT * FROM users WHERE id = 1
+  → 자동으로 SELECT * FROM users WHERE id = 1 LOCK IN SHARE MODE
+  → 그 행에 S락(공유 락) 걸림
+
+읽기 트랜잭션끼리: S락 호환되므로 동시 OK
+읽기 vs 쓰기: 충돌. 쓰기가 대기</code></pre>
+
+        <p>
+          기본은 RR(REPEATABLE READ)에서 next-key lock을 쓰지만,
+          SERIALIZABLE에선 SELECT까지 락을 걸어 추가 일관성 보장.
+          비용은 크지만 안전.
+        </p>
+
+        <h2>현대적 구현 2 — PostgreSQL의 SSI</h2>
+
+        <p>
+          PostgreSQL은 다른 접근을 한다. <strong>SSI(Serializable Snapshot Isolation)</strong>.
+          락을 거의 안 걸고 MVCC 스냅샷 기반으로 가다가, 직렬화 가능성을 어겼다고 판단하면 트랜잭션을 abort한다.
+        </p>
+
+        <pre><code>1. 모든 트랜잭션이 자기 시작 시점의 스냅샷을 봄 (RR과 같음)
+2. PostgreSQL이 트랜잭션 간 read/write 의존성을 추적
+3. 직렬화 가능 순서가 만들어질 수 없는 사이클 감지
+4. 사이클의 한 트랜잭션을 abort (Serialization Failure 에러)
+5. 애플리케이션이 이 에러를 받으면 재시도
+
+장점: 락 거의 없음. 동시성이 매우 좋음
+단점: 충돌 시 트랜잭션 abort. 재시도 로직 필요</code></pre>
+
+        <p>
+          SSI의 철학: "충돌 의심되면 일단 진행, 진짜 충돌이면 한 명만 살린다".
+          최적화 락 같은 발상. PostgreSQL 9.1부터 도입.
+        </p>
+
+        <h2>SERIALIZABLE이 보장하는 것 — 실전 예시</h2>
+
+        <p>
+          3편에서 본 Phantom Read 시나리오를 다시 보자.
+        </p>
+
+        <pre><code>비즈니스 룰: 사용자당 활성 쿠폰 최대 5개
+
+T1 (REPEATABLE READ):
+  SELECT COUNT(*) FROM coupons WHERE user_id=1 AND status='ACTIVE'
+  → 4건. OK.
+  (T2가 이 사이 1건 INSERT, COMMIT)
+  INSERT INTO coupons VALUES (1, 'ACTIVE')
+  COMMIT
+  → 6건이 됨. 룰 위반.</code></pre>
+
+        <p>
+          이걸 SERIALIZABLE에서 실행하면:
+        </p>
+
+        <pre><code>MySQL InnoDB SERIALIZABLE:
+  T1의 SELECT가 자동으로 락을 걸어 T2의 INSERT를 막음
+  T2는 T1 끝날 때까지 대기
+  T1이 INSERT 후 COMMIT → 5건
+  T2가 그제서야 INSERT 시도, COUNT 다시 검증해서 5건이면 거부
+
+PostgreSQL SSI:
+  T1, T2 모두 진행
+  COMMIT 시점에 PostgreSQL이 직렬화 불가능 감지
+  → 한 트랜잭션 abort (Serialization Failure)
+  애플리케이션이 재시도</code></pre>
+
+        <p>
+          어느 방식이든 결과는 같다. 룰을 어기는 결과가 나오지 않는다.
+          PostgreSQL은 동시 실행을 더 시도해보다가 충돌이면 abort,
+          MySQL은 락으로 처음부터 직렬화. 둘 다 SERIALIZABLE의 정의를 만족.
+        </p>
+
+        <h2>왜 SERIALIZABLE을 거의 안 쓰는가</h2>
+
+        <p>
+          가장 강한 격리인데 실무에선 매우 드물다. 이유:
+        </p>
+
+        <h3>1. 동시성 비용</h3>
+
+        <pre><code>MySQL InnoDB SERIALIZABLE:
+  모든 SELECT가 락을 건다
+  → 읽기-쓰기 충돌이 폭증
+  → throughput이 RR 대비 절반 이하로 떨어질 수 있음
+
+PostgreSQL SSI:
+  abort/재시도 비율이 올라감
+  → 충돌 많은 시스템에선 retry storm
+  → 결과적으로 throughput 감소</code></pre>
+
+        <h3>2. 데드락 위험</h3>
+
+        <p>
+          SERIALIZABLE은 락이 많아서 데드락 발생 빈도가 RR보다 훨씬 높다.
+          데드락이 자주 일어나면 운영 부담이 커진다.
+        </p>
+
+        <h3>3. 재시도 로직 부담 (PostgreSQL)</h3>
+
+        <p>
+          SSI는 충돌 시 Serialization Failure 예외를 던진다. 애플리케이션이 catch하고 재시도해야 한다.
+          모든 트랜잭션 코드에 retry 로직을 넣는 부담이 있다.
+        </p>
+
+        <h3>4. 대안이 충분</h3>
+
+        <p>
+          많은 경우 더 약한 격리 + 명시적 락(SELECT FOR UPDATE) 조합이
+          SERIALIZABLE보다 더 효율적이다. 락이 필요한 곳에만 정확히 걸면 되니까.
+        </p>
+
+        <pre><code>대안 패턴:
+  기본 격리: READ COMMITTED 또는 RR
+  중요 검증: SELECT ... FOR UPDATE로 명시적 락
+  → SERIALIZABLE보다 락 범위가 작음
+  → 동시성 좋음
+  → 그러나 개발자가 정확히 락을 걸어야 한다는 부담</code></pre>
+
+        <h2>그럼 SERIALIZABLE은 언제 쓰나</h2>
+
+        <pre><code>1. 비즈니스 검증이 매우 복잡하고 명시적 락으로 표현하기 어려운 경우
+2. 트랜잭션 처리량이 낮고 정확성이 가장 중요한 도메인 (회계, 재무)
+3. 짧은 트랜잭션. 락이 오래 안 걸려야 함
+4. 대규모 운영 시스템보단 작은 규모 시스템 또는 배치성 작업</code></pre>
+
+        <p>
+          일반 OLTP에서는 거의 안 쓴다. 면접에서 "어떤 격리 수준 쓰셨어요" 물었을 때
+          "SERIALIZABLE이요"라고 답하면 "왜요? 비용이 큰데"라는 후속 질문이 따라온다.
+          답을 명확히 할 수 있어야 한다.
+        </p>
+
+        <h2>SERIALIZABLE 한 줄 정리</h2>
+
+        <pre><code>SERIALIZABLE:
+  - 모든 부정합 차단 (Dirty / Non-Repeatable / Phantom)
+  - 결과가 어떤 직렬 순서로 실행한 것과 같음을 보장
+  - 구현 방식이 DB마다 다름 (락 vs SSI)
+  - 비용이 커서 일반 OLTP에서 거의 안 씀
+  - 대안: 더 약한 격리 + 명시적 락 조합</code></pre>
+
+        <h2>지금까지 정리</h2>
+
+        <pre><code>READ UNCOMMITTED  → 거의 안 씀
+READ COMMITTED    → 가장 흔한 선택. Dirty Read만 차단
+REPEATABLE READ   → 같은 트랜잭션 안 일관성. ANSI는 Phantom 허용
+SERIALIZABLE      → 모두 차단. 동시성 비용 큼</code></pre>
+
+        <p>
+          이론적 부분은 충분히 봤다. 마지막 편에서는 MySQL InnoDB의 REPEATABLE READ가
+          어떻게 갭 락으로 Phantom까지 막는지, 그리고 그 위에서 SELECT FOR UPDATE,
+          SKIP LOCKED 같은 실전 옵션이 어떻게 동작하는지 본다.
+          본인 쿠폰 시스템 narrative와 자연스럽게 연결되는 부분.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

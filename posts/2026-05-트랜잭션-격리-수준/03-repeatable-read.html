@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REPEATABLE READ — Non-Repeatable과 Phantom (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.04 · 시리즈 3/5</div>
+        <h1>REPEATABLE READ — Non-Repeatable과 Phantom</h1>
+        <p class="subtitle">
+          한 트랜잭션 안에서 같은 결과를 보장하는 격리. 그런데 ANSI 정의로는
+          여전히 못 막는 게 있다. Phantom Read.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">트랜잭션 격리 수준</div>
+        <ol>
+          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
+          <li><a href="./02-read-uncommitted-committed.html">READ UNCOMMITTED와 READ COMMITTED</a></li>
+          <li class="current">REPEATABLE READ — Non-Repeatable과 Phantom</li>
+          <li><a href="./04-serializable.html">SERIALIZABLE — 완전 직렬화의 비용</a></li>
+          <li><a href="./05-mysql-innodb-실전.html">MySQL InnoDB의 REPEATABLE READ 실전</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Non-Repeatable Read를 막는다는 의미</h2>
+
+        <p>
+          REPEATABLE READ는 이름 그대로 "반복해서 읽어도 같은 결과"를 보장한다.
+          한 트랜잭션이 시작된 시점의 데이터 스냅샷을 그 트랜잭션이 끝날 때까지 본다.
+          중간에 다른 트랜잭션이 커밋하든 말든 무관하게.
+        </p>
+
+        <pre><code>READ COMMITTED 동작:
+
+T1: BEGIN
+T1: SELECT amount WHERE id=1   -- 10000
+T2: UPDATE amount = 9000 WHERE id=1  --commit
+T1: SELECT amount WHERE id=1   -- 9000  (다른 값 보임)
+
+
+REPEATABLE READ 동작:
+
+T1: BEGIN  ← 이 시점 스냅샷 고정
+T1: SELECT amount WHERE id=1   -- 10000
+T2: UPDATE amount = 9000 WHERE id=1  --commit
+T1: SELECT amount WHERE id=1   -- 10000  (T1 시작 시점 값)</code></pre>
+
+        <p>
+          T1은 자기가 시작한 시점 이후의 다른 트랜잭션 변경을 못 본다.
+          마치 시간이 멈춘 자기만의 세계에서 일하는 듯.
+        </p>
+
+        <h2>어떻게 가능한가 — MVCC의 스냅샷</h2>
+
+        <p>
+          핵심은 MVCC의 트랜잭션 단위 스냅샷.
+        </p>
+
+        <pre><code>1. T1이 BEGIN하면 그 시점의 트랜잭션 ID(예: 100)를 받음
+2. 모든 행은 자기가 마지막으로 수정된 트랜잭션 ID를 함께 저장
+3. T1이 SELECT할 때:
+   - 이 행을 가장 최근에 수정한 트랜잭션 ID가 100보다 작거나 같음 → 보임
+   - 100보다 큼 → T1 시작 후 만들어진 것이라 안 보임
+   - 변경 전 옛 버전을 언두 로그에서 찾아 그걸 보여줌</code></pre>
+
+        <p>
+          PostgreSQL, MySQL InnoDB 둘 다 이런 방식이다.
+          한 트랜잭션은 자기가 본 시점의 스냅샷을 끝까지 일관되게 본다.
+        </p>
+
+        <h2>그래도 막히지 않는 것 — Phantom Read</h2>
+
+        <p>
+          ANSI SQL-92 정의에 따르면 REPEATABLE READ는 P1(Dirty)과 P2(Non-Repeatable)를 막지만
+          <strong>P3(Phantom)은 허용</strong>한다. 이게 무슨 차이일까.
+        </p>
+
+        <h3>Non-Repeatable vs Phantom — 결정적 차이</h3>
+
+        <pre><code>Non-Repeatable Read:
+  - 같은 행(같은 PK)을 두 번 읽었는데 값이 다름
+  - 변경된 데이터 (UPDATE / DELETE)가 보임
+
+Phantom Read:
+  - 같은 조건(WHERE)으로 두 번 조회했는데 행 수가 다름
+  - 새로 추가된 데이터 (INSERT)가 보임</code></pre>
+
+        <p>
+          REPEATABLE READ는 "이 행"의 변경을 못 보게 한다.
+          그런데 "이 조건을 만족하는 새 행"이 추가되는 건 다른 차원이다.
+          기존 행 N개의 스냅샷은 일관되어도, 새로 들어온 N+1번째는 별개.
+        </p>
+
+        <h3>Phantom 시나리오</h3>
+
+        <pre><code>T1: BEGIN
+T1: SELECT * FROM orders WHERE user_id = 1   -- 5건 반환
+T2: BEGIN
+T2: INSERT INTO orders (user_id, amount) VALUES (1, 5000)
+T2: COMMIT
+T1: SELECT * FROM orders WHERE user_id = 1   -- 6건 반환 (Phantom!)
+
+  → 기존 5건은 그대로 (RR이 막아줌)
+  → 새로 추가된 1건이 유령처럼 보임</code></pre>
+
+        <p>
+          MVCC 스냅샷이 "행의 옛 버전"을 보여주는 메커니즘이라
+          새로 INSERT된 행에 대해서는 옛 버전이라는 게 없다.
+          그러니 InnoDB의 단순 MVCC만으론 이걸 못 막는다.
+        </p>
+
+        <h2>Phantom이 만드는 진짜 문제</h2>
+
+        <p>
+          Phantom이 단순히 "결과 집합 사이즈가 다르네" 정도면 큰 문제 아니다.
+          진짜 문제는 비즈니스 로직 검증이 깨질 때다.
+        </p>
+
+        <pre><code>예: 사용자당 활성 쿠폰 최대 5개 제한
+
+T1: BEGIN
+T1: SELECT COUNT(*) FROM coupons WHERE user_id = 1 AND status = 'ACTIVE'
+    → 4건. 4 &lt; 5이니 새 쿠폰 발급 OK.
+
+(이 사이 T2가 같은 사용자에게 쿠폰 1건 INSERT, COMMIT)
+
+T1: INSERT INTO coupons (user_id, status) VALUES (1, 'ACTIVE')
+T1: COMMIT
+
+→ 결과: 사용자가 쿠폰 6개 보유. 비즈니스 룰 위반.</code></pre>
+
+        <p>
+          T1이 COUNT를 했을 때 4건만 보였지만, T1이 INSERT하기 전에 T2가 추가했다.
+          REPEATABLE READ는 T1이 본 4건을 일관되게 유지해주지만,
+          새 행이 추가되는 걸 막지 않는다. 그래서 6건이 됨.
+        </p>
+
+        <p>
+          이걸 진짜로 막으려면 다음 격리 수준 SERIALIZABLE이 필요하다.
+          또는 InnoDB처럼 갭 락을 쓰는 RR 구현체.
+        </p>
+
+        <h2>ANSI vs MySQL InnoDB의 REPEATABLE READ</h2>
+
+        <p>
+          여기서 중요한 디테일이 있다.
+          MySQL InnoDB의 REPEATABLE READ는 ANSI 정의보다 더 강하다.
+          <strong>Phantom까지 막아준다</strong>.
+        </p>
+
+        <pre><code>ANSI SQL-92 REPEATABLE READ:
+  Dirty Read 차단
+  Non-Repeatable Read 차단
+  Phantom Read 허용 (이론상)
+
+MySQL InnoDB REPEATABLE READ:
+  Dirty Read 차단
+  Non-Repeatable Read 차단
+  Phantom Read 차단 (next-key lock으로)</code></pre>
+
+        <p>
+          MySQL은 "next-key lock"이라는 메커니즘으로 Phantom까지 막는다.
+          행 락 + 갭 락의 조합. 이 디테일은 5편(MySQL InnoDB 실전)에서 자세히 본다.
+        </p>
+
+        <h2>그럼 PostgreSQL은?</h2>
+
+        <p>
+          PostgreSQL의 REPEATABLE READ는 ANSI 정의에 더 가깝다.
+          MVCC의 스냅샷 기반이라 같은 트랜잭션 안에서 같은 행을 다시 읽으면 같은 값을 반환한다.
+          하지만 Phantom은 가능. 새 행이 INSERT되면 다음 SELECT에서 보일 수 있다.
+        </p>
+
+        <p>
+          단, PostgreSQL은 <strong>SERIALIZABLE을 SSI(Serializable Snapshot Isolation)</strong>로 구현해서
+          REPEATABLE READ보다 한 단계 위에서 Phantom을 정확히 막는다.
+          MySQL과 다른 접근.
+        </p>
+
+        <h2>같은 격리 수준이라도 DB마다 동작이 다르다</h2>
+
+        <pre><code>Phantom Read 동작 비교:
+  ANSI SQL-92 표준:    REPEATABLE READ에서 가능
+  MySQL InnoDB:        REPEATABLE READ에서 차단 (next-key lock)
+  PostgreSQL:          REPEATABLE READ에서 가능, SERIALIZABLE에서만 차단
+  Oracle:              REPEATABLE READ 미지원 (READ COMMITTED + SERIALIZABLE만)</code></pre>
+
+        <p>
+          "REPEATABLE READ니까 Phantom은 가능"이라는 일반화는 위험하다.
+          실제 사용하는 DB의 동작을 확인해야 한다.
+          MySQL과 PostgreSQL이 같은 SQL을 같은 격리 수준으로 실행해도 결과가 다를 수 있다.
+        </p>
+
+        <h2>Lost Update — ANSI에 없는 4번째 부정합</h2>
+
+        <p>
+          ANSI SQL-92는 3가지 부정합만 정의한다(Dirty, Non-Repeatable, Phantom).
+          하지만 실무에선 또 하나 자주 만나는 부정합이 있다. <strong>Lost Update</strong>.
+        </p>
+
+        <pre><code>T1: SELECT amount WHERE id=1     -- 10000 읽음
+T2: SELECT amount WHERE id=1     -- 10000 읽음
+T1: amount = 10000 - 1000 = 9000
+T2: amount = 10000 - 2000 = 8000
+T1: UPDATE balance SET amount = 9000 WHERE id=1
+T2: UPDATE balance SET amount = 8000 WHERE id=1  -- T1의 변경을 덮어씀
+
+→ 합쳐서 -3000을 의도했는데 -2000만 반영됨. T1의 -1000이 사라짐.</code></pre>
+
+        <p>
+          T1의 변경이 T2에 의해 손실됐다.
+          ANSI 정의로는 부정합이 아니지만 실무적으로는 큰 문제다.
+        </p>
+
+        <h3>방어 방법</h3>
+
+        <pre><code>1. SELECT ... FOR UPDATE  (비관적 락)
+   T1이 SELECT 시점에 락을 걸어 T2를 막음
+
+2. 낙관적 락 (version 컬럼)
+   UPDATE ... WHERE id=1 AND version = 5
+   T2의 version 검증 실패 → 재시도
+
+3. 원자 연산
+   UPDATE balance SET amount = amount - 1000 WHERE id=1
+   ← SELECT 안 하고 DB가 원자적으로 처리</code></pre>
+
+        <p>
+          격리 수준만으로는 Lost Update를 완전히 막기 어렵다.
+          명시적 락이나 낙관적 락 같은 추가 메커니즘이 필요하다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>REPEATABLE READ:
+  - Non-Repeatable Read 차단 (한 행의 스냅샷 일관성 보장)
+  - Phantom Read는 ANSI 정의로 허용
+  - MySQL InnoDB는 next-key lock으로 Phantom까지 차단
+  - Lost Update는 격리 수준 무관, 별도 방어 필요</code></pre>
+
+        <p>
+          Phantom까지 완전히 막으려면 다음 격리 수준 SERIALIZABLE이거나,
+          MySQL InnoDB의 RR을 신뢰하는 방법이 있다.
+          SERIALIZABLE은 어떻게 작동하고 그 비용은 얼마나 큰지 다음 편에서 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

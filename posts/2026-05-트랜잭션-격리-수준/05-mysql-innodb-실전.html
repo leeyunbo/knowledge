@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MySQL InnoDB의 REPEATABLE READ 실전 (5) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.04 · 시리즈 5/5</div>
+        <h1>MySQL InnoDB의 REPEATABLE READ 실전</h1>
+        <p class="subtitle">
+          ANSI 정의를 넘어 Phantom까지 막는 InnoDB의 메커니즘.
+          갭 락, 넥스트 키 락, 그리고 SKIP LOCKED 같은 실전 옵션.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">트랜잭션 격리 수준</div>
+        <ol>
+          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
+          <li><a href="./02-read-uncommitted-committed.html">READ UNCOMMITTED와 READ COMMITTED</a></li>
+          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
+          <li><a href="./04-serializable.html">SERIALIZABLE — 완전 직렬화의 비용</a></li>
+          <li class="current">MySQL InnoDB의 REPEATABLE READ 실전</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>InnoDB의 REPEATABLE READ가 특별한 이유</h2>
+
+        <p>
+          3편에서 짚었듯, MySQL InnoDB의 REPEATABLE READ는 ANSI 정의보다 강하다.
+          Phantom Read까지 차단한다. 이걸 어떻게 가능하게 했는지가 이 편의 주제다.
+        </p>
+
+        <p>
+          핵심은 <strong>두 가지 메커니즘의 조합</strong>이다.
+        </p>
+
+        <pre><code>1. MVCC 스냅샷 — 일반 SELECT(non-locking read)에 적용
+   → 트랜잭션 시작 시점의 스냅샷을 끝까지 봄
+   → Non-Repeatable Read 차단
+
+2. Next-Key Lock — Locking read와 UPDATE/DELETE에 적용
+   → 행 락 + 갭 락 조합
+   → Phantom Read 차단</code></pre>
+
+        <p>
+          하나의 격리 수준 안에 두 다른 메커니즘이 공존한다. 어떤 SQL이냐에 따라 다른 게 적용된다.
+        </p>
+
+        <h2>락의 종류</h2>
+
+        <h3>1. Record Lock (행 락)</h3>
+
+        <p>
+          가장 단순. 인덱스 레코드 한 개에 락을 건다.
+        </p>
+
+        <pre><code>SELECT * FROM users WHERE id = 5 FOR UPDATE;
+→ id=5인 인덱스 레코드에 X락(exclusive)
+
+다른 트랜잭션이 그 행 UPDATE/DELETE/SELECT FOR UPDATE 시도시 대기</code></pre>
+
+        <h3>2. Gap Lock (갭 락)</h3>
+
+        <p>
+          행 자체가 아니라 <strong>인덱스 레코드 사이의 빈 공간</strong>에 거는 락.
+          갭 락이 걸린 영역엔 INSERT가 못 들어간다.
+        </p>
+
+        <pre><code>인덱스 (id 컬럼):
+  ... 3 ─ 5 ─ 8 ─ 12 ...
+
+3과 5 사이의 갭에 락:
+  → 3 < x < 5 인 새 레코드 INSERT 못 함
+  → 즉 4를 INSERT하려는 트랜잭션은 대기
+
+목적: 새 행이 들어오는 걸 막아 Phantom Read 방지</code></pre>
+
+        <h3>3. Next-Key Lock</h3>
+
+        <p>
+          <strong>Record Lock + Gap Lock</strong>의 조합. InnoDB의 RR에서 기본 락.
+        </p>
+
+        <pre><code>인덱스 (id 컬럼):
+  ... 3 ─ 5 ─ 8 ─ 12 ...
+
+id=5에 next-key lock:
+  → id=5 레코드 자체에 행 락
+  → 3과 5 사이 갭에 갭 락
+  → 합쳐서 (3, 5] 범위에 락 (3은 제외, 5는 포함)
+
+다른 트랜잭션이 못 하는 것:
+  - id=5 UPDATE/DELETE
+  - id=4 INSERT (3과 5 사이)
+  - id=5 새로 INSERT</code></pre>
+
+        <p>
+          이름이 "next-key"인 이유: 락이 인덱스 레코드와 그 다음(next) 갭을 함께 잡기 때문.
+          정확히는 그 레코드와 그 앞 갭을 잡는다.
+        </p>
+
+        <h2>Phantom 차단의 실제 동작</h2>
+
+        <p>
+          3편의 쿠폰 시나리오를 InnoDB에서 SELECT FOR UPDATE로 다시 해보면:
+        </p>
+
+        <pre><code>T1: BEGIN
+T1: SELECT * FROM coupons WHERE user_id = 1 FOR UPDATE
+    → user_id=1인 모든 행에 행 락
+    → user_id 인덱스의 (이전 user_id, 1]과 (1, 다음 user_id] 갭에도 락
+    → 즉 user_id=1로 INSERT 시도하는 어떤 새 행도 막힘
+
+T2: INSERT INTO coupons (user_id, ...) VALUES (1, ...)
+    → 갭 락에 걸려 대기
+
+T1: ... 검증 후 INSERT or 종료
+T1: COMMIT  → 락 해제
+T2: 그제서야 INSERT 진행</code></pre>
+
+        <p>
+          이게 InnoDB가 RR에서 Phantom을 막는 방식이다. <strong>인덱스의 빈 공간에 락을 걸어 새 행이 들어올 자리 자체를 막아버린다</strong>.
+        </p>
+
+        <h3>주의: 일반 SELECT는 갭 락을 안 건다</h3>
+
+        <pre><code>SELECT * FROM coupons WHERE user_id = 1            -- 갭 락 안 걸림 (MVCC)
+SELECT * FROM coupons WHERE user_id = 1 FOR UPDATE -- 갭 락 걸림
+SELECT * FROM coupons WHERE user_id = 1 LOCK IN SHARE MODE  -- 갭 락 걸림</code></pre>
+
+        <p>
+          일반 SELECT는 MVCC 스냅샷으로 일관성을 유지한다. 락을 안 거니 동시성에 영향 없다.
+          명시적 잠금 SQL(<code>FOR UPDATE</code>, <code>LOCK IN SHARE MODE</code>)이나
+          UPDATE/DELETE 같은 쓰기 문에서만 갭 락이 활성화된다.
+        </p>
+
+        <h2>SELECT FOR UPDATE의 의미</h2>
+
+        <p>
+          InnoDB에서 가장 흔히 쓰는 명시적 락 SQL.
+        </p>
+
+        <pre><code>SELECT * FROM users WHERE id = 5 FOR UPDATE
+  → id=5 행에 X락
+  → 락이 걸린 동안 다른 트랜잭션은:
+    - 그 행 SELECT FOR UPDATE 또는 LOCK IN SHARE MODE → 대기
+    - 그 행 UPDATE 또는 DELETE → 대기
+    - 일반 SELECT → 대기 안 함 (MVCC로 옛 버전 봄)</code></pre>
+
+        <p>
+          비관적 락의 대표. "내가 읽고 쓸 거니까 다른 사람은 잠깐 기다려"라는 명시.
+        </p>
+
+        <h3>본인 쿠폰 narrative 연결</h3>
+
+        <pre><code>쿠폰 발급 동시성 문제:
+  T1: SELECT count FROM coupon WHERE id=1   -- 100개 남음
+  T2: SELECT count FROM coupon WHERE id=1   -- 100개 남음
+  T1: 발급 가능 판단 → UPDATE count = 99
+  T2: 발급 가능 판단 → UPDATE count = 99   -- T1과 같은 값으로 덮어씀
+  → 2개 발급했는데 count는 99. 1개 사라짐.
+
+해결: SELECT FOR UPDATE
+  T1: SELECT count FROM coupon WHERE id=1 FOR UPDATE  -- 락 걸림
+  T2: SELECT count FROM coupon WHERE id=1 FOR UPDATE  -- T1 끝날 때까지 대기
+  T1: 발급, UPDATE count = 99, COMMIT
+  T2: T1 락 해제 후 진행, count=99 보고 발급, UPDATE count = 98
+  → 2개 발급, count=98. 정확.</code></pre>
+
+        <p>
+          Lost Update 방지의 가장 단순한 패턴. 본인 narrative에서도 이 흐름이 나온다.
+        </p>
+
+        <h2>SKIP LOCKED — 다른 사람이 락 걸었으면 그냥 건너뛰기</h2>
+
+        <p>
+          MySQL 8.0부터 지원. 이름 그대로 "락 걸린 행은 건너뛰고 안 걸린 것만 가져오기".
+        </p>
+
+        <pre><code>SELECT * FROM jobs WHERE status='PENDING' LIMIT 1 FOR UPDATE SKIP LOCKED
+  → status='PENDING'인 행 중에서
+  → 다른 트랜잭션이 락 걸어둔 행은 건너뜀
+  → 락 안 걸린 첫 번째 행을 가져오고 거기에 락</code></pre>
+
+        <p>
+          쓰임새: <strong>큐 패턴</strong>이 가장 흔하다.
+        </p>
+
+        <h3>큐 패턴 예시</h3>
+
+        <pre><code>여러 워커가 jobs 테이블에서 순차적으로 작업 가져가야 함.
+
+기존 (FOR UPDATE만):
+  Worker 1: SELECT ... LIMIT 1 FOR UPDATE   -- 첫 행 락
+  Worker 2: SELECT ... LIMIT 1 FOR UPDATE   -- 첫 행 락 풀릴 때까지 대기
+  Worker 3: SELECT ... LIMIT 1 FOR UPDATE   -- 대기
+
+  → 사실상 직렬 처리. N대 워커 의미 없음.
+
+SKIP LOCKED:
+  Worker 1: SELECT ... LIMIT 1 FOR UPDATE SKIP LOCKED   -- 첫 행 락
+  Worker 2: SELECT ... LIMIT 1 FOR UPDATE SKIP LOCKED   -- 첫 행 건너뛰고 두 번째 락
+  Worker 3: SELECT ... LIMIT 1 FOR UPDATE SKIP LOCKED   -- 세 번째 락
+
+  → 동시 처리. throughput N배.</code></pre>
+
+        <p>
+          본인 쿠폰 narrative에서 SKIP LOCKED를 썼다면 정확히 이런 패턴.
+          "300명이 동시에 발급 요청 → 각자 다른 쿠폰 행 잠가서 동시 처리"가 가능해진다.
+        </p>
+
+        <h2>NOWAIT — 락 걸려있으면 즉시 실패</h2>
+
+        <pre><code>SELECT * FROM users WHERE id=5 FOR UPDATE NOWAIT
+  → id=5에 락 있으면 대기하지 말고 바로 에러 반환
+
+쓰임새:
+  - 사용자 인터랙션. "지금 다른 사람이 처리 중입니다" 같은 메시지
+  - 짧은 응답 시간이 중요한 곳</code></pre>
+
+        <p>
+          NOWAIT은 트랜잭션이 락 대기로 멈추지 않게 한다.
+          타임아웃 기다리지 말고 즉시 실패 → 애플리케이션이 다른 처리.
+        </p>
+
+        <h2>Index Scan과 락의 관계</h2>
+
+        <p>
+          한 가지 중요한 디테일. <strong>InnoDB 락은 인덱스 단위로 걸린다</strong>.
+          WHERE 조건이 인덱스를 안 타면 어떻게 되나.
+        </p>
+
+        <pre><code>인덱스 없는 컬럼 검색:
+  SELECT * FROM users WHERE name = 'Alice' FOR UPDATE
+    → name 컬럼에 인덱스 없음
+    → 풀스캔이라 모든 행에 락
+    → 사실상 테이블 전체 락 ← 매우 위험!
+
+인덱스 있는 컬럼 검색:
+  SELECT * FROM users WHERE id = 5 FOR UPDATE
+    → id는 PK니까 정확히 그 인덱스 레코드만 락
+    → 다른 행 영향 없음</code></pre>
+
+        <p>
+          FOR UPDATE를 쓸 땐 반드시 인덱스를 타는 조건을 사용해야 한다.
+          안 그러면 의도치 않게 테이블 전체 락이 걸려 다른 트랜잭션이 다 멈춘다.
+          EXPLAIN으로 인덱스 사용 여부 확인이 습관.
+        </p>
+
+        <h2>운영 디버깅 — 락 모니터링</h2>
+
+        <pre><code>-- 현재 진행 중인 락 정보 (MySQL 8.0)
+SELECT * FROM performance_schema.data_locks;
+
+-- 락 대기 중인 트랜잭션
+SELECT * FROM performance_schema.data_lock_waits;
+
+-- 데드락 발생 시 마지막 데드락 정보
+SHOW ENGINE INNODB STATUS;
+  → LATEST DETECTED DEADLOCK 섹션
+
+-- 트랜잭션 진행 상황
+SELECT * FROM information_schema.innodb_trx;</code></pre>
+
+        <p>
+          락 관련 문제는 보통 이 시스템 테이블/프로시저로 진단한다.
+          "왜 트랜잭션이 멈춰있지?"는 거의 항상 어딘가의 락 대기.
+        </p>
+
+        <h2>실무 권장 패턴</h2>
+
+        <pre><code>1. 기본 격리는 RR(MySQL 기본) 또는 RC 그대로 사용
+   → 변경 안 해도 충분한 경우가 대부분
+
+2. 락이 필요한 곳만 명시적 SELECT FOR UPDATE
+   → SERIALIZABLE 전체 적용보다 훨씬 효율적
+
+3. WHERE 조건에 인덱스 사용 확인
+   → 인덱스 안 타면 테이블 전체 락 위험
+
+4. 큐 패턴이면 SKIP LOCKED 활용
+   → 동시 워커가 의미 있는 처리량 확보
+
+5. 인터랙티브 응답이 중요하면 NOWAIT
+   → 사용자가 락 대기로 무한 기다리는 일 방지
+
+6. 트랜잭션 짧게 유지
+   → 락 보유 시간이 길수록 다른 트랜잭션 영향 큼</code></pre>
+
+        <h2>면접 답변 시뮬레이션</h2>
+
+        <p>
+          "트랜잭션 격리 수준에 대해 설명해주세요"
+        </p>
+
+        <pre><code>1. ANSI SQL이 4단계로 정의 (READ UNCOMMITTED ~ SERIALIZABLE)
+2. 3가지 부정합으로 격리 수준 구분 (Dirty / Non-Repeatable / Phantom)
+3. 위로 갈수록 동시성 좋고 정확성 약함, trade-off
+
+4. 실무에선 보통 READ COMMITTED 또는 REPEATABLE READ 사용
+   - PostgreSQL/Oracle: 기본 RC
+   - MySQL: 기본 RR
+
+5. MySQL InnoDB의 RR은 ANSI 정의보다 강함
+   - Phantom까지 막아줌 (next-key lock으로)
+   - 일반 SELECT는 MVCC, 잠금 SELECT/UPDATE는 next-key lock
+
+6. SERIALIZABLE은 동시성 비용 커서 일반적으로 안 씀
+   - 대안: 더 약한 격리 + 명시적 SELECT FOR UPDATE
+
+7. (실무 narrative 연결)
+   쿠폰 발급에서 동시성 문제 풀 때 SELECT FOR UPDATE로 비관적 락
+   여러 워커 동시 처리 위해 SKIP LOCKED 활용</code></pre>
+
+        <p>
+          이 흐름으로 답변하면 격리 수준 + 실전 락 사용까지 한 번에 정리된다.
+        </p>
+
+        <h2>시리즈 정리</h2>
+
+        <pre><code>1편: 격리 수준이 왜 4단계인가
+     - 동시성과 정확성의 trade-off
+     - ANSI 정의 4단계 + 3가지 부정합
+
+2편: READ UNCOMMITTED와 READ COMMITTED
+     - 가장 약한 두 단계
+     - RC가 가장 흔한 실무 선택
+
+3편: REPEATABLE READ
+     - 한 트랜잭션 안 일관성 보장
+     - ANSI 정의로는 Phantom 허용
+
+4편: SERIALIZABLE
+     - 모든 부정합 차단
+     - 동시성 비용 커서 거의 안 씀
+     - PostgreSQL의 SSI 같은 영리한 절충
+
+5편: MySQL InnoDB RR 실전
+     - Next-key lock으로 Phantom 차단
+     - SELECT FOR UPDATE / SKIP LOCKED / NOWAIT
+     - 인덱스 안 타면 테이블 전체 락 위험</code></pre>
+
+        <p>
+          격리 수준은 RDBMS 동시성 의미론의 가장 기본 설정이다.
+          이 5편의 흐름을 한 번 머릿속에 그려두면, 다음에 트랜잭션 코드를 짤 때
+          "어느 격리에서 무슨 일이 일어나는지" 즉시 그려진다.
+          그게 곧 시니어 백엔드의 시각이다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

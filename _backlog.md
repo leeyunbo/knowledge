@@ -57,7 +57,7 @@
 - [ ] 23. Double-Checked Locking — `volatile` 없으면 깨지는 이유 (1편)
 
 ### DB
-- [ ] ★ 트랜잭션 격리 수준 deep dive (5편)
+- [x] ★ 트랜잭션 격리 수준 deep dive (5편)
 - [x] ★ 인덱스 — B-Tree부터 Covering까지 (4편)
 - [ ] ★ MVCC와 잠금 (3편)
 - [ ] ★ N+1과 fetch 전략 (3편)
