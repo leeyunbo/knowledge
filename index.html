@@ -7,73 +7,96 @@
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="./assets/style.css">
+  <style>
+    html, body { min-height: 100vh; }
+    body { display: flex; flex-direction: column; }
+
+    .splash-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      max-width: 1000px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+      box-sizing: border-box;
+    }
+
+    .splash-hero {
+      margin-bottom: 4rem;
+    }
+    .splash-hero h1 {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--text);
+    }
+
+    .entry-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+
+    .entry-card {
+      display: block;
+      padding: 3rem 2.25rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+    .entry-card:hover {
+      border-color: var(--text);
+      transform: translateY(-3px);
+    }
+    .entry-card h2 {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.6rem;
+      letter-spacing: -0.015em;
+    }
+    .entry-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    @media (max-width: 640px) {
+      .splash-container { padding: 2rem 1.25rem; justify-content: flex-start; padding-top: 4rem; }
+      .splash-hero { margin-bottom: 2rem; }
+      .splash-hero h1 { font-size: 28px; }
+      .entry-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+      .entry-card { padding: 1.75rem 1.5rem; min-height: 130px; }
+      .entry-card h2 { font-size: 18px; }
+      .entry-card p { font-size: 13px; }
+    }
+  </style>
 </head>
 <body>
-  <header class="site-header">
-    <div class="site-header-inner">
-      <a href="./index.html" class="site-title">bok's notes</a>
-      <nav class="site-nav">
-        <a href="./cs.html">cs</a>
-        <a href="./concurrency.html">concurrency</a>
-        <a href="https://leeyunbo.vercel.app" target="_blank">portfolio</a>
-        <a href="https://github.com/leeyunbo" target="_blank">github</a>
-      </nav>
-    </div>
-  </header>
 
-  <main class="container">
-    <section class="hero">
-      <h1>실무에서 고민한 것들</h1>
-      <p>
-        문제를 만나고, 재현하고, 뚫는 과정을 기록한다.<br>
-        검색하면 나오는 요약이 아니라, 내가 직접 막혀본 지점과 풀린 순간을 남긴다.
-      </p>
+  <main class="splash-container">
+    <section class="splash-hero">
+      <h1>bok's notes</h1>
     </section>
 
-    <section class="post-list">
-
-      <a href="./posts/2026-04-circuit-breaker-실전-패턴/01-왜-필요한가.html" class="post-item">
-        <div class="post-date">2026.04.22 · 시리즈</div>
-        <div class="post-title">CircuitBreaker 깊게 파기</div>
-        <div class="post-summary">
-          외부 API 하나가 죽었을 때 서버 전체가 멈추는 과정부터, ignoreExceptions 분리·fallback 오버로딩·이벤트 리스너·Retry 순서·분산 환경 전파까지. 어노테이션 하나 뒤에 이렇게 많은 게 있었다.
-        </div>
-        <div class="post-tags">
-          <span class="tag">Resilience4j</span>
-          <span class="tag">CircuitBreaker</span>
-          <span class="tag">장애 대응</span>
-          <span class="tag">분산 시스템</span>
-        </div>
+    <section class="entry-grid">
+      <a href="./cs.html" class="entry-card">
+        <h2>CS</h2>
+        <p>기술 면접을 대비한 CS 정리</p>
       </a>
-
-      <a href="./posts/2026-04-쿠폰-시스템-redis-정합성/01-redis-도입.html" class="post-item">
-        <div class="post-date">2026.04.20 · 시리즈</div>
-        <div class="post-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
-        <div class="post-summary">
-          DB 튜닝으로 259건까지 긁어온 뒤 Redis를 얹어 300건 전부 성공시켰다. 그리고 Redis-DB 정합성이라는 새 숙제가 열렸다.
-        </div>
-        <div class="post-tags">
-          <span class="tag">Redis</span>
-          <span class="tag">Lua</span>
-          <span class="tag">분산 시스템</span>
-          <span class="tag">정합성</span>
-        </div>
+      <a href="./narrative.html" class="entry-card">
+        <h2>실무에서 고민한 것들</h2>
+        <p>내가 풀어간 문제들</p>
       </a>
-
-      <a href="./posts/2026-04-쿠폰-시스템-성능-개선/01-문제-정의.html" class="post-item">
-        <div class="post-date">2026.04.14 · 시리즈</div>
-        <div class="post-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
-        <div class="post-summary">
-          300명이 동시에 쿠폰을 받을 때 65명만 성공한다. JPA 쿼리 줄이기, Lock Sharding, 그리고 결국 <code>SELECT FOR UPDATE SKIP LOCKED</code>까지.
-        </div>
-        <div class="post-tags">
-          <span class="tag">JPA</span>
-          <span class="tag">concurrency</span>
-          <span class="tag">H2</span>
-          <span class="tag">SKIP LOCKED</span>
-        </div>
-      </a>
-
     </section>
   </main>
 
@@ -82,3 +105,4 @@
   </footer>
 </body>
 </html>
+</content>

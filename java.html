@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Java · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="./assets/style.css">
+  <style>
+    .topic-container { max-width: 1080px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; }
+    .topic-hero { margin-bottom: 2.5rem; }
+    .topic-hero h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+    .graph-canvas { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 2rem 1.5rem 1.5rem; margin-bottom: 3.5rem; }
+    .graph-meta { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.25rem; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .graph-svg { display: block; width: 100%; max-width: 900px; margin: 0 auto; height: auto; }
+
+    .link { stroke: var(--border); stroke-width: 1; fill: none; transition: stroke 0.4s ease, opacity 0.4s ease; stroke-dasharray: 1500; stroke-dashoffset: 1500; animation: drawLine 1.4s ease-out forwards; animation-delay: 0.7s; }
+    @keyframes drawLine { to { stroke-dashoffset: 0; } }
+
+    .node { cursor: pointer; opacity: 0; animation: nodeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; transform-box: fill-box; transform-origin: center; }
+    @keyframes nodeIn { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+
+    .node-circle { transition: transform 0.3s ease, stroke 0.3s ease; transform-box: fill-box; transform-origin: center; }
+    .node-ring { fill: none; opacity: 0; pointer-events: none; }
+    .node-label { font-size: 11px; font-weight: 500; text-anchor: middle; pointer-events: none; fill: var(--text); transition: fill 0.3s ease; }
+
+    .node[data-state="locked"] .node-circle { fill: #ffffff; stroke: var(--border); stroke-width: 1.5; }
+    .node[data-state="locked"] .node-label { fill: var(--text-faint); }
+    .node[data-state="locked"] { cursor: default; }
+
+    .node[data-state="done"] .node-circle { fill: var(--node-color); stroke: var(--node-color); stroke-width: 1.5; }
+    .node[data-state="done"] .node-ring { stroke: var(--node-color); stroke-width: 1.5; opacity: 0.35; animation: ringPulse 4s ease-in-out infinite; animation-delay: var(--ring-delay, 0s); }
+    @keyframes ringPulse { 0%, 100% { r: 12; opacity: 0.35; } 50% { r: 18; opacity: 0; } }
+
+    .node[data-state="done"]:hover .node-circle { transform: scale(1.25); }
+    .graph-svg.hovering .node:not(.is-active) { opacity: 0.25; transition: opacity 0.3s ease; }
+    .graph-svg.hovering .link:not(.is-active) { opacity: 0.1; }
+    .graph-svg.hovering .link.is-active { stroke: var(--text-muted); opacity: 1; }
+
+    .group-A { --node-color: #6366f1; }
+    .group-B { --node-color: #ec4899; }
+    .group-C { --node-color: #06b6d4; }
+
+    .tooltip { position: fixed; background: var(--text); color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; max-width: 280px; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity 0.2s ease, transform 0.2s ease; z-index: 100; }
+    .tooltip.show { opacity: 1; transform: translateY(0); }
+    .tooltip-title { font-weight: 600; margin-bottom: 3px; font-size: 12.5px; }
+    .tooltip-desc { color: rgba(255,255,255,0.75); font-size: 11px; line-height: 1.5; }
+
+    .group-list { margin-top: 3rem; }
+    .group-section { margin-bottom: 2rem; border-left: 3px solid var(--group-color); padding-left: 1.25rem; }
+    .group-section.group-A { --group-color: #6366f1; }
+    .group-section.group-B { --group-color: #ec4899; }
+    .group-section.group-C { --group-color: #06b6d4; }
+    .group-section h2 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 0.3rem; letter-spacing: -0.01em; }
+    .group-section .group-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5; }
+
+    .topic-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .topic-item { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.55rem 0.75rem; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border); text-decoration: none; color: inherit; transition: border-color 0.2s ease; }
+    .topic-item:hover { border-color: var(--border-hover); }
+    .topic-item.locked { opacity: 0.55; cursor: default; }
+    .topic-item.locked:hover { border-color: var(--border); }
+    .topic-num { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); min-width: 1.4rem; font-variant-numeric: tabular-nums; }
+    .topic-title { flex: 1; font-size: 13px; font-weight: 500; color: var(--text); }
+    .topic-meta { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); }
+    .topic-item.done .topic-num { color: var(--group-color); font-weight: 700; }
+
+    @media (max-width: 768px) {
+      .topic-container { padding: 2rem 1rem 3rem; }
+      .topic-hero h1 { font-size: 24px; }
+      .graph-canvas { display: none; }
+      .group-list { margin-top: 1.5rem; }
+      .group-section { padding-left: 1rem; margin-bottom: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <main class="topic-container">
+    <section class="topic-hero">
+      <h1>Java</h1>
+    </section>
+
+    <section class="graph-canvas">
+      <div class="graph-meta">
+        <span><span id="progressText">1 / 9</span> · <span id="progressPct">11%</span></span>
+      </div>
+
+      <svg class="graph-svg" viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg" aria-label="Java 토픽 그래프">
+        <g id="links">
+          <line class="link" data-from="1" data-to="2" x1="180" y1="130" x2="250" y2="270" />
+          <line class="link" data-from="1" data-to="3" x1="180" y1="130" x2="110" y2="270" />
+          <line class="link" data-from="2" data-to="3" x1="250" y1="270" x2="110" y2="270" />
+          <line class="link" data-from="2" data-to="4" x1="250" y1="270" x2="400" y2="130" />
+          <line class="link" data-from="4" data-to="5" x1="400" y1="130" x2="470" y2="270" />
+          <line class="link" data-from="4" data-to="6" x1="400" y1="130" x2="330" y2="270" />
+          <line class="link" data-from="5" data-to="6" x1="470" y1="270" x2="330" y2="270" />
+          <line class="link" data-from="5" data-to="9" x1="470" y1="270" x2="580" y2="270" />
+          <line class="link" data-from="4" data-to="9" x1="400" y1="130" x2="580" y2="270" />
+          <line class="link" data-from="7" data-to="8" x1="650" y1="130" x2="720" y2="270" />
+          <line class="link" data-from="7" data-to="9" x1="650" y1="130" x2="580" y2="270" />
+          <line class="link" data-from="8" data-to="9" x1="720" y1="270" x2="580" y2="270" />
+        </g>
+
+        <a class="node group-A" data-state="done" data-id="1"
+           data-title="equals와 hashCode의 함정"
+           data-desc="equals만 오버라이드하면 객체가 사라지는 이유, hashCode 계약 세 규칙"
+           href="./posts/2026-04-equals-hashcode-계약/01-equals만-오버라이드하면.html">
+          <g transform="translate(180,130)" style="--ring-delay: 0s;">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">equals · hashCode</text>
+          </g>
+        </a>
+        <a class="node group-A" data-state="locked" data-id="2"
+           data-title="HashMap 내부"
+           data-desc="해시 충돌 처리, 리해싱, treeify (8 임계값)" href="#">
+          <g transform="translate(250,270)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">HashMap</text>
+          </g>
+        </a>
+        <a class="node group-A" data-state="locked" data-id="3"
+           data-title="Collection 비교"
+           data-desc="ArrayList vs LinkedList, HashMap vs TreeMap" href="#">
+          <g transform="translate(110,270)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">Collection</text>
+          </g>
+        </a>
+
+        <a class="node group-B" data-state="locked" data-id="4"
+           data-title="JVM 메모리 구조"
+           data-desc="Heap / Metaspace / Stack / Direct Memory" href="#">
+          <g transform="translate(400,130)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">JVM 메모리</text>
+          </g>
+        </a>
+        <a class="node group-B" data-state="locked" data-id="5"
+           data-title="GC 진화사"
+           data-desc="Serial → CMS → G1 → ZGC, Shenandoah" href="#">
+          <g transform="translate(470,270)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">GC</text>
+          </g>
+        </a>
+        <a class="node group-B" data-state="locked" data-id="6"
+           data-title="ClassLoader 동작"
+           data-desc="부모 위임 모델, Bootstrap / Extension / Application" href="#">
+          <g transform="translate(330,270)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">ClassLoader</text>
+          </g>
+        </a>
+
+        <a class="node group-C" data-state="locked" data-id="7"
+           data-title="Generics와 Type Erasure"
+           data-desc="컴파일 타임 타입 검사, 런타임 erasure, 와일드카드" href="#">
+          <g transform="translate(650,130)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">Generics</text>
+          </g>
+        </a>
+        <a class="node group-C" data-state="locked" data-id="8"
+           data-title="JIT 컴파일러"
+           data-desc="C1 / C2 / Graal, hot spot 감지와 최적화" href="#">
+          <g transform="translate(720,270)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">JIT</text>
+          </g>
+        </a>
+        <a class="node group-C" data-state="locked" data-id="9"
+           data-title="String Pool과 String.intern()"
+           data-desc="문자열 캐시, == vs equals, intern()의 함정" href="#">
+          <g transform="translate(580,270)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">String Pool</text>
+          </g>
+        </a>
+      </svg>
+    </section>
+
+    <section class="group-list">
+      <div class="group-section group-A">
+        <h2>A · 객체 / 컬렉션</h2>
+        <p class="group-desc">equals부터 HashMap 내부까지, 객체와 자료구조의 토대</p>
+        <div class="topic-list">
+          <a class="topic-item done" href="./posts/2026-04-equals-hashcode-계약/01-equals만-오버라이드하면.html">
+            <span class="topic-num">01</span>
+            <span class="topic-title">equals와 hashCode의 함정</span>
+            <span class="topic-meta">3편</span>
+          </a>
+          <div class="topic-item locked"><span class="topic-num">02</span><span class="topic-title">HashMap 내부</span><span class="topic-meta">예정</span></div>
+          <div class="topic-item locked"><span class="topic-num">03</span><span class="topic-title">Collection 비교</span><span class="topic-meta">예정</span></div>
+        </div>
+      </div>
+
+      <div class="group-section group-B">
+        <h2>B · JVM</h2>
+        <p class="group-desc">메모리 영역과 GC, 클래스 로딩 메커니즘</p>
+        <div class="topic-list">
+          <div class="topic-item locked"><span class="topic-num">04</span><span class="topic-title">JVM 메모리 구조</span><span class="topic-meta">예정</span></div>
+          <div class="topic-item locked"><span class="topic-num">05</span><span class="topic-title">GC 진화사</span><span class="topic-meta">예정</span></div>
+          <div class="topic-item locked"><span class="topic-num">06</span><span class="topic-title">ClassLoader 동작</span><span class="topic-meta">예정</span></div>
+        </div>
+      </div>
+
+      <div class="group-section group-C">
+        <h2>C · 언어 기능</h2>
+        <p class="group-desc">제네릭, JIT, 문자열 처리 같은 언어 차원의 디테일</p>
+        <div class="topic-list">
+          <div class="topic-item locked"><span class="topic-num">07</span><span class="topic-title">Generics와 Type Erasure</span><span class="topic-meta">예정</span></div>
+          <div class="topic-item locked"><span class="topic-num">08</span><span class="topic-title">JIT 컴파일러</span><span class="topic-meta">예정</span></div>
+          <div class="topic-item locked"><span class="topic-num">09</span><span class="topic-title">String Pool과 String.intern()</span><span class="topic-meta">예정</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="tooltip">
+    <div class="tooltip-title" id="tooltipTitle"></div>
+    <div class="tooltip-desc" id="tooltipDesc"></div>
+  </div>
+
+  <footer class="site-footer">bok · 2026</footer>
+
+  <script>
+    document.querySelectorAll('.node').forEach((n, i) => { n.style.animationDelay = (i * 0.05) + 's'; });
+    const links = document.querySelectorAll('.link');
+    const adjacency = {};
+    links.forEach(link => {
+      const from = link.dataset.from, to = link.dataset.to;
+      if (!adjacency[from]) adjacency[from] = new Set();
+      if (!adjacency[to]) adjacency[to] = new Set();
+      adjacency[from].add(to); adjacency[to].add(from);
+    });
+    const svg = document.querySelector('.graph-svg');
+    const tooltip = document.getElementById('tooltip');
+    const tooltipTitle = document.getElementById('tooltipTitle');
+    const tooltipDesc = document.getElementById('tooltipDesc');
+    document.querySelectorAll('.node').forEach(node => {
+      node.addEventListener('mouseenter', () => {
+        const id = node.dataset.id, connected = adjacency[id] || new Set();
+        svg.classList.add('hovering');
+        document.querySelectorAll('.node').forEach(n => {
+          if (n.dataset.id === id || connected.has(n.dataset.id)) n.classList.add('is-active');
+        });
+        document.querySelectorAll('.link').forEach(link => {
+          if ((link.dataset.from === id && connected.has(link.dataset.to)) || (link.dataset.to === id && connected.has(link.dataset.from))) link.classList.add('is-active');
+        });
+        tooltipTitle.textContent = node.dataset.title;
+        tooltipDesc.textContent = node.dataset.desc;
+        tooltip.classList.add('show');
+      });
+      node.addEventListener('mouseleave', () => {
+        svg.classList.remove('hovering');
+        document.querySelectorAll('.is-active').forEach(el => el.classList.remove('is-active'));
+        tooltip.classList.remove('show');
+      });
+      node.addEventListener('mousemove', (e) => {
+        tooltip.style.left = Math.min(e.clientX + 14, window.innerWidth - 300) + 'px';
+        tooltip.style.top = Math.min(e.clientY + 14, window.innerHeight - 80) + 'px';
+      });
+      if (node.dataset.state === 'locked') node.addEventListener('click', (e) => e.preventDefault());
+    });
+    const total = document.querySelectorAll('.node').length;
+    const done = document.querySelectorAll('.node[data-state="done"]').length;
+    document.getElementById('progressText').textContent = done + ' / ' + total;
+    document.getElementById('progressPct').textContent = Math.round((done / total) * 100) + '%';
+  </script>
+</body>
+</html>
+</content>

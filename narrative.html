@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실무에서 고민한 것들 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="./index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <section class="hero">
+      <h1>실무에서 고민한 것들</h1>
+      <p>
+        문제를 만나고, 재현하고, 뚫는 과정을 기록한다.<br>
+        검색하면 나오는 요약이 아니라, 내가 직접 막혀본 지점과 풀린 순간을 남긴다.
+      </p>
+    </section>
+
+    <section class="post-list">
+
+      <a href="./posts/2026-04-circuit-breaker-실전-패턴/01-왜-필요한가.html" class="post-item">
+        <div class="post-date">2026.04.22 · 시리즈</div>
+        <div class="post-title">CircuitBreaker 깊게 파기</div>
+        <div class="post-summary">
+          외부 API 하나가 죽었을 때 서버 전체가 멈추는 과정부터, ignoreExceptions 분리·fallback 오버로딩·이벤트 리스너·Retry 순서·분산 환경 전파까지. 어노테이션 하나 뒤에 이렇게 많은 게 있었다.
+        </div>
+        <div class="post-tags">
+          <span class="tag">Resilience4j</span>
+          <span class="tag">CircuitBreaker</span>
+          <span class="tag">장애 대응</span>
+          <span class="tag">분산 시스템</span>
+        </div>
+      </a>
+
+      <a href="./posts/2026-04-쿠폰-시스템-redis-정합성/01-redis-도입.html" class="post-item">
+        <div class="post-date">2026.04.20 · 시리즈</div>
+        <div class="post-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
+        <div class="post-summary">
+          DB 튜닝으로 259건까지 긁어온 뒤 Redis를 얹어 300건 전부 성공시켰다. 그리고 Redis-DB 정합성이라는 새 숙제가 열렸다.
+        </div>
+        <div class="post-tags">
+          <span class="tag">Redis</span>
+          <span class="tag">Lua</span>
+          <span class="tag">분산 시스템</span>
+          <span class="tag">정합성</span>
+        </div>
+      </a>
+
+      <a href="./posts/2026-04-쿠폰-시스템-성능-개선/01-문제-정의.html" class="post-item">
+        <div class="post-date">2026.04.14 · 시리즈</div>
+        <div class="post-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
+        <div class="post-summary">
+          300명이 동시에 쿠폰을 받을 때 65명만 성공한다. JPA 쿼리 줄이기, Lock Sharding, 그리고 결국 <code>SELECT FOR UPDATE SKIP LOCKED</code>까지.
+        </div>
+        <div class="post-tags">
+          <span class="tag">JPA</span>
+          <span class="tag">concurrency</span>
+          <span class="tag">H2</span>
+          <span class="tag">SKIP LOCKED</span>
+        </div>
+      </a>
+
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

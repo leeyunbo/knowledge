@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>네트워크 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="./assets/style.css">
+  <style>
+    .topic-container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 5rem;
+    }
+
+    .topic-hero { margin-bottom: 2.5rem; }
+    .topic-hero h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+    .topic-hero p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* === 그래프 캔버스 === */
+    .graph-canvas {
+      position: relative;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem 1.5rem 1.5rem;
+      margin-bottom: 3.5rem;
+    }
+
+    .graph-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .graph-svg {
+      display: block;
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      height: auto;
+    }
+
+    /* === 그래프 노드와 선 === */
+    .link {
+      stroke: var(--border);
+      stroke-width: 1;
+      fill: none;
+      transition: stroke 0.4s ease, opacity 0.4s ease;
+      stroke-dasharray: 1500;
+      stroke-dashoffset: 1500;
+      animation: drawLine 1.4s ease-out forwards;
+      animation-delay: 0.7s;
+    }
+    @keyframes drawLine {
+      to { stroke-dashoffset: 0; }
+    }
+
+    .node {
+      cursor: pointer;
+      opacity: 0;
+      animation: nodeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    @keyframes nodeIn {
+      from { opacity: 0; transform: scale(0.5); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    .node-circle {
+      transition: transform 0.3s ease, stroke 0.3s ease;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .node-ring {
+      fill: none;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .node-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-anchor: middle;
+      pointer-events: none;
+      fill: var(--text);
+      transition: fill 0.3s ease;
+    }
+
+    /* === 상태별 노드 === */
+    .node[data-state="locked"] .node-circle {
+      fill: #ffffff;
+      stroke: var(--border);
+      stroke-width: 1.5;
+    }
+    .node[data-state="locked"] .node-label {
+      fill: var(--text-faint);
+    }
+    .node[data-state="locked"] { cursor: default; }
+
+    .node[data-state="done"] .node-circle {
+      fill: var(--node-color);
+      stroke: var(--node-color);
+      stroke-width: 1.5;
+    }
+    .node[data-state="done"] .node-ring {
+      stroke: var(--node-color);
+      stroke-width: 1.5;
+      opacity: 0.35;
+      animation: ringPulse 4s ease-in-out infinite;
+      animation-delay: var(--ring-delay, 0s);
+    }
+    @keyframes ringPulse {
+      0%, 100% { r: 12; opacity: 0.35; }
+      50%      { r: 18; opacity: 0; }
+    }
+
+    /* === 호버 효과 === */
+    .node[data-state="done"]:hover .node-circle {
+      transform: scale(1.25);
+    }
+    .graph-svg.hovering .node:not(.is-active) {
+      opacity: 0.25;
+      transition: opacity 0.3s ease;
+    }
+    .graph-svg.hovering .link:not(.is-active) {
+      opacity: 0.1;
+    }
+    .graph-svg.hovering .link.is-active {
+      stroke: var(--text-muted);
+      opacity: 1;
+    }
+
+    /* === 그룹 색상 === */
+    .group-A { --node-color: #6366f1; }
+    .group-B { --node-color: #ec4899; }
+    .group-C { --node-color: #06b6d4; }
+    .group-D { --node-color: #f59e0b; }
+
+    /* === 툴팁 === */
+    .tooltip {
+      position: fixed;
+      background: var(--text);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      max-width: 280px;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 100;
+    }
+    .tooltip.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .tooltip-title { font-weight: 600; margin-bottom: 3px; font-size: 12.5px; }
+    .tooltip-desc { color: rgba(255,255,255,0.75); font-size: 11px; line-height: 1.5; }
+
+    /* === 그룹 + 시리즈 카드 === */
+    .group-list { margin-top: 3rem; }
+
+    .group-section {
+      margin-bottom: 2rem;
+      border-left: 3px solid var(--group-color);
+      padding-left: 1.25rem;
+    }
+    .group-section.group-A { --group-color: #6366f1; }
+    .group-section.group-B { --group-color: #ec4899; }
+    .group-section.group-C { --group-color: #06b6d4; }
+    .group-section.group-D { --group-color: #f59e0b; }
+
+    .group-section h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+      letter-spacing: -0.01em;
+    }
+    .group-section .group-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+
+    .topic-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .topic-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .topic-item:hover {
+      border-color: var(--border-hover);
+    }
+    .topic-item.locked {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .topic-item.locked:hover {
+      border-color: var(--border);
+    }
+    .topic-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      min-width: 1.4rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .topic-title {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .topic-meta {
+      font-size: 11px;
+      color: var(--text-faint);
+      font-family: var(--font-mono);
+    }
+    .topic-item.done .topic-num { color: var(--group-color); font-weight: 700; }
+
+    /* === 모바일 === */
+    @media (max-width: 768px) {
+      .topic-container { padding: 2rem 1rem 3rem; }
+      .topic-hero h1 { font-size: 24px; }
+      .topic-hero p { font-size: 13px; }
+      .graph-canvas { display: none; }
+      .group-list { margin-top: 1.5rem; }
+      .group-section { padding-left: 1rem; margin-bottom: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <main class="topic-container">
+    <section class="topic-hero">
+      <h1>네트워크</h1>
+    </section>
+
+    <!-- === 그래프 (데스크톱만) === -->
+    <section class="graph-canvas">
+      <div class="graph-meta">
+        <span></span>
+        <span><span id="progressText">5 / 12</span> · <span id="progressPct">42%</span></span>
+      </div>
+
+      <svg class="graph-svg" viewBox="0 0 800 620" xmlns="http://www.w3.org/2000/svg" aria-label="HTTP / 네트워크 토픽 그래프">
+
+        <g id="links">
+          <!-- A 그룹 내 -->
+          <line class="link" data-from="1" data-to="2" x1="180" y1="130" x2="250" y2="280" />
+          <line class="link" data-from="1" data-to="3" x1="180" y1="130" x2="110" y2="280" />
+          <line class="link" data-from="1" data-to="4" x1="180" y1="130" x2="90"  y2="130" />
+          <line class="link" data-from="2" data-to="3" x1="250" y1="280" x2="110" y2="280" />
+
+          <!-- B 그룹 내 -->
+          <line class="link" data-from="5" data-to="6" x1="430" y1="150" x2="510" y2="80" />
+          <line class="link" data-from="5" data-to="7" x1="430" y1="150" x2="370" y2="80" />
+          <line class="link" data-from="6" data-to="7" x1="510" y1="80"  x2="370" y2="80" />
+
+          <!-- C 그룹 내 -->
+          <line class="link" data-from="8" data-to="9" x1="620" y1="220" x2="680" y2="340" />
+          <line class="link" data-from="9" data-to="10" x1="680" y1="340" x2="560" y2="410" />
+
+          <!-- 그룹 간 -->
+          <line class="link" data-from="1" data-to="8" x1="180" y1="130" x2="620" y2="220" />
+          <line class="link" data-from="5" data-to="8" x1="430" y1="150" x2="620" y2="220" />
+          <line class="link" data-from="1" data-to="11" x1="180" y1="130" x2="320" y2="490" />
+          <line class="link" data-from="2" data-to="11" x1="250" y1="280" x2="320" y2="490" />
+          <line class="link" data-from="11" data-to="12" x1="320" y1="490" x2="530" y2="540" />
+          <line class="link" data-from="5" data-to="12" x1="430" y1="150" x2="530" y2="540" />
+        </g>
+
+        <!-- 노드들 -->
+        <!-- Group A: TCP / 연결 -->
+        <a class="node group-A" data-state="done" data-id="1"
+           data-title="TCP 연결의 일생"
+           data-desc="3-way handshake, 4-way handshake, TIME_WAIT까지"
+           href="./posts/2026-05-tcp-연결의-일생/01-연결을-만든다.html">
+          <g transform="translate(180,130)" style="--ring-delay: 0s;">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">TCP 연결의 일생</text>
+          </g>
+        </a>
+
+        <a class="node group-A" data-state="done" data-id="2"
+           data-title="HTTP Connection Pool 운영"
+           data-desc="Keep-Alive, stale connection, 풀 사이징"
+           href="./posts/2026-05-http-connection-pool/01-keep-alive-운영.html">
+          <g transform="translate(250,280)" style="--ring-delay: 0.8s;">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">Connection Pool</text>
+          </g>
+        </a>
+
+        <a class="node group-A" data-state="done" data-id="3"
+           data-title="TCP Backpressure"
+           data-desc="window, zero window probe, Spring 코드에서 살리는 법"
+           href="./posts/2026-05-tcp-backpressure/01-흐름-제어.html">
+          <g transform="translate(110,280)" style="--ring-delay: 1.6s;">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">Backpressure</text>
+          </g>
+        </a>
+
+        <a class="node group-A" data-state="locked" data-id="4"
+           data-title="TCP vs UDP"
+           data-desc="신뢰성과 latency의 trade-off. 어디서 어느 것을 쓰는가" href="#">
+          <g transform="translate(90,130)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">TCP vs UDP</text>
+          </g>
+        </a>
+
+        <!-- Group B: HTTP 프로토콜 -->
+        <a class="node group-B" data-state="locked" data-id="5"
+           data-title="HTTP/1.1 → HTTP/2 → HTTP/3"
+           data-desc="HoL blocking, multiplexing, QUIC. 버전별 동작 차이" href="#">
+          <g transform="translate(430,150)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">HTTP/1.1 → 2 → 3</text>
+          </g>
+        </a>
+
+        <a class="node group-B" data-state="locked" data-id="6"
+           data-title="HTTP 메소드와 멱등성"
+           data-desc="GET/PUT/DELETE 멱등의 진짜 의미. POST 재시도의 함정" href="#">
+          <g transform="translate(510,80)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">HTTP 메소드</text>
+          </g>
+        </a>
+
+        <a class="node group-B" data-state="locked" data-id="7"
+           data-title="HTTP 상태코드"
+           data-desc="4xx와 5xx의 결정적 차이, 헷갈리는 경계 (409, 422, 504)" href="#">
+          <g transform="translate(370,80)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">HTTP 상태코드</text>
+          </g>
+        </a>
+
+        <!-- Group C: 보안 / 세션 -->
+        <a class="node group-C" data-state="locked" data-id="8"
+           data-title="HTTPS / TLS handshake"
+           data-desc="TLS 1.2와 1.3의 RTT 차이, 인증서 체인 검증" href="#">
+          <g transform="translate(620,220)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">HTTPS · TLS</text>
+          </g>
+        </a>
+
+        <a class="node group-C" data-state="done" data-id="9"
+           data-title="CORS 깊이 이해"
+           data-desc="Same-Origin Policy, Preflight, credentials, Vary"
+           href="./posts/2026-05-cors-깊이-이해/01-same-origin-policy.html">
+          <g transform="translate(680,340)" style="--ring-delay: 2.4s;">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">CORS</text>
+          </g>
+        </a>
+
+        <a class="node group-C" data-state="locked" data-id="10"
+           data-title="Cookie / Session / Token"
+           data-desc="쿠키 옵션, 세션 vs JWT, SameSite의 변천사" href="#">
+          <g transform="translate(560,410)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">Cookie · Session</text>
+          </g>
+        </a>
+
+        <!-- Group D: 인프라 / 이름 -->
+        <a class="node group-D" data-state="done" data-id="11"
+           data-title="패킷 한 개의 여정"
+           data-desc="호스트 NIC부터 ISP, BGP, BDP까지"
+           href="./posts/2026-05-패킷-한-개의-여정/01-호스트-안의-여정.html">
+          <g transform="translate(320,490)" style="--ring-delay: 3.2s;">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">패킷의 여정</text>
+          </g>
+        </a>
+
+        <a class="node group-D" data-state="locked" data-id="12"
+           data-title="DNS 동작"
+           data-desc="재귀 vs 반복, split-horizon, 캐시" href="#">
+          <g transform="translate(530,540)">
+            <circle class="node-ring" />
+            <circle class="node-circle" r="10" />
+            <text class="node-label" y="26">DNS</text>
+          </g>
+        </a>
+
+      </svg>
+    </section>
+
+    <!-- === 그룹별 시리즈 목록 (모바일에선 메인 콘텐츠) === -->
+    <section class="group-list">
+
+      <div class="group-section group-A">
+        <h2>A · TCP / 연결</h2>
+        <p class="group-desc">TCP 연결을 만들고 끊고 운영하는 이야기</p>
+        <div class="topic-list">
+          <a class="topic-item done" href="./posts/2026-05-tcp-연결의-일생/01-연결을-만든다.html">
+            <span class="topic-num">01</span>
+            <span class="topic-title">TCP 연결의 일생</span>
+            <span class="topic-meta">3편</span>
+          </a>
+          <a class="topic-item done" href="./posts/2026-05-http-connection-pool/01-keep-alive-운영.html">
+            <span class="topic-num">02</span>
+            <span class="topic-title">HTTP Connection Pool 운영</span>
+            <span class="topic-meta">4편</span>
+          </a>
+          <a class="topic-item done" href="./posts/2026-05-tcp-backpressure/01-흐름-제어.html">
+            <span class="topic-num">03</span>
+            <span class="topic-title">TCP Backpressure</span>
+            <span class="topic-meta">2편</span>
+          </a>
+          <div class="topic-item locked">
+            <span class="topic-num">04</span>
+            <span class="topic-title">TCP vs UDP</span>
+            <span class="topic-meta">예정</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-section group-B">
+        <h2>B · HTTP 프로토콜</h2>
+        <p class="group-desc">HTTP 자체의 동작에 대하여</p>
+        <div class="topic-list">
+          <div class="topic-item locked">
+            <span class="topic-num">05</span>
+            <span class="topic-title">HTTP/1.1 → HTTP/2 → HTTP/3</span>
+            <span class="topic-meta">예정</span>
+          </div>
+          <div class="topic-item locked">
+            <span class="topic-num">06</span>
+            <span class="topic-title">HTTP 메소드와 멱등성</span>
+            <span class="topic-meta">예정</span>
+          </div>
+          <div class="topic-item locked">
+            <span class="topic-num">07</span>
+            <span class="topic-title">HTTP 상태코드</span>
+            <span class="topic-meta">예정</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-section group-C">
+        <h2>C · 보안 / 세션</h2>
+        <p class="group-desc">TLS, CORS, 쿠키 같은 것들</p>
+        <div class="topic-list">
+          <div class="topic-item locked">
+            <span class="topic-num">08</span>
+            <span class="topic-title">HTTPS / TLS handshake</span>
+            <span class="topic-meta">예정</span>
+          </div>
+          <a class="topic-item done" href="./posts/2026-05-cors-깊이-이해/01-same-origin-policy.html">
+            <span class="topic-num">09</span>
+            <span class="topic-title">CORS 깊이 이해</span>
+            <span class="topic-meta">3편</span>
+          </a>
+          <div class="topic-item locked">
+            <span class="topic-num">10</span>
+            <span class="topic-title">Cookie / Session / Token</span>
+            <span class="topic-meta">예정</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-section group-D">
+        <h2>D · 인프라 / 이름</h2>
+        <p class="group-desc">패킷이 어디로 가는지, DNS는 어떻게 푸는지</p>
+        <div class="topic-list">
+          <a class="topic-item done" href="./posts/2026-05-패킷-한-개의-여정/01-호스트-안의-여정.html">
+            <span class="topic-num">11</span>
+            <span class="topic-title">패킷 한 개의 여정</span>
+            <span class="topic-meta">3편</span>
+          </a>
+          <div class="topic-item locked">
+            <span class="topic-num">12</span>
+            <span class="topic-title">DNS 동작</span>
+            <span class="topic-meta">예정</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <div class="tooltip" id="tooltip">
+    <div class="tooltip-title" id="tooltipTitle"></div>
+    <div class="tooltip-desc" id="tooltipDesc"></div>
+  </div>
+
+  <footer class="site-footer">bok · 2026</footer>
+
+  <script>
+    // 노드 등장 stagger
+    document.querySelectorAll('.node').forEach((n, i) => {
+      n.style.animationDelay = (i * 0.05) + 's';
+    });
+
+    // 인접 관계 맵
+    const links = document.querySelectorAll('.link');
+    const adjacency = {};
+    links.forEach(link => {
+      const from = link.dataset.from;
+      const to = link.dataset.to;
+      if (!adjacency[from]) adjacency[from] = new Set();
+      if (!adjacency[to]) adjacency[to] = new Set();
+      adjacency[from].add(to);
+      adjacency[to].add(from);
+    });
+
+    const svg = document.querySelector('.graph-svg');
+    const tooltip = document.getElementById('tooltip');
+    const tooltipTitle = document.getElementById('tooltipTitle');
+    const tooltipDesc = document.getElementById('tooltipDesc');
+
+    // 호버 인터랙션
+    document.querySelectorAll('.node').forEach(node => {
+      node.addEventListener('mouseenter', () => {
+        const id = node.dataset.id;
+        const connected = adjacency[id] || new Set();
+
+        svg.classList.add('hovering');
+        document.querySelectorAll('.node').forEach(n => {
+          if (n.dataset.id === id || connected.has(n.dataset.id)) {
+            n.classList.add('is-active');
+          }
+        });
+        document.querySelectorAll('.link').forEach(link => {
+          if ((link.dataset.from === id && connected.has(link.dataset.to)) ||
+              (link.dataset.to === id && connected.has(link.dataset.from))) {
+            link.classList.add('is-active');
+          }
+        });
+
+        tooltipTitle.textContent = node.dataset.title;
+        tooltipDesc.textContent = node.dataset.desc;
+        tooltip.classList.add('show');
+      });
+
+      node.addEventListener('mouseleave', () => {
+        svg.classList.remove('hovering');
+        document.querySelectorAll('.is-active').forEach(el => el.classList.remove('is-active'));
+        tooltip.classList.remove('show');
+      });
+
+      node.addEventListener('mousemove', (e) => {
+        const x = Math.min(e.clientX + 14, window.innerWidth - 300);
+        const y = Math.min(e.clientY + 14, window.innerHeight - 80);
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+      });
+
+      // locked 노드는 클릭 막기
+      if (node.dataset.state === 'locked') {
+        node.addEventListener('click', (e) => e.preventDefault());
+      }
+    });
+
+    // 진행률
+    const total = document.querySelectorAll('.node').length;
+    const done = document.querySelectorAll('.node[data-state="done"]').length;
+    document.getElementById('progressText').textContent = done + ' / ' + total;
+    document.getElementById('progressPct').textContent = Math.round((done / total) * 100) + '%';
+  </script>
+</body>
+</html>
