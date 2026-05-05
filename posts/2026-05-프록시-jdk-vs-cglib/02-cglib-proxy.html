@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CGLIB Proxy의 정체 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 2/3</div>
+        <h1>CGLIB Proxy의 정체</h1>
+        <p class="subtitle">
+          클래스 상속 기반 프록시. ASM이 바이트코드를 직접 만들고
+          Enhancer가 동적 서브클래스를 생성하는 메커니즘.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">프록시 — JDK Dynamic vs CGLIB</div>
+        <ol>
+          <li><a href="./01-jdk-dynamic-proxy.html">JDK Dynamic Proxy의 정체</a></li>
+          <li class="current">CGLIB Proxy의 정체</li>
+          <li><a href="./03-둘의-비교와-spring의-선택.html">둘의 비교와 Spring의 선택</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>CGLIB이 풀려는 문제 — 인터페이스 없이도</h2>
+
+        <p>
+          앞 편 끝에서 짚은 한계. JDK 동적 프록시는 인터페이스가 있어야 작동한다.
+          그런데 실무 코드는 인터페이스 없는 구체 클래스도 많다.
+        </p>
+
+        <pre><code>@Service
+public class UserService {   // 인터페이스 없음
+    @Transactional
+    public void createUser(String name) { ... }
+}
+
+→ JDK 동적 프록시 사용 불가
+→ 그러나 @Transactional은 동작해야 함
+→ 누가 프록시를 만드나? CGLIB.</code></pre>
+
+        <p>
+          CGLIB의 핵심 아이디어:
+          <strong>"인터페이스가 없으면 클래스를 직접 상속한 동적 서브클래스를 만들자."</strong>
+        </p>
+
+        <h2>CGLIB의 정체 — Code Generation Library</h2>
+
+        <p>
+          CGLIB(Code Generation Library)은 Java 클래스를 런타임에 동적으로 생성/수정하는 라이브러리.
+          그 위에서 <code>Enhancer</code>를 통해 프록시를 만든다.
+        </p>
+
+        <pre><code>구성 요소:
+
+ASM
+  - 바이트코드 조작 라이브러리
+  - 새 .class 파일을 메모리에 생성
+  - CGLIB의 기반 (CGLIB이 ASM 위에 구축)
+
+CGLIB
+  - ASM을 사용해 동적 클래스 생성
+  - Enhancer, MethodInterceptor 등 고수준 API 제공
+
+Spring
+  - CGLIB을 자체 패키지(org.springframework.cglib)로 재패키징
+  - 별도 의존성 추가 없이 사용 가능</code></pre>
+
+        <p>
+          요즘 Spring은 자체적으로 CGLIB을 포함하고 있어서
+          개발자가 CGLIB 라이브러리를 따로 추가할 필요 없다.
+        </p>
+
+        <h2>CGLIB의 동작 원리 — 동적 서브클래스</h2>
+
+        <p>
+          핵심 메커니즘:
+        </p>
+
+        <pre><code>원본 클래스:
+  public class UserService {
+      public void createUser(String name) { ... }
+  }
+
+CGLIB이 만드는 동적 클래스:
+  public class UserService$$EnhancerByCGLIB$$1234abcd extends UserService {
+
+      private MethodInterceptor interceptor;
+
+      public void createUser(String name) {
+          // 부모(원본)의 createUser를 직접 호출하지 않고
+          // interceptor.intercept를 호출
+          interceptor.intercept(this, methodObject, new Object[]{name}, methodProxy);
+      }
+  }
+
+→ UserService를 상속한 새 클래스
+→ createUser 메서드를 오버라이드
+→ 우리 정의 MethodInterceptor로 호출 위임</code></pre>
+
+        <p>
+          런타임에 ASM이 이 새 클래스의 바이트코드를 메모리에 만들고,
+          ClassLoader가 그 바이트코드를 클래스로 로드한다.
+          그 클래스의 인스턴스가 프록시 객체.
+        </p>
+
+        <h2>MethodInterceptor — CGLIB의 InvocationHandler</h2>
+
+        <p>
+          JDK 동적 프록시의 InvocationHandler에 대응하는 CGLIB의 인터페이스.
+        </p>
+
+        <pre><code>public interface MethodInterceptor extends Callback {
+    Object intercept(
+        Object obj,            // 프록시 객체 자기 자신
+        Method method,          // 호출된 메서드 (java.lang.reflect.Method)
+        Object[] args,          // 호출 시 전달된 인자
+        MethodProxy proxy       // ★ CGLIB 특유. 빠른 super 호출용
+    ) throws Throwable;
+}</code></pre>
+
+        <p>
+          JDK의 <code>InvocationHandler.invoke</code>와 거의 같다.
+          한 가지 추가가 있는데 <code>MethodProxy</code>다. 이게 CGLIB의 성능 비결.
+        </p>
+
+        <h3>MethodProxy의 의미</h3>
+
+        <p>
+          JDK 동적 프록시에서 원본 메서드 호출은 <code>method.invoke(target, args)</code>로 한다.
+          이건 Java Reflection이라 약간 느리다.
+          CGLIB은 다른 방법을 제공한다.
+        </p>
+
+        <pre><code>JDK 방식 (느림 — Reflection):
+  Object result = method.invoke(target, args);
+
+CGLIB 방식 (빠름 — 직접 호출):
+  Object result = methodProxy.invokeSuper(obj, args);  // 부모 메서드 직접 호출
+
+차이:
+  method.invoke는 JNI를 거쳐 Reflection
+  methodProxy.invokeSuper는 미리 만들어둔 디스패치 코드로 직접 호출
+  벤치마크 사례: 수십~수백 배 차이</code></pre>
+
+        <p>
+          이게 CGLIB이 JDK 동적 프록시보다 빠르다는 평가의 본체.
+          <code>methodProxy.invokeSuper</code>를 쓰면 Reflection 오버헤드가 사라진다.
+        </p>
+
+        <h2>실제 예시 — Enhancer로 프록시 만들기</h2>
+
+        <pre><code>// 원본 클래스 (인터페이스 없음)
+public class UserService {
+    public User createUser(String name) {
+        System.out.println("실제 메서드 실행: " + name);
+        return new User(name);
+    }
+}
+
+// MethodInterceptor 작성
+public class TimingInterceptor implements MethodInterceptor {
+    @Override
+    public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy)
+            throws Throwable {
+        long start = System.currentTimeMillis();
+        try {
+            // 부모(원본) 메서드 호출
+            Object result = proxy.invokeSuper(obj, args);
+            return result;
+        } finally {
+            long elapsed = System.currentTimeMillis() - start;
+            System.out.println(method.getName() + " took " + elapsed + "ms");
+        }
+    }
+}
+
+// Enhancer로 프록시 클래스 생성
+Enhancer enhancer = new Enhancer();
+enhancer.setSuperclass(UserService.class);   // ★ 부모 클래스 지정
+enhancer.setCallback(new TimingInterceptor());
+
+UserService proxy = (UserService) enhancer.create();
+
+// 사용
+proxy.createUser("Alice");
+// 출력:
+// 실제 메서드 실행: Alice
+// createUser took 5ms</code></pre>
+
+        <p>
+          Enhancer가 동적으로 <code>UserService</code>의 서브클래스를 만들고,
+          <code>create()</code>로 그 인스턴스를 반환한다.
+          이 객체는 <code>UserService</code> 타입이지만 진짜 클래스는 <code>UserService$$EnhancerByCGLIB$$...</code> 같은 이름.
+        </p>
+
+        <h2>CGLIB이 만드는 동적 클래스의 모양</h2>
+
+        <p>
+          런타임에 메모리에 생성되는 그 클래스를 사람이 읽기 쉬운 형태로 표현하면:
+        </p>
+
+        <pre><code>public class UserService$$EnhancerByCGLIB$$abcd1234 extends UserService {
+
+    private MethodInterceptor CGLIB$CALLBACK_0;
+    private static final Method CGLIB$createUser$0$Method;
+    private static final MethodProxy CGLIB$createUser$0$Proxy;
+
+    static {
+        // 초기화 시 Method, MethodProxy를 미리 준비
+        CGLIB$createUser$0$Method = ReflectUtils.findMethods(...);
+        CGLIB$createUser$0$Proxy = MethodProxy.create(...);
+    }
+
+    @Override
+    public User createUser(String name) {
+        return (User) this.CGLIB$CALLBACK_0.intercept(
+            this,
+            CGLIB$createUser$0$Method,
+            new Object[]{name},
+            CGLIB$createUser$0$Proxy
+        );
+    }
+
+    // 부모 메서드를 직접 호출하기 위한 유틸 메서드
+    final User CGLIB$createUser$0$super(String name) {
+        return super.createUser(name);
+    }
+}</code></pre>
+
+        <p>
+          핵심 부분:
+        </p>
+
+        <pre><code>1. extends UserService — 원본 클래스 상속
+2. createUser 오버라이드 — interceptor 호출
+3. 인자로 Method, MethodProxy 전달
+4. CGLIB$createUser$0$super — 진짜 super 호출용 도우미 메서드</code></pre>
+
+        <p>
+          MethodProxy가 빠르게 super 호출할 수 있는 비결이 4번.
+          미리 만들어둔 도우미 메서드를 통해 super 호출하니 Reflection이 필요 없다.
+        </p>
+
+        <h2>CGLIB의 제약</h2>
+
+        <h3>제약 1: final 클래스에 적용 불가</h3>
+
+        <pre><code>public final class UserService { ... }
+
+→ Enhancer.setSuperclass(UserService.class) 시도
+→ final 클래스는 상속 불가 → 클래스 생성 실패
+→ Spring의 경우 시작 시점 에러 또는 AOP 적용 안 됨</code></pre>
+
+        <p>
+          Java의 final 클래스는 상속 못 한다는 언어 차원의 제약.
+          CGLIB도 어쩔 수 없다.
+        </p>
+
+        <h3>제약 2: final 메서드는 가로챌 수 없다</h3>
+
+        <pre><code>public class UserService {
+    @Transactional
+    public final void createUser(String name) { ... }   // final 메서드
+}
+
+→ CGLIB은 createUser 오버라이드 시도 → final이라 오버라이드 불가
+→ 그 메서드만 그대로 둠 → 가로채기 실패
+→ @Transactional 적용 안 됨 (조용히 넘어가기 쉬움)</code></pre>
+
+        <p>
+          final 클래스 전체가 아니라 메서드만 final이어도 그 메서드는 AOP 적용 안 된다.
+          더 미묘한 함정. 코드는 컴파일되고 실행되지만 어노테이션이 작동 안 함.
+        </p>
+
+        <h3>제약 3: private 메서드는 가로챌 수 없다</h3>
+
+        <pre><code>public class UserService {
+    @Transactional
+    private void internalMethod() { ... }   // private
+}
+
+→ private 메서드는 자식 클래스에서 보이지 않음 (Java 가시성 규칙)
+→ CGLIB이 오버라이드 못 함
+→ 가로채기 불가</code></pre>
+
+        <p>
+          AOP 시리즈 4편에서 짚었던 그것. private 메서드에 @Transactional 붙여봐야 의미 없다.
+          CGLIB이든 JDK든 어떤 프록시도 못 가로챈다.
+        </p>
+
+        <h3>제약 4: 부모 생성자가 필수로 호출됨</h3>
+
+        <pre><code>public class UserService {
+    public UserService() {
+        connectDatabase();   // 무거운 작업
+    }
+}
+
+→ CGLIB이 동적 서브클래스 만들 때 super() 호출이 필요
+→ 진짜 인스턴스 만들 때 부모 생성자가 한 번 호출됨
+→ 무거운 초기화면 프록시 생성이 느려짐
+
+CGLIB 4.x부터:
+  bypassConstructor 옵션으로 부모 생성자 호출 안 할 수도 있음
+  단, 이러면 부모 클래스의 final 필드 등이 초기화 안 되어 위험
+  Spring AOP는 기본적으로 정상 호출</code></pre>
+
+        <h2>CGLIB의 장점</h2>
+
+        <pre><code>1. 인터페이스 불필요
+   - 어떤 구체 클래스든 프록시로 만들 수 있음
+   - 실무 코드 그대로 적용
+
+2. 모든 구현체 메서드 가로챔
+   - 인터페이스에 없는 메서드도 가로챔
+   - 구현체 자체를 상속하니 모든 public/protected 메서드 OK
+
+3. 빠름
+   - MethodProxy.invokeSuper로 Reflection 우회
+   - JDK 동적 프록시 대비 측정상 빠름 (벤치마크 사례)
+
+4. 캐스팅 자유로움
+   - 프록시 객체를 원본 클래스 타입으로 캐스팅 가능
+   - (UserService) proxy → OK
+   - 인터페이스 캐스팅도 OK (구현된 인터페이스라면)</code></pre>
+
+        <h2>CGLIB의 단점 (장점의 그림자)</h2>
+
+        <pre><code>1. final 클래스/메서드 적용 불가 — 위에서 본 제약
+
+2. 클래스 생성 비용
+   - 새 클래스를 바이트코드 만들어 로드
+   - JDK 동적 프록시보다 첫 생성 시간 약간 느림 (단, 한 번이라 무시 가능)
+
+3. 클래스로더 메모리
+   - 매 프록시 클래스가 클래스로더에 로드됨
+   - 매우 많은 프록시를 만들면 PermGen/Metaspace 사용량 증가
+
+4. 부모 생성자 호출
+   - 인스턴스화 시 부모 생성자 한 번 호출됨
+   - 무거우면 부담</code></pre>
+
+        <h2>Spring과 CGLIB</h2>
+
+        <p>
+          Spring 5+/Boot 2+ 기본은 CGLIB.
+          AOP 시리즈에서 짚은 <code>spring.aop.proxy-target-class=true</code>가 그 설정.
+        </p>
+
+        <pre><code>왜 Spring이 CGLIB을 기본으로?
+
+1. 인터페이스 없는 빈도 많음
+   - 모든 빈에 인터페이스를 강제하는 건 과한 패턴
+   - 단순 서비스는 구체 클래스로도 충분
+
+2. 일관성
+   - JDK/CGLIB이 케이스마다 갈리면 디버깅 어려움
+   - "Spring 빈은 항상 CGLIB" 일관성
+
+3. 캐스팅 자유
+   - 구체 타입으로 주입받아도 동작
+   - 레거시 코드 호환
+
+4. 성능 우위
+   - MethodProxy 활용</code></pre>
+
+        <h2>Java 17과 CGLIB의 관계</h2>
+
+        <p>
+          Java 9부터 모듈 시스템(JPMS)이 도입되면서 CGLIB이 곤란을 겪는 케이스가 늘었다.
+          CGLIB이 자기 클래스를 다른 모듈의 클래스로더에 정의하려 할 때 모듈 캡슐화 정책에 막힘.
+        </p>
+
+        <pre><code>증상:
+  Java 9+ 환경에서 일부 CGLIB 동작이 InaccessibleObjectException 던짐
+
+대응:
+  Spring Framework는 자체 CGLIB 포크를 점진 개선
+  Java 17+에서도 잘 동작하도록 패치 누적
+
+근본 해결:
+  Spring 6 / Boot 3+에서 ByteBuddy로 점진 이관 가능성 (장기 계획)
+  ByteBuddy는 CGLIB 후속 같은 라이브러리, 모던 JVM에 더 적합</code></pre>
+
+        <p>
+          현재 Spring Boot 3까지는 CGLIB이 주로 쓰이고,
+          Java 17/21 환경에서도 잘 동작한다.
+          ByteBuddy 같은 대안이 있지만 일반 Spring AOP에선 아직 CGLIB이 표준.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>CGLIB Proxy:
+  - 클래스 상속 기반
+  - ASM으로 바이트코드 만들고 동적 서브클래스 생성
+  - MethodInterceptor가 가로채기 로직 (JDK의 InvocationHandler에 대응)
+  - MethodProxy.invokeSuper로 Reflection 우회 → 빠름
+
+제약:
+  - final 클래스/메서드 적용 불가
+  - private 메서드 적용 불가
+  - 부모 생성자 호출됨
+
+Spring Boot 2+ 기본 프록시 메커니즘.</code></pre>
+
+        <p>
+          이제 두 프록시를 모두 봤다. JDK는 인터페이스 기반, CGLIB은 상속 기반.
+          마지막 편에서 둘을 직접 비교하고, Spring이 어떤 기준으로 둘 중 하나를 선택하는지,
+          실무에서 무엇을 쓸지 결정하는 가이드를 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

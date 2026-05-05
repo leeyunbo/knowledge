@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JDK Dynamic Proxy의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 1/3</div>
+        <h1>JDK Dynamic Proxy의 정체</h1>
+        <p class="subtitle">
+          인터페이스 기반 프록시. java.lang.reflect.Proxy가 런타임에 만드는 동적 클래스의 메커니즘.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">프록시 — JDK Dynamic vs CGLIB</div>
+        <ol>
+          <li class="current">JDK Dynamic Proxy의 정체</li>
+          <li><a href="./02-cglib-proxy.html">CGLIB Proxy의 정체</a></li>
+          <li><a href="./03-둘의-비교와-spring의-선택.html">둘의 비교와 Spring의 선택</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>프록시가 풀려는 문제 — 한 줄 환기</h2>
+
+        <p>
+          AOP 시리즈에서 짚었던 그림.
+          어떤 객체의 메서드 호출을 가로채서 그 앞뒤로 다른 코드를 끼워넣고 싶다.
+          <code>@Transactional</code>이 트랜잭션 시작/커밋/롤백을 자동으로 처리하는 그 마법의 본체.
+        </p>
+
+        <p>
+          어떻게 가로채나? <strong>원본 객체와 같은 타입을 가진 다른 객체</strong>를 만들어
+          호출자에게 그 객체를 주는 것. 호출자는 자기가 원본을 받았다고 믿지만
+          실제로는 가로채는 객체(프록시)를 받았다.
+        </p>
+
+        <pre><code>호출자 입장:
+  UserService userService = ...;   // 원본인 줄 알지만
+  userService.createUser();         // 사실은 프록시. 메서드 호출이 가로채짐</code></pre>
+
+        <p>
+          이걸 가능하게 하는 두 가지 메커니즘이 JDK 동적 프록시와 CGLIB.
+          이 편에서 JDK 동적 프록시를 본다.
+        </p>
+
+        <h2>JDK Dynamic Proxy의 핵심 — 인터페이스 기반</h2>
+
+        <p>
+          JDK 동적 프록시의 가장 중요한 제약과 특징은 한 줄로.
+        </p>
+
+        <p>
+          <strong>"프록시는 어떤 인터페이스를 구현한 클래스다.
+          런타임에 그 인터페이스의 구현체를 동적으로 만들어낸다."</strong>
+        </p>
+
+        <pre><code>전제:
+  대상 객체가 어떤 인터페이스를 구현해야 함
+
+UserService 인터페이스:
+  public interface UserService {
+      User createUser(String name);
+  }
+
+UserServiceImpl 구현체:
+  public class UserServiceImpl implements UserService {
+      public User createUser(String name) { ... }
+  }
+
+JDK 동적 프록시가 만드는 것:
+  UserService 인터페이스를 구현한 또 다른 클래스 (런타임 생성)
+  이 동적 클래스도 createUser 메서드를 가짐
+  단, 그 메서드는 우리가 정의한 InvocationHandler로 호출을 위임</code></pre>
+
+        <h2>java.lang.reflect.Proxy.newProxyInstance</h2>
+
+        <p>
+          JDK 동적 프록시를 만드는 정확한 API.
+          <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/reflection/proxy.html">Java 공식 문서</a>의 정의:
+        </p>
+
+        <pre><code>public static Object newProxyInstance(
+    ClassLoader loader,                  // 프록시 클래스를 로드할 ClassLoader
+    Class&lt;?&gt;[] interfaces,            // 프록시가 구현할 인터페이스들
+    InvocationHandler h                  // 메서드 호출이 위임될 핸들러
+)</code></pre>
+
+        <p>
+          세 인자가 필요하다. 각자 의미:
+        </p>
+
+        <pre><code>1. ClassLoader
+   - 동적으로 만들어진 프록시 클래스를 로드할 클래스로더
+   - 보통 대상 객체와 같은 클래스로더 사용
+   - 예: target.getClass().getClassLoader()
+
+2. Class[] interfaces
+   - 프록시가 구현해야 할 인터페이스 목록
+   - 보통 대상 객체가 구현한 인터페이스들
+   - 예: target.getClass().getInterfaces()
+
+3. InvocationHandler
+   - 모든 메서드 호출이 위임될 핸들러
+   - invoke(proxy, method, args) 메서드 하나만 구현하면 됨
+   - 여기에 가로채기 로직을 작성</code></pre>
+
+        <h2>InvocationHandler — 가로채기의 본체</h2>
+
+        <pre><code>public interface InvocationHandler {
+    Object invoke(Object proxy, Method method, Object[] args) throws Throwable;
+}
+
+인자:
+  proxy   — 프록시 객체 자기 자신
+  method  — 호출된 메서드 (Reflection의 Method 객체)
+  args    — 호출 시 전달된 인자들
+
+반환:
+  메서드의 실제 반환값 (호출자에게 그대로 돌아감)</code></pre>
+
+        <p>
+          모든 메서드 호출이 이 <code>invoke</code> 메서드 하나로 모인다.
+          여기서 어느 메서드인지 보고, 가로채기 로직을 실행하고, 원본에 위임하고, 결과 반환.
+        </p>
+
+        <h2>실제 예시 — 메서드 실행 시간 측정 프록시</h2>
+
+        <pre><code>// 대상 인터페이스
+public interface UserService {
+    User createUser(String name);
+    User findUser(Long id);
+}
+
+// 원본 구현체
+public class UserServiceImpl implements UserService {
+    public User createUser(String name) {
+        return new User(name);
+    }
+    public User findUser(Long id) {
+        return userRepo.findById(id);
+    }
+}
+
+// InvocationHandler 작성
+public class TimingHandler implements InvocationHandler {
+    private final Object target;
+
+    public TimingHandler(Object target) {
+        this.target = target;
+    }
+
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        long start = System.currentTimeMillis();
+        try {
+            // 원본 객체에 호출 위임
+            Object result = method.invoke(target, args);
+            return result;
+        } finally {
+            long elapsed = System.currentTimeMillis() - start;
+            System.out.println(method.getName() + " took " + elapsed + "ms");
+        }
+    }
+}
+
+// 프록시 생성
+UserService target = new UserServiceImpl();
+UserService proxy = (UserService) Proxy.newProxyInstance(
+    UserService.class.getClassLoader(),
+    new Class&lt;?&gt;[] { UserService.class },
+    new TimingHandler(target)
+);
+
+// 사용
+proxy.createUser("Alice");
+// 출력: createUser took 5ms
+
+proxy.findUser(1L);
+// 출력: findUser took 12ms</code></pre>
+
+        <p>
+          이게 JDK 동적 프록시의 모든 것이다. <code>Proxy.newProxyInstance</code> 한 번 호출로
+          런타임에 <code>UserService</code>를 구현한 새 클래스가 만들어진다.
+          그 클래스의 모든 메서드는 우리 <code>InvocationHandler.invoke</code>로 위임된다.
+        </p>
+
+        <h2>그 동적 클래스는 정확히 어떻게 생겼나</h2>
+
+        <p>
+          Java가 런타임에 생성하는 그 클래스는 대략 이렇게 생겼다 (사람이 보기 쉽게 표현):
+        </p>
+
+        <pre><code>// JVM이 런타임에 생성하는 클래스 (이름은 보통 $Proxy0, $Proxy1 같은 식)
+public final class $Proxy0 extends Proxy implements UserService {
+
+    private static Method m_createUser;
+    private static Method m_findUser;
+
+    static {
+        m_createUser = Class.forName("UserService").getMethod("createUser", String.class);
+        m_findUser = Class.forName("UserService").getMethod("findUser", Long.class);
+    }
+
+    public $Proxy0(InvocationHandler h) {
+        super(h);
+    }
+
+    @Override
+    public User createUser(String name) {
+        return (User) this.h.invoke(this, m_createUser, new Object[] { name });
+    }
+
+    @Override
+    public User findUser(Long id) {
+        return (User) this.h.invoke(this, m_findUser, new Object[] { id });
+    }
+}</code></pre>
+
+        <p>
+          핵심을 보면:
+        </p>
+
+        <pre><code>1. UserService 인터페이스 구현
+2. 인터페이스의 각 메서드를 갖되, 구현은 단순히 InvocationHandler.invoke 호출
+3. invoke의 두 번째 인자로 Method 객체를 미리 저장해두고 전달
+4. 호출자가 createUser를 부르면 → invoke로 위임 → 우리 코드에서 처리</code></pre>
+
+        <p>
+          이 클래스는 <code>java.lang.reflect.Proxy</code>의 자식이다.
+          <code>extends Proxy</code> 부분이 그래서 있는 것.
+        </p>
+
+        <h2>왜 인터페이스가 필요한가</h2>
+
+        <p>
+          JDK 동적 프록시의 가장 큰 제약. 왜 인터페이스가 있어야만 작동할까.
+        </p>
+
+        <p>
+          이유는 단순하다. <strong>Java에서 동적으로 클래스를 만들 때
+          기존 구체 클래스를 상속하는 건 어렵지만, 인터페이스를 구현하는 건 쉽기 때문</strong>이다.
+        </p>
+
+        <pre><code>인터페이스 구현 방식:
+  - 인터페이스의 메서드 시그니처를 보고 그 메서드를 가진 클래스를 만들면 됨
+  - 모든 메서드 구현을 InvocationHandler로 위임
+  - JVM의 표준 기능으로 충분 (java.lang.reflect.Proxy)
+
+구체 클래스 상속 방식:
+  - 부모 클래스의 모든 메서드를 오버라이드해야 함
+  - 부모 생성자 호출, 필드 처리 등 복잡
+  - 표준 JDK 기능으로는 불가능
+  - 별도 바이트코드 라이브러리(ASM, Javassist) 필요 → CGLIB</code></pre>
+
+        <p>
+          그래서 JDK는 "인터페이스 기반" 동적 프록시만 지원한다.
+          구체 클래스를 상속하는 프록시는 다음 편의 CGLIB이 한다.
+        </p>
+
+        <h2>장점</h2>
+
+        <pre><code>1. JDK 표준 기능
+   - java.lang.reflect.Proxy로 별도 라이브러리 불필요
+   - 모든 JVM에서 작동
+
+2. 가벼움
+   - 별도 의존성 없음
+   - JVM이 잘 최적화돼있음
+
+3. 모든 인터페이스 메서드 가로챔 가능
+   - public, protected 무관
+   - final 키워드는 인터페이스 메서드에 없으니 무관</code></pre>
+
+        <h2>제약</h2>
+
+        <pre><code>1. 인터페이스 필수
+   - 대상 객체가 인터페이스 구현해야 함
+   - 없으면 사용 불가
+
+2. 인터페이스에 정의된 메서드만 가로챔
+   - 구현체에 인터페이스에 없는 추가 메서드가 있어도 가로채지 못함
+   - 그 메서드는 프록시에 존재 자체가 안 함
+
+3. 캐스팅 제한
+   - 프록시 객체를 구체 클래스로 캐스팅 못 함
+   - (UserServiceImpl) proxy → ClassCastException
+
+4. 반사 기반의 약간의 오버헤드
+   - method.invoke 호출 비용이 직접 호출보다 느림
+   - 단, 요즘 JVM은 이걸 잘 최적화 (관찰: 큰 오버헤드 아님)</code></pre>
+
+        <h3>제약 1의 의미</h3>
+
+        <pre><code>인터페이스 없는 클래스:
+
+  @Service
+  public class UserService {   // 인터페이스 없이 구체 클래스만
+      public User createUser(String name) { ... }
+  }
+
+→ JDK 동적 프록시 사용 불가
+→ Spring이 자동으로 CGLIB으로 fallback</code></pre>
+
+        <h3>제약 2의 의미</h3>
+
+        <pre><code>인터페이스에 일부 메서드만 있을 때:
+
+  public interface UserService {
+      User createUser(String name);    // 인터페이스에 있음
+  }
+
+  public class UserServiceImpl implements UserService {
+      public User createUser(String name) { ... }
+      public void resetCache() { ... }    // 인터페이스에 없음, 구현체에만
+  }
+
+JDK 동적 프록시 사용 시:
+  proxy.createUser("Alice")    // 가로채짐 (인터페이스 메서드)
+  proxy.resetCache()           // 컴파일 에러. UserService에 그 메서드 없음
+
+호출하려면 캐스팅:
+  ((UserServiceImpl) proxy).resetCache()    // ClassCastException
+  → 프록시는 UserService 구현체이지 UserServiceImpl이 아님</code></pre>
+
+        <p>
+          이 제약 때문에 인터페이스에만 있는 메서드만 호출할 수 있다.
+          구현체의 추가 메서드는 프록시 통해 호출 불가.
+          실무에서 인터페이스를 잘 설계해두면 큰 문제 안 되지만, 가끔 만나는 함정.
+        </p>
+
+        <h2>JDK 동적 프록시는 java.lang.reflect.Proxy를 상속</h2>
+
+        <p>
+          앞서 본 동적 클래스가 <code>extends Proxy</code> 였다.
+          이 사실은 미묘한 결과를 만든다.
+        </p>
+
+        <pre><code>UserService proxy = (UserService) Proxy.newProxyInstance(...);
+
+proxy instanceof UserService   // true
+proxy instanceof Proxy          // true (Proxy를 상속하니까)
+proxy instanceof UserServiceImpl  // false (Impl과 무관)
+proxy.getClass()                  // class $Proxy0 (또는 비슷한 이름)
+proxy.getClass().getName()        // "com.sun.proxy.$Proxy0" 같은 이름</code></pre>
+
+        <p>
+          프록시의 진짜 클래스는 사람이 작성한 클래스가 아니라 JVM이 생성한 <code>$Proxy0</code> 같은 이름의 클래스.
+          그래서 <code>proxy.getClass()</code>로 확인하면 이상한 이름이 나온다.
+          디버깅할 때 이거 보고 "이게 뭐지?" 싶을 수 있는데, JDK 동적 프록시의 정상 동작.
+        </p>
+
+        <h2>Spring AOP와 JDK 동적 프록시</h2>
+
+        <p>
+          Spring AOP가 JDK 동적 프록시를 쓸 때:
+        </p>
+
+        <pre><code>@Service
+public class UserServiceImpl implements UserService {
+    @Transactional
+    public User createUser(String name) { ... }
+}
+
+Spring이 동작:
+  1. UserServiceImpl 빈 생성
+  2. AnnotationAwareAspectJAutoProxyCreator (BeanPostProcessor)가 동작
+  3. 이 빈에 @Transactional이 있고, UserService 인터페이스도 구현
+  4. JDK 동적 프록시로 감쌀 수 있다고 판단
+  5. ProxyFactory가 InvocationHandler 만들어 프록시 생성
+  6. 그 InvocationHandler 안에서 Spring의 트랜잭션 Advice 실행 후 원본 위임
+  7. 컨테이너는 프록시를 빈으로 보관
+
+다른 빈이 @Autowired UserService userService 받으면:
+  타입은 UserService 인터페이스라 프록시 ($Proxy0)와 호환
+  메서드 호출이 가로채져 트랜잭션 자동 처리</code></pre>
+
+        <p>
+          여기서 중요한 점.
+          다른 빈이 <code>@Autowired UserService</code>가 아니라 <code>@Autowired UserServiceImpl</code>로 받으면?
+        </p>
+
+        <pre><code>@Autowired
+private UserServiceImpl userServiceImpl;   // ★ 구체 클래스로 주입 시도
+
+→ 컨테이너가 들고 있는 건 $Proxy0 (UserService 구현)
+→ UserServiceImpl이 아님
+→ 주입 실패 또는 ClassCastException</code></pre>
+
+        <p>
+          그래서 Spring AOP를 쓰는 빈은 <strong>인터페이스 타입으로 주입받는 게 안전</strong>.
+          이게 JDK 동적 프록시의 또 다른 영향.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>JDK Dynamic Proxy:
+  - 인터페이스 기반
+  - java.lang.reflect.Proxy.newProxyInstance로 런타임에 동적 클래스 생성
+  - 그 클래스는 인터페이스를 구현, 메서드 호출을 InvocationHandler로 위임
+  - 별도 라이브러리 불필요
+
+제약:
+  - 대상 객체가 인터페이스 구현해야 함
+  - 인터페이스에 있는 메서드만 가로챔
+  - 구체 클래스로 캐스팅 불가</code></pre>
+
+        <p>
+          그러면 인터페이스 없는 클래스는 어떻게 프록시로 만드나?
+          그게 다음 편 CGLIB의 영역이다.
+          상속 기반 프록시는 어떻게 동작하고, 어떤 다른 메커니즘을 쓰는지.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>둘의 비교와 Spring의 선택 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 3/3</div>
+        <h1>둘의 비교와 Spring의 선택</h1>
+        <p class="subtitle">
+          JDK 동적 프록시 vs CGLIB. 두 메커니즘을 정리하고
+          Spring이 어떤 기준으로 둘 중 하나를 선택하는지, 실무에서 어떤 함정을 피해야 하는지.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">프록시 — JDK Dynamic vs CGLIB</div>
+        <ol>
+          <li><a href="./01-jdk-dynamic-proxy.html">JDK Dynamic Proxy의 정체</a></li>
+          <li><a href="./02-cglib-proxy.html">CGLIB Proxy의 정체</a></li>
+          <li class="current">둘의 비교와 Spring의 선택</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>한 표로 정리</h2>
+
+        <pre><code>                        JDK 동적 프록시              CGLIB
+─────────────────────────────────────────────────────────────────────
+기반 메커니즘            인터페이스 구현              클래스 상속
+                       (implements)               (extends)
+
+대상 조건                인터페이스가 있어야 함       어떤 클래스든 (final 제외)
+
+생성 방식                java.lang.reflect.Proxy     ASM이 바이트코드 생성
+                       .newProxyInstance           Enhancer가 동적 서브클래스
+
+가로채기 인터페이스        InvocationHandler           MethodInterceptor
+.invoke(proxy, method, args)  .intercept(obj, method, args, methodProxy)
+
+원본 호출 방식           method.invoke(target, args) methodProxy.invokeSuper(obj, args)
+                       (Reflection)                (직접 호출 — 빠름)
+
+캐스팅 가능 타입         인터페이스 타입만             원본 클래스 + 인터페이스 모두
+
+프록시 클래스명          $Proxy0, $Proxy1, ...       UserService$$EnhancerByCGLIB$$abcd
+
+라이브러리 의존성        JDK 표준 (별도 의존성 없음)  Spring 내장 (별도 추가 불필요)
+
+final 클래스 적용         O (인터페이스 기반이라 무관)  X (상속 불가)
+final 메서드 가로채기     O                          X (오버라이드 불가)
+private 메서드 가로채기    X (인터페이스에 없음)         X (가시성 없음)
+
+부모 생성자 호출          관련 없음                    O (한 번 호출됨)
+
+성능 (호출당)             약간 느림 (Reflection)        약간 빠름 (직접 호출)
+프록시 생성 비용           낮음                          약간 높음 (바이트코드 생성)</code></pre>
+
+        <h2>Spring의 선택 기준</h2>
+
+        <p>
+          Spring AOP는 빈에 프록시를 적용해야 할 때 다음 순서로 결정한다.
+        </p>
+
+        <h3>Spring 5+ (Boot 2.0+) — CGLIB이 기본</h3>
+
+        <pre><code>1. proxy-target-class=true (기본값) → CGLIB 사용
+   - 인터페이스 유무 상관없이 CGLIB
+   - 단, final 클래스면 프록시 자체가 안 만들어짐
+
+2. proxy-target-class=false 로 명시 설정한 경우
+   - 인터페이스 있으면 → JDK 동적 프록시
+   - 인터페이스 없으면 → CGLIB (fallback)</code></pre>
+
+        <p>
+          <strong>핵심: Spring Boot 2.0부터 <code>spring.aop.proxy-target-class</code>의 기본값이 <code>true</code>가 됨.</strong>
+          그래서 별도 설정 없으면 모든 빈이 CGLIB 프록시로 만들어진다.
+        </p>
+
+        <h3>Spring Boot 1.x (옛날) — JDK가 기본</h3>
+
+        <pre><code>1. 인터페이스 있으면 → JDK 동적 프록시
+2. 인터페이스 없으면 → CGLIB
+3. proxy-target-class=true 명시하면 → CGLIB 강제</code></pre>
+
+        <p>
+          그래서 옛날 Spring 책/문서에서 "인터페이스 있으면 JDK 사용"이라는 말이 나오는데
+          요즘 Boot 2+에선 그게 기본이 아니다.
+          <code>application.yml</code>에 명시적으로 <code>spring.aop.proxy-target-class=false</code> 안 하면 항상 CGLIB.
+        </p>
+
+        <h2>왜 Spring이 CGLIB을 기본으로 바꿨나</h2>
+
+        <pre><code>1. 일관성
+   - 빈에 인터페이스가 있냐 없냐로 프록시 종류가 갈리면 디버깅이 헷갈림
+   - "내 빈은 어떤 프록시지?"를 매번 따져야 함
+   - CGLIB으로 통일하면 항상 같은 동작
+
+2. 캐스팅 함정 회피
+   - JDK 동적 프록시는 인터페이스 타입으로만 캐스팅 가능
+   - 구체 타입으로 주입받으려는 코드에서 ClassCastException
+
+   public class OrderService {
+       @Autowired
+       private UserService userService;  // 구체 타입으로 주입
+   }
+
+   - JDK 프록시면: 프록시 객체가 UserServiceImpl이 아닌 인터페이스 구현체
+   - 구체 타입 주입 시 → 부주의하면 캐스팅 실패
+   - CGLIB이면: 프록시가 UserService 상속 → 구체 타입 캐스팅 OK
+
+3. 인터페이스 강제 패턴 부담 완화
+   - "모든 서비스에 -Impl 인터페이스 만들기" 같은 패턴이 과함
+   - 단순한 서비스에 인터페이스 + 구현체 두 파일 만드는 건 노이즈
+   - CGLIB 기본이면 그냥 클래스 하나로 충분
+
+4. 성능 우위
+   - MethodProxy.invokeSuper로 Reflection 우회 → 호출당 빠름</code></pre>
+
+        <p>
+          Spring 팀의 결정: "인터페이스 분리는 설계자의 선택이지, 프록시 동작의 전제가 아니다."
+        </p>
+
+        <h2>실무에서 마주칠 함정 5가지</h2>
+
+        <h3>함정 1: final 클래스에 @Transactional</h3>
+
+        <pre><code>@Service
+public final class UserService {   // final 클래스
+    @Transactional
+    public void createUser(String name) { ... }
+}
+
+→ Spring Boot 2+ (CGLIB 기본): 프록시 생성 실패
+   에러: "Cannot subclass final class UserService"
+→ Boot 시작이 깨지거나 AOP가 적용 안 됨</code></pre>
+
+        <p>
+          해결: <code>final</code>을 빼거나, 인터페이스를 만들고 <code>proxy-target-class=false</code>로 JDK 모드 사용.
+          어차피 Spring 빈은 final로 만들 이유가 거의 없다.
+        </p>
+
+        <h3>함정 2: final 메서드에 @Transactional</h3>
+
+        <pre><code>@Service
+public class UserService {
+    @Transactional
+    public final void createUser(String name) { ... }   // final 메서드
+}
+
+→ CGLIB이 createUser 오버라이드 시도 → final이라 못 함
+→ AOP 적용 안 됨, 그러나 에러도 안 뜸 (조용히 건너뜀)
+→ @Transactional이 작동 안 하는데 알아채기 어려움</code></pre>
+
+        <p>
+          해결: <code>final</code> 키워드 제거.
+          Java 23+에선 <code>FailureAnalyzer</code>가 경고를 띄울 수도 있지만 보장 안 됨.
+        </p>
+
+        <h3>함정 3: private 메서드에 @Transactional</h3>
+
+        <pre><code>@Service
+public class UserService {
+    @Transactional
+    private void createUser(String name) { ... }   // private
+}
+
+→ JDK든 CGLIB이든 가로채기 불가
+→ AOP 적용 안 됨, 에러도 안 뜸</code></pre>
+
+        <p>
+          해결: <code>public</code>으로 바꾸기.
+          이건 AOP 시리즈 4편의 "self-invocation 함정"과도 연결되는 주제.
+        </p>
+
+        <h3>함정 4: 생성자/필드에서 의존성 사용</h3>
+
+        <pre><code>@Service
+public class UserService {
+    @Autowired
+    private RealUserService realService;   // 빈
+
+    public UserService() {
+        realService.init();   // ★ 위험
+    }
+}
+
+→ CGLIB은 프록시 인스턴스 생성 시 부모 생성자 호출
+→ 그 시점에 @Autowired 주입은 아직 완료되지 않음
+→ realService가 null → NullPointerException</code></pre>
+
+        <p>
+          해결: 생성자 대신 <code>@PostConstruct</code> 사용 (Bean 생명주기 시리즈에서 짚은 그것).
+          또는 생성자 주입을 쓰되, 생성자 내부에서 빈 메서드를 호출하지 않는다.
+        </p>
+
+        <h3>함정 5: 구체 타입 vs 인터페이스 타입 주입</h3>
+
+        <pre><code>// JDK 동적 프록시 모드 + 인터페이스 있음
+
+public interface UserService {
+    void createUser(String name);
+}
+
+@Service
+public class UserServiceImpl implements UserService { ... }
+
+@Service
+public class OrderService {
+    @Autowired
+    private UserServiceImpl userService;  // ★ 구체 타입으로 주입
+}
+
+→ Spring이 만든 빈은 JDK 동적 프록시 (UserService 구현체이지만 UserServiceImpl 자체가 아님)
+→ UserServiceImpl 타입으로 주입할 때 ClassCastException
+→ "BeanNotOfRequiredTypeException" 같은 에러</code></pre>
+
+        <p>
+          해결: 인터페이스 타입(<code>UserService</code>)으로 주입하거나,
+          CGLIB 모드(기본값)를 유지한다.
+        </p>
+
+        <h2>Spring 6 / Boot 3와 그 이후</h2>
+
+        <pre><code>Spring 6 / Boot 3 (Java 17+ 기반):
+  - 여전히 CGLIB이 기본 (proxy-target-class=true)
+  - GraalVM native image 지원 강화로 프록시 동작이 약간 변함
+  - native에선 프록시도 AOT 빌드 시점에 미리 생성됨
+
+GraalVM native image 환경:
+  - 런타임에 동적 클래스 생성이 어려움 (closed-world assumption)
+  - CGLIB도 AOT 시점에 프록시 클래스를 미리 만들어둠
+  - 런타임에 새 빈 추가 같은 동적 동작은 제한됨
+
+장기 계획:
+  - ByteBuddy로의 점진 전환 (CGLIB 후속)
+  - Java 17+ 모듈 시스템과 더 잘 어울림</code></pre>
+
+        <h2>실무 가이드 — 결국 무엇을 쓸까</h2>
+
+        <pre><code>일반적인 Spring Boot 프로젝트:
+  - 기본값(CGLIB) 그대로 사용
+  - 별도 설정 안 함
+  - 빈을 final로 만들지 않기, final 메서드 안 쓰기, private에 @Transactional 안 붙이기
+
+인터페이스 기반 설계가 강제되는 경우 (예: Hexagonal Architecture):
+  - 인터페이스를 도메인 포트로 두고 구현체를 어댑터로 둠
+  - 그 어댑터를 Spring 빈으로 등록
+  - 이 경우에도 CGLIB 기본 유지 가능 (어댑터를 final로 안 만들면 됨)
+
+특수한 경우 (모든 빈에 인터페이스 강제, 캐스팅 안 함):
+  application.yml:
+    spring.aop.proxy-target-class: false
+  - 이러면 인터페이스 있는 빈은 JDK, 없는 빈은 CGLIB
+  - 일관성 깨지므로 추천 안 함
+
+Library/Framework 작성 시:
+  - 외부 사용자의 final 클래스를 받아야 한다면 CGLIB 한계 인지
+  - 차라리 인터페이스 기반 + JDK 프록시로 통일하는 패턴이 안전</code></pre>
+
+        <h2>면접에서 자주 나오는 질문</h2>
+
+        <h3>Q. JDK Dynamic Proxy와 CGLIB의 차이는?</h3>
+
+        <p>
+          JDK는 인터페이스 구현 기반, CGLIB은 클래스 상속 기반.
+          JDK는 인터페이스가 있어야 동작하지만 표준 라이브러리이고,
+          CGLIB은 어떤 클래스든 동작하지만 final이 안 됨.
+        </p>
+
+        <h3>Q. Spring AOP가 둘 중 어느 것을 사용하나?</h3>
+
+        <p>
+          Spring Boot 2+부터 CGLIB이 기본. <code>spring.aop.proxy-target-class</code>가 기본 <code>true</code>다.
+          그 이전엔 인터페이스 있으면 JDK, 없으면 CGLIB이었다.
+        </p>
+
+        <h3>Q. final 메서드에 @Transactional을 붙이면?</h3>
+
+        <p>
+          CGLIB 모드에선 그 메서드를 오버라이드 못 해서 트랜잭션이 적용 안 된다.
+          에러도 안 뜨고 조용히 무시된다. final 키워드 제거가 답.
+        </p>
+
+        <h3>Q. CGLIB이 JDK 동적 프록시보다 빠른 이유?</h3>
+
+        <p>
+          JDK는 <code>method.invoke</code>로 Reflection을 거쳐서 원본을 호출.
+          CGLIB은 <code>MethodProxy.invokeSuper</code>로 미리 만들어둔 디스패치 메서드를 호출해서 직접 super 호출.
+          Reflection 오버헤드가 없어 빠르다.
+        </p>
+
+        <h3>Q. private 메서드에 @Transactional이 안 먹히는 이유?</h3>
+
+        <p>
+          JDK는 인터페이스에 메서드가 없어서 가로채기 불가.
+          CGLIB은 자식 클래스에서 private 메서드가 보이지 않아 오버라이드 불가.
+          어떤 프록시도 private 메서드는 못 가로챈다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>JDK 동적 프록시:
+  인터페이스 기반, JDK 표준, Reflection 호출, 인터페이스 캐스팅만
+
+CGLIB:
+  클래스 상속 기반, ASM 바이트코드 생성, 직접 호출 빠름,
+  final/private 한계, 부모 생성자 호출
+
+Spring Boot 2+ 기본 = CGLIB.
+final 안 쓰기, private 안 쓰기, 그것만 지키면 거의 함정 없음.</code></pre>
+
+        <p>
+          이걸로 프록시 시리즈 끝. 다음은 DI 방식(생성자/세터/필드)으로 가서 Spring 코어 모듈 마무리.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>
