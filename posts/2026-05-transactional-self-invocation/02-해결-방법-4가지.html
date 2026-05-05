@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>해결 방법 4가지와 트레이드오프 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 2/2</div>
+        <h1>해결 방법 4가지와 트레이드오프</h1>
+        <p class="subtitle">
+          self-invocation 함정에서 빠져나오는 4가지 방법.
+          메서드 분리, 자기 주입, AopContext, AspectJ. 무엇을 언제 쓰는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">@Transactional self-invocation 함정</div>
+        <ol>
+          <li><a href="./01-왜-self-invocation은-안-걸리는가.html">왜 self-invocation은 안 걸리는가</a></li>
+          <li class="current">해결 방법 4가지와 트레이드오프</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>해법 1: 메서드를 다른 빈으로 분리 (가장 깔끔)</h2>
+
+        <pre><code>@Service
+public class OrderService {
+
+    private final OrderTransactionService txService;   // 다른 빈 주입
+
+    public OrderService(OrderTransactionService txService) {
+        this.txService = txService;
+    }
+
+    public void placeOrder(Order order) {
+        txService.save(order);   // ← 외부 빈 호출 = 프록시 통과 = 트랜잭션 OK
+        sendNotification(order);
+    }
+}
+
+@Service
+public class OrderTransactionService {
+
+    @Transactional
+    public void save(Order order) {
+        orderRepo.insert(order);
+    }
+}</code></pre>
+
+        <h3>왜 좋은가</h3>
+
+        <pre><code>1. 프록시 메커니즘과 일치 — 외부 빈 호출이라 프록시 자연스럽게 통과
+2. 책임 분리 — 트랜잭션이 필요한 작업은 별도 빈으로 의미 명확
+3. 테스트 용이 — txService를 모킹하기 쉬움
+4. 순환 의존 위험 없음</code></pre>
+
+        <h3>트레이드오프</h3>
+
+        <pre><code>1. 빈이 늘어남 — 작은 메서드 하나 때문에 새 클래스
+2. 인터페이스/구현체 분리 패턴이면 더 늘어남
+3. 메서드 하나만 분리하기엔 과한 경우 있음</code></pre>
+
+        <p>
+          가장 권장되는 방법. 트랜잭션 경계가 명확해지고 자연스러운 책임 분리가 됨.
+          웬만한 경우 이걸로 해결.
+        </p>
+
+        <h2>해법 2: 자기 자신을 주입 (self-injection)</h2>
+
+        <pre><code>@Service
+public class OrderService {
+
+    private final OrderService self;   // ← 자기 자신을 주입
+
+    public OrderService(@Lazy OrderService self) {   // @Lazy 필수
+        this.self = self;
+    }
+
+    public void placeOrder(Order order) {
+        self.save(order);   // ← self는 프록시이므로 advice 적용
+        sendNotification(order);
+    }
+
+    @Transactional
+    public void save(Order order) { ... }
+}</code></pre>
+
+        <h3>왜 동작하나</h3>
+
+        <p>
+          <code>self</code>는 ApplicationContext에서 주입받은 빈 = 프록시 객체.
+          <code>self.save()</code>는 외부 객체에 대한 호출이라 프록시를 정상적으로 거친다.
+        </p>
+
+        <h3>왜 @Lazy가 필요한가</h3>
+
+        <pre><code>일반 주입: 생성자 호출 시점에 의존성을 다 만들어 주입해야 함
+  → OrderService 생성 전에 OrderService를 주입해야 하는 모순
+  → 순환 참조 에러: BeanCurrentlyInCreationException
+  → Spring Boot 2.6+에선 기본적으로 순환 참조 금지
+
+@Lazy: 실제 사용 시점에 프록시를 통해 가져옴
+  → 생성자에선 placeholder 프록시만 받음
+  → 첫 호출 시 ApplicationContext에서 진짜 빈 lookup
+  → 순환 참조 우회</code></pre>
+
+        <h3>트레이드오프</h3>
+
+        <pre><code>장점:
+  - 빈을 새로 만들 필요 없음
+  - 기존 클래스 안에서 해결
+
+단점:
+  - "자기 자신 주입"이 처음 보면 이상함
+  - @Lazy 안 붙이면 순환 참조 에러 (Boot 2.6+)
+  - 코드 리뷰에서 "이게 뭐야?" 질문 받음
+  - 의도가 불분명 (왜 이렇게 했는지 주석 필수)</code></pre>
+
+        <p>
+          기존 코드를 최소 변경으로 고치고 싶을 때 쓸 수 있지만 추천도는 낮음.
+          빈 분리(해법 1)가 더 명확하다.
+        </p>
+
+        <h2>해법 3: AopContext.currentProxy()로 프록시 직접 가져오기</h2>
+
+        <pre><code>// 설정에 한 줄 추가
+@EnableAspectJAutoProxy(exposeProxy = true)   // ← 핵심
+@Configuration
+public class AopConfig { }
+
+// 사용
+@Service
+public class OrderService {
+
+    public void placeOrder(Order order) {
+        ((OrderService) AopContext.currentProxy()).save(order);
+        sendNotification(order);
+    }
+
+    @Transactional
+    public void save(Order order) { ... }
+}</code></pre>
+
+        <h3>왜 동작하나</h3>
+
+        <pre><code>exposeProxy=true 설정:
+  → 프록시가 자기 자신을 ThreadLocal에 저장
+  → 메서드 안에서 AopContext.currentProxy()로 프록시 객체 획득
+  → 그 프록시로 메서드 호출 = advice 적용</code></pre>
+
+        <h3>트레이드오프</h3>
+
+        <pre><code>장점:
+  - 빈 추가나 주입 없이 해결
+  - 한 곳에서만 우회 필요할 때 간단
+
+단점:
+  - 코드가 추함: ((OrderService) AopContext.currentProxy()).save(order)
+  - exposeProxy 설정 + ThreadLocal 사용 (성능 미세 손해)
+  - 프록시 메커니즘에 깊이 의존 — 코드 읽는 사람이 Spring AOP 내부 알아야 이해
+  - 캐스팅 필요 — 컴파일러 보호 못 받음</code></pre>
+
+        <p>
+          Spring 공식 Reference에도 나오지만 "권장하지 않는다(highly discourages)"고 명시.
+          "그렇게밖에 안 될 때만 마지막 수단"으로 분류.
+        </p>
+
+        <h2>해법 4: AspectJ 위빙으로 전환</h2>
+
+        <pre><code>@Configuration
+@EnableTransactionManagement(mode = AdviceMode.ASPECTJ)   // ← AspectJ 모드
+public class AopConfig { }
+
+@Service
+public class OrderService {
+
+    public void placeOrder(Order order) {
+        save(order);   // ← 그냥 호출, AspectJ가 알아서 advice 삽입
+    }
+
+    @Transactional
+    public void save(Order order) { ... }
+}</code></pre>
+
+        <h3>왜 동작하나</h3>
+
+        <pre><code>Spring AOP (기본):
+  - 프록시 기반 — 런타임에 프록시 객체 생성
+  - self-invocation 못 잡음
+
+AspectJ:
+  - 위빙(weaving) 기반 — 컴파일 시점 또는 클래스 로딩 시점에 바이트코드 직접 수정
+  - @Transactional이 붙은 메서드 자체에 advice 코드를 삽입
+  - 프록시 통과 여부와 무관하게 advice 동작
+  - this.save()든 외부 호출이든 똑같이 가로챔
+
+  Compile-Time Weaving (CTW):
+    AspectJ 컴파일러(ajc)가 .class에 advice 직접 삽입
+    빌드 시 ajc 설정 필요
+
+  Load-Time Weaving (LTW):
+    JVM 시작 시 -javaagent로 AspectJ Weaver 등록
+    클래스로더가 .class를 로드할 때 weaver가 advice 삽입
+    런타임에 동작</code></pre>
+
+        <h3>트레이드오프</h3>
+
+        <pre><code>장점:
+  - self-invocation 자동 해결
+  - private 메서드, final 메서드, 생성자도 가로챌 수 있음
+  - 프록시 기반 한계 전부 해소
+  - 런타임 호출 오버헤드는 더 작을 수도 있음 (프록시 호출 안 거침)
+
+단점:
+  - 도입 비용 큼:
+    - aspectjrt 의존성 추가
+    - aspectj-maven-plugin 또는 aspectjweaver javaagent 설정
+    - Boot 자동 설정과 부분 충돌 가능
+  - 디버깅 어려움 — 바이트코드가 변형되어 스택 트레이스가 헷갈림
+  - 학습 곡선 — 팀이 AspectJ 이해해야 함
+  - 작은 프로젝트엔 과한 도입</code></pre>
+
+        <p>
+          self-invocation 한 번 때문에 AspectJ를 도입하는 건 보통 과함.
+          AOP 관련 요구가 본격적으로 많아지고 (성능 모니터링, 보안, 트랜잭션, 캐싱 등),
+          프록시 한계 여러 개를 한꺼번에 해소해야 할 때 검토.
+        </p>
+
+        <h2>비교 — 어떤 상황에 무엇을 쓰는가</h2>
+
+        <pre><code>                 분리      self-injection   AopContext   AspectJ
+─────────────────────────────────────────────────────────────────
+빈 추가          O          X                X            X
+주입 변경        O          O (자기 자신)    X            X
+설정 변경        X          X                O (한 줄)     O (큰 변경)
+권장도           ★★★★      ★★               ★            특수 상황
+가독성           좋음        애매            나쁨          좋음
+추가 학습         X          @Lazy 이해 필요  AOP 내부      AspectJ 전반
+런타임 비용      거의 없음   거의 없음        ThreadLocal   거의 없음 (혹은 더 작음)
+
+권장:
+  일반 케이스 → 메서드 분리 (해법 1)
+  꼭 같은 클래스 안에서 처리 → self-injection (해법 2)
+  매우 좁은 우회 → AopContext (해법 3)
+  AOP 한계 전반을 해소 → AspectJ (해법 4)</code></pre>
+
+        <h2>보너스 — 대안이 아닌 함정 회피</h2>
+
+        <p>
+          종종 "self-invocation을 해결" 대신 "self-invocation이 안 일어나도록 코드 구조를 바꾼다"가 더 깔끔하다.
+        </p>
+
+        <h3>트랜잭션 경계를 위로 올리기</h3>
+
+        <pre><code>// before
+@Service
+public class OrderService {
+    public void placeOrder(Order order) {
+        save(order);                  // ← 트랜잭션 안 걸림
+        sendNotification(order);      // ← 트랜잭션 밖이라 의도된 거였나?
+    }
+
+    @Transactional
+    public void save(Order order) { ... }
+}
+
+// after
+@Service
+public class OrderService {
+    @Transactional   // ← placeOrder 전체에 트랜잭션
+    public void placeOrder(Order order) {
+        save(order);                  // 같은 트랜잭션 안에서 실행
+        sendNotification(order);      // 같은 트랜잭션
+    }
+
+    public void save(Order order) {   // @Transactional 제거
+        orderRepo.insert(order);
+    }
+}</code></pre>
+
+        <p>
+          많은 경우 self-invocation 함정은 트랜잭션 경계 설계가 잘못됐다는 신호.
+          진짜로 트랜잭션 시작 지점이 어디여야 하는지 다시 본다.
+          알림 발송이 같은 트랜잭션 안에 있어야 하는지(롤백 시 알림도 안 보낼지)부터 검토.
+        </p>
+
+        <h2>면접에서 자주 나오는 질문</h2>
+
+        <h3>Q. self-invocation 해결 방법을 아는 대로 말하라</h3>
+
+        <p>
+          ① 메서드를 별도 빈으로 분리(가장 권장) ② 자기 자신을 <code>@Lazy</code>로 주입
+          ③ <code>AopContext.currentProxy()</code> 사용 ④ AspectJ 위빙으로 전환.
+          순서대로 비용과 추천도가 다르다.
+        </p>
+
+        <h3>Q. 자기 자신을 주입할 때 @Lazy가 왜 필요한가?</h3>
+
+        <p>
+          순환 참조 때문에. 생성자에서 자기 자신을 주입하려면 자기가 만들어진 상태여야 하는 모순.
+          <code>@Lazy</code>는 placeholder 프록시를 먼저 주입하고 첫 호출 시 실제 빈을 lookup하니 순환을 우회.
+          Spring Boot 2.6+에선 기본적으로 순환 참조 금지라 <code>@Lazy</code>가 거의 필수.
+        </p>
+
+        <h3>Q. AspectJ는 어떻게 self-invocation까지 잡나?</h3>
+
+        <p>
+          프록시 기반이 아니라 위빙(weaving) 기반이기 때문.
+          컴파일/로드타임에 advice 코드를 메서드 자체의 바이트코드로 삽입하므로
+          누가 어떻게 호출하든(외부, 내부, 프록시 통과 여부) 그 메서드 진입 시점에 advice가 실행된다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>해결 4가지:
+  1. 메서드를 별도 빈으로 분리 — 가장 깔끔, 우선 고려
+  2. 자기 자신 주입 (@Lazy 필수) — 빈 분리 부담스러울 때
+  3. AopContext.currentProxy() — 좁은 우회, 권장 안 함
+  4. AspectJ 위빙 — 한계 전반 해소, 도입 비용 큼
+
+가장 좋은 해결: 트랜잭션 경계를 다시 설계해서 self-invocation 자체를 안 만드는 것.</code></pre>
+
+        <p>
+          Spring 코어 시리즈 (Bean 생명주기 → AOP → 프록시 → self-invocation)가 한 묶음으로 끝났다.
+          다음은 DI 방식(생성자 / 세터 / 필드)으로 가서 Spring 코어 마무리.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

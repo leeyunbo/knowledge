@@ -71,7 +71,7 @@
 
 ### Spring 모듈/기능
 - [x] ★ Transaction Propagation 7가지 (4편)
-- [ ] ★ `@Transactional` self-invocation 함정 (2편)
+- [x] ★ `@Transactional` self-invocation 함정 (2편)
 
 ### 네트워크
 - [ ] ★ HTTP 메소드와 멱등성 (2편)

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>@Transactional self-invocation 함정 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 1/2</div>
+        <h1>왜 self-invocation은 안 걸리는가</h1>
+        <p class="subtitle">
+          같은 클래스 안에서 @Transactional 메서드를 호출하면 트랜잭션이 적용되지 않는다.
+          프록시 메커니즘에서 비롯된 함정. 에러가 안 뜨고 조용히 넘어가서 더 위험하다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">@Transactional self-invocation 함정</div>
+        <ol>
+          <li class="current">왜 self-invocation은 안 걸리는가</li>
+          <li><a href="./02-해결-방법-4가지.html">해결 방법 4가지와 트레이드오프</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>증상부터 — 코드는 멀쩡한데 트랜잭션이 안 걸린다</h2>
+
+        <pre><code>@Service
+public class OrderService {
+
+    public void placeOrder(Order order) {
+        save(order);                  // ① 같은 클래스 안에서 호출
+        sendNotification(order);
+    }
+
+    @Transactional
+    public void save(Order order) {
+        orderRepo.insert(order);      // ② 여기서 예외 터지면?
+        throw new RuntimeException("DB 에러");
+    }
+}</code></pre>
+
+        <p>
+          기대: <code>save</code>에 <code>@Transactional</code>이 있으니 예외 시 롤백.<br>
+          실제: 롤백 안 됨. 트랜잭션 자체가 시작되지도 않았음.<br>
+          에러도 없고, 로그도 깨끗하고, "어, <code>@Transactional</code> 붙였는데 왜?" 하다가 데이터 깨진 뒤에 알게 되는 함정.
+        </p>
+
+        <h2>이유는 한 줄 — this.save()는 프록시를 거치지 않는다</h2>
+
+        <p>
+          프록시 시리즈에서 본 그림을 다시 꺼낸다.
+          Spring AOP는 빈을 직접 쓰지 않고 프록시로 감싼다.
+        </p>
+
+        <pre><code>외부 호출 (controller가 orderService.placeOrder 호출):
+
+  controller
+    ↓
+  OrderService 프록시 (CGLIB or JDK)
+    ↓ ← 여기서 트랜잭션 advice가 작동
+  실제 OrderService 인스턴스
+    ↓
+  placeOrder 실행
+    ↓
+  this.save(order) ← ★ 여기가 문제
+    ↓
+  실제 OrderService 인스턴스의 save (프록시를 거치지 않음)
+    ↓
+  트랜잭션 advice 적용 안 됨</code></pre>
+
+        <p>
+          핵심: <code>this.save()</code>의 <code>this</code>는 프록시가 아닌 <strong>실제 빈 객체</strong>.
+          프록시는 <code>placeOrder</code> 진입할 때 한 번만 가로챈다.
+          그 안에서 <code>this</code>로 다른 메서드를 부르면 그건 그냥 일반 Java 메서드 호출이라 프록시가 끼어들 자리가 없다.
+        </p>
+
+        <h2>왜 this가 프록시가 아닌가</h2>
+
+        <p>
+          Spring이 빈을 등록할 때 어떤 일이 일어나는지 다시 보자.
+          AOP 시리즈 / Bean 생명주기 시리즈에서 짚은 그림:
+        </p>
+
+        <pre><code>1. OrderService 인스턴스 A 생성 (실제 객체)
+2. AOP가 필요하다고 판단 → CGLIB이 OrderService를 상속한 프록시 클래스 B 생성
+3. B의 인스턴스 P 생성 (내부에 A를 target으로 가지고 있음)
+4. ApplicationContext에는 P가 등록됨
+
+→ 외부에서 @Autowired로 주입받는 것은 P (프록시)
+→ 그러나 A 인스턴스 내부의 메서드에서 this는 A 자신
+→ A 안에서 this.save()를 호출하면 P를 거치지 않음</code></pre>
+
+        <p>
+          쉽게 말하면 프록시는 빈을 둘러싼 외피다.
+          외부에서 빈을 만질 때만 외피를 거치고, 빈 내부에서 자기 자신을 호출할 때는 외피 안쪽에 있어서 가로챌 수 없다.
+        </p>
+
+        <h2>구체적 예시 — CGLIB 동적 클래스 그림</h2>
+
+        <pre><code>// Spring이 만든 프록시 클래스 (개념적 표현)
+public class OrderService$$EnhancerByCGLIB$$abc extends OrderService {
+
+    private MethodInterceptor interceptor;
+
+    @Override
+    public void placeOrder(Order order) {
+        // 트랜잭션 advice가 여기서 작동? No!
+        // placeOrder엔 @Transactional이 없으므로 트랜잭션 advice 적용 안 됨
+        // 그냥 super.placeOrder(order) 호출
+        return interceptor.intercept(this, ...);
+    }
+
+    @Override
+    public void save(Order order) {
+        // 트랜잭션 advice가 여기서 작동
+        // save에 @Transactional이 있으므로 advice 적용
+        return interceptor.intercept(this, ...);
+    }
+}
+
+// 외부 호출 흐름
+controller.do() {
+    proxy.placeOrder(order);   // ← 외부에서 placeOrder 호출
+        → super.placeOrder(order)  // 실제 OrderService.placeOrder 실행
+            → this.save(order)     // ← this는 실제 OrderService (proxy 아님)
+                → save() 직접 실행 // ← 프록시의 save 오버라이드를 거치지 않음
+                                   // ← 트랜잭션 advice 적용 안 됨
+}</code></pre>
+
+        <p>
+          만약 <code>this</code>가 프록시였다면 <code>this.save()</code>는 <code>proxy.save()</code>가 되어
+          오버라이드된 save가 호출되고 trasaction advice가 작동했을 것.
+          하지만 Java 언어에서 메서드 안의 <code>this</code>는 <strong>그 메서드를 가진 인스턴스</strong>이지
+          그 인스턴스를 감싼 외부 객체가 아니다.
+        </p>
+
+        <h2>JDK 동적 프록시도 똑같이 안 걸린다</h2>
+
+        <pre><code>public interface OrderService {
+    void placeOrder(Order order);
+    void save(Order order);
+}
+
+@Service
+public class OrderServiceImpl implements OrderService {
+    @Override
+    public void placeOrder(Order order) {
+        save(order);   // ← this.save(order)와 같음, 여전히 안 걸림
+    }
+
+    @Override
+    @Transactional
+    public void save(Order order) { ... }
+}</code></pre>
+
+        <p>
+          JDK 동적 프록시도 똑같다.
+          외부에서 <code>OrderService 프록시.placeOrder()</code>를 호출하면 <code>InvocationHandler</code>가 가로채고,
+          그 안에서 실제 구현체의 <code>placeOrder</code>를 호출하면 그 안의 <code>this</code>는 구현체 자기 자신.
+          프록시를 거치지 않는다.
+        </p>
+
+        <h2>같은 함정의 다른 형태</h2>
+
+        <h3>형태 1: @Async도 똑같이 안 먹힘</h3>
+
+        <pre><code>@Service
+public class NotificationService {
+
+    public void send(Notification n) {
+        sendInBackground(n);   // ← @Async 적용 안 됨
+    }
+
+    @Async
+    public void sendInBackground(Notification n) { ... }
+}</code></pre>
+
+        <p>
+          <code>@Async</code>도 프록시 기반 AOP라서 self-invocation 함정에 똑같이 걸린다.
+          비동기로 안 돌고 호출 스레드에서 그대로 실행됨.
+        </p>
+
+        <h3>형태 2: @Cacheable도 마찬가지</h3>
+
+        <pre><code>@Service
+public class ProductService {
+
+    public Product getOrFetch(Long id) {
+        return findById(id);   // ← @Cacheable 적용 안 됨, 매번 DB 조회
+    }
+
+    @Cacheable("products")
+    public Product findById(Long id) { ... }
+}</code></pre>
+
+        <p>
+          캐시도 매번 미스. 함정의 본체가 같다 — 프록시 기반 AOP의 공통 한계.
+        </p>
+
+        <h3>형태 3: 같은 클래스의 다른 @Transactional도 전파 안 됨</h3>
+
+        <pre><code>@Service
+public class OrderService {
+
+    @Transactional
+    public void outer() {
+        innerNew();   // ← REQUIRES_NEW로 새 트랜잭션 만들 의도
+    }
+
+    @Transactional(propagation = REQUIRES_NEW)
+    public void innerNew() { ... }
+}</code></pre>
+
+        <p>
+          <code>outer</code>가 트랜잭션 시작은 함 (외부에서 들어오니 프록시 통과).
+          그러나 <code>this.innerNew()</code>는 프록시를 안 거치니
+          <code>REQUIRES_NEW</code>가 적용되지 않고 그냥 <code>outer</code>의 트랜잭션 안에서 실행됨.
+          Transaction Propagation 시리즈에서 짚은 함정이 self-invocation으로 다시 등장.
+        </p>
+
+        <h2>왜 에러가 안 뜨나</h2>
+
+        <p>
+          이게 더 무서운 부분. 프록시 입장에서 self-invocation은 그냥 평범한 메서드 호출과 구분이 안 된다.
+        </p>
+
+        <pre><code>프록시가 보는 것:
+  외부에서 placeOrder가 호출됨 → 프록시가 가로챔
+  → super.placeOrder() 호출 (실제 객체로 위임)
+  → 그 안에서 무슨 일이 벌어지는지는 프록시가 모름
+  → save가 호출되든 말든, 프록시는 placeOrder 끝날 때까지 기다릴 뿐
+
+프록시가 모르는 것:
+  super.placeOrder() 안에서 this.save()를 호출했다는 사실
+  → save에 @Transactional이 붙어있다는 사실도 알 길 없음 (그건 advice 매칭 단계의 일이고, 프록시는 진입점만 가로챔)</code></pre>
+
+        <p>
+          그래서 컴파일 에러도 없고, 런타임 경고도 없다.
+          어노테이션은 잘 붙어있고, 프록시도 잘 만들어져 있고, 외부에서 <code>save</code>를 직접 호출하면 잘 작동한다.
+          그저 <strong>특정 호출 경로에서만</strong> 어노테이션이 무시되는 것.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. @Transactional이 안 먹히는 경우는?</h3>
+
+        <p>
+          크게 4가지: ① private 메서드 ② final 메서드/클래스 ③ self-invocation ④ <code>RuntimeException</code> 외 예외(기본 설정).
+          이 중 self-invocation은 가장 자주 마주치고 가장 알아채기 어려움.
+        </p>
+
+        <h3>Q. self-invocation이 왜 안 걸리나?</h3>
+
+        <p>
+          Spring AOP는 프록시 기반이라 외부에서 빈에 들어올 때만 advice가 작동한다.
+          빈 내부에서 <code>this</code>로 자기 메서드를 부르면 프록시를 거치지 않으므로 advice가 적용되지 않는다.
+        </p>
+
+        <h3>Q. AspectJ는 self-invocation을 잡는가?</h3>
+
+        <p>
+          잡는다. AspectJ는 컴파일/로드타임에 바이트코드 위빙으로 advice를 직접 메서드에 삽입하니
+          프록시 통과 여부와 무관하다. 다음 편에서 자세히.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>같은 클래스 안에서 this로 @Transactional 메서드를 호출하면
+프록시를 거치지 않아 트랜잭션이 적용되지 않는다.
+에러도 안 뜨고 조용히 무시되는 게 함정의 본체.
+
+원인: this는 실제 빈 객체이지 프록시가 아니다.
+같은 함정에 @Async, @Cacheable, @Transactional 전파가 모두 걸린다.</code></pre>
+
+        <p>
+          원인을 봤으니 다음은 해결 방법.
+          빈을 분리할까, 자기 자신을 주입할까, AopContext를 쓸까, 아예 AspectJ로 갈까.
+          각 방법의 트레이드오프가 다음 편 주제.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>
