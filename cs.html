@@ -100,7 +100,7 @@
     <!-- === 거대 별자리 (PC만) === -->
     <section class="galaxy-canvas">
       <div class="galaxy-meta">
-        <span><span id="totalText">12 / 103</span> · <span id="totalPct">12%</span></span>
+        <span><span id="totalText">14 / 103</span> · <span id="totalPct">14%</span></span>
       </div>
 
       <svg class="galaxy-svg" viewBox="0 0 1400 1200" xmlns="http://www.w3.org/2000/svg" aria-label="백엔드 CS 토픽 별자리">
@@ -410,11 +410,17 @@
         </a>
 
         <!-- ============ Spring (group B) ============ -->
-        <a class="node group-B" data-state="locked" data-cat="Spring" data-title="Bean 생명주기" data-desc="생성 → DI → 초기화 → 소멸" href="./spring.html">
-          <g transform="translate(128,452)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-B" data-state="done" data-id="spring-1" data-cat="Spring"
+           data-title="Bean 생명주기"
+           data-desc="BeanDefinition부터 소멸까지 9단계, AOP 프록시 만들어지는 자리"
+           href="./posts/2026-05-bean-생명주기/01-bean이-만들어지기까지.html">
+          <g transform="translate(128,452)" style="--ring-delay: 4.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Bean 생명주기</text></g>
         </a>
-        <a class="node group-B" data-state="locked" data-cat="Spring" data-title="AOP 내부 동작" data-desc="Advisor / Pointcut / Weaving" href="./spring.html">
-          <g transform="translate(173,501)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-B" data-state="done" data-id="spring-2" data-cat="Spring"
+           data-title="AOP 내부 동작"
+           data-desc="Proxy Weaving, Advice 5종, Pointcut, Spring AOP의 한계"
+           href="./posts/2026-05-aop-내부-동작/01-aop가-풀려는-문제.html">
+          <g transform="translate(173,501)" style="--ring-delay: 4.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">AOP</text></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="Proxy — JDK vs CGLIB" data-desc="인터페이스 vs 클래스 기반" href="./spring.html">
           <g transform="translate(101,501)"><circle class="node-circle" r="7" /></g>
@@ -614,8 +620,8 @@
       <a class="category-card cat-spring" href="./spring.html">
         <h2>Spring</h2>
         <p class="cat-desc">코어 internals, 트랜잭션, 부트 동작</p>
-        <div class="progress-row"><span>1 / 12</span><span>8%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 8%"></div></div>
+        <div class="progress-row"><span>3 / 12</span><span>25%</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width: 25%"></div></div>
       </a>
       <a class="category-card cat-db" href="./db.html">
         <h2>DB</h2>

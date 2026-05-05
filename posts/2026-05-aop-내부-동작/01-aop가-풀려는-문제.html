@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AOP가 풀려는 문제 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 1/4</div>
+        <h1>AOP가 풀려는 문제</h1>
+        <p class="subtitle">
+          코드 곳곳에 흩어지는 횡단 관심사. 그리고 그걸 한 곳에 모으자는 발상.
+          AOP의 다섯 가지 핵심 용어로 그 그림이 풀린다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Spring AOP 내부 동작</div>
+        <ol>
+          <li class="current">AOP가 풀려는 문제</li>
+          <li><a href="./02-spring-aop의-동작.html">Spring AOP의 동작 원리 — Proxy Weaving</a></li>
+          <li><a href="./03-advice의-종류와-실행-흐름.html">Advice의 종류와 실행 흐름</a></li>
+          <li><a href="./04-pointcut과-spring-aop의-한계.html">Pointcut과 Spring AOP의 한계</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>같은 코드가 여기저기 반복되는 순간</h2>
+
+        <p>
+          서비스 메서드를 짜다 보면 비슷한 패턴이 자꾸 반복된다.
+        </p>
+
+        <pre><code>public class UserService {
+    public User createUser(String name) {
+        // 1. 권한 확인
+        if (!authService.canCreate()) throw new AccessDenied();
+
+        // 2. 로깅
+        log.info("createUser called: {}", name);
+
+        // 3. 트랜잭션 시작
+        TransactionStatus tx = txManager.getTransaction(...);
+        try {
+            // 4. 실제 비즈니스 로직
+            User user = new User(name);
+            userRepo.save(user);
+
+            // 5. 트랜잭션 커밋
+            txManager.commit(tx);
+            return user;
+        } catch (Exception e) {
+            txManager.rollback(tx);
+            throw e;
+        }
+    }
+
+    public Order createOrder(...) {
+        // 같은 권한 확인
+        // 같은 로깅
+        // 같은 트랜잭션 시작
+        // 비즈니스 로직
+        // 같은 커밋/롤백
+    }
+
+    public Product createProduct(...) {
+        // 또 같음
+    }
+}</code></pre>
+
+        <p>
+          진짜 비즈니스 로직은 메서드의 일부분이고,
+          나머지는 권한/로깅/트랜잭션 같은 <strong>"옆에서 들어온 관심사"</strong>들이 차지한다.
+          이게 모든 메서드에 반복되면 코드 양이 늘고, 한 곳을 바꾸면 모든 곳을 바꿔야 한다.
+        </p>
+
+        <h2>Cross-Cutting Concerns — 횡단 관심사</h2>
+
+        <p>
+          위 예시의 권한, 로깅, 트랜잭션 같은 것들은 한 클래스에만 있는 게 아니다.
+          UserService, OrderService, ProductService 모두에 같은 로직이 들어간다.
+          여러 모듈을 가로지르며 반복되니 <strong>횡단 관심사(Cross-Cutting Concerns)</strong>라 부른다.
+        </p>
+
+        <pre><code>일반적인 코드 구조:
+       UserService    OrderService   ProductService
+       ─────────────  ────────────   ──────────────
+권한      ✓             ✓              ✓
+로깅      ✓             ✓              ✓
+트랜잭션  ✓             ✓              ✓
+보안검증  ✓             ✓              ✓
+            │
+       서비스마다 같은 코드 반복</code></pre>
+
+        <p>
+          OOP의 상속은 종속(is-a)을 표현하기엔 좋지만 횡단 관심사엔 부적합하다.
+          UserService와 OrderService가 "같은 부모 클래스를 상속해서 권한 검사를 받는다"는 어색하다.
+          공통 로직을 별도 매니저 클래스로 빼서 호출하는 패턴도 있지만,
+          여전히 호출 코드가 메서드마다 들어간다.
+        </p>
+
+        <h2>AOP의 발상 — 관심사를 뽑아 한 곳에 모으자</h2>
+
+        <p>
+          AOP(Aspect-Oriented Programming)의 핵심 아이디어는 단순하다.
+        </p>
+
+        <p>
+          <strong>"횡단 관심사를 별도의 모듈(Aspect)로 뽑고,
+          어디에 적용될지를 따로 선언하자."</strong>
+        </p>
+
+        <pre><code>AOP 적용 후:
+       UserService    OrderService   ProductService
+       ─────────────  ────────────   ──────────────
+                                                     ← 메서드는 비즈니스 로직만
+       비즈니스 로직   비즈니스 로직   비즈니스 로직
+
+      ─────────────────────────────────────────
+      [Aspect: 권한 검사]
+      [Aspect: 로깅]
+      [Aspect: 트랜잭션]
+      ─────────────────────────────────────────
+            ↓ Spring이 자동으로 끼워넣음
+
+각 메서드 호출 직전/직후에 횡단 관심사가 적용됨
+서비스 코드 자체엔 그 코드가 안 들어감</code></pre>
+
+        <p>
+          서비스 코드는 비즈니스 로직만 담고,
+          횡단 관심사는 별도의 Aspect로 분리되어 한 곳에서 관리된다.
+          한 곳을 바꾸면 모든 적용 지점에 자동 반영된다.
+        </p>
+
+        <h2>이미 쓰고 있던 AOP — @Transactional</h2>
+
+        <p>
+          사실 Spring 개발자라면 이미 AOP를 매일 쓰고 있다.
+          <code>@Transactional</code> 한 줄이 정확히 위에서 본 트랜잭션 횡단 관심사를 AOP로 처리한 것.
+        </p>
+
+        <pre><code>// AOP 적용 전
+public User createUser(String name) {
+    TransactionStatus tx = txManager.getTransaction(...);
+    try {
+        User user = new User(name);
+        userRepo.save(user);
+        txManager.commit(tx);
+        return user;
+    } catch (Exception e) {
+        txManager.rollback(tx);
+        throw e;
+    }
+}
+
+// AOP 적용 후
+@Transactional
+public User createUser(String name) {
+    User user = new User(name);
+    userRepo.save(user);
+    return user;
+}</code></pre>
+
+        <p>
+          어노테이션 한 줄로 트랜잭션 시작/커밋/롤백이 자동 적용된다.
+          이게 어떻게 가능한지가 이 시리즈의 주제다.
+          <code>@Transactional</code> 외에도 Spring의 많은 마법(@Async, @Cacheable, @PreAuthorize 등)이 같은 메커니즘.
+        </p>
+
+        <h2>AOP의 다섯 가지 핵심 용어</h2>
+
+        <p>
+          AOP 문서를 읽다 보면 자꾸 등장하는 용어가 있다.
+          이 다섯 개만 정확히 이해하면 나머지는 다 풀린다.
+        </p>
+
+        <h3>1. JoinPoint — 끼어들 수 있는 지점</h3>
+
+        <p>
+          프로그램 실행 중에 횡단 관심사를 적용할 수 있는 시점들.
+          이론상으로는 메서드 호출, 메서드 실행, 필드 접근, 객체 생성 등이 모두 JoinPoint가 될 수 있다.
+        </p>
+
+        <pre><code>가능한 JoinPoint들 (이론상):
+  - 메서드 실행 (method execution)
+  - 메서드 호출 (method call)
+  - 생성자 실행 (constructor execution)
+  - 필드 접근 (field get/set)
+  - 예외 처리 핸들러 진입
+
+Spring AOP가 지원하는 JoinPoint:
+  - 메서드 실행만 ★
+
+AspectJ가 지원하는 JoinPoint:
+  - 위 모두 + 더 많음</code></pre>
+
+        <p>
+          Spring AOP는 단순함과 성능을 위해 메서드 실행만 지원한다.
+          이게 Spring AOP의 가장 큰 한계지만, 실무 횡단 관심사 대부분이 메서드 단위라 큰 문제 안 된다.
+          더 자세한 한계는 4편에서.
+        </p>
+
+        <h3>2. Pointcut — 어디에 적용할지의 선언</h3>
+
+        <p>
+          JoinPoint들 중 <strong>실제로 어떤 것에 적용할지를 표현식으로 명시</strong>한 것.
+        </p>
+
+        <pre><code>@Pointcut("execution(* com.example.service.*.*(..))")
+public void serviceLayer() {}
+
+→ "com.example.service 패키지의 모든 클래스의 모든 메서드"
+
+@Pointcut("@annotation(org.springframework.transaction.annotation.Transactional)")
+public void transactionalMethods() {}
+
+→ "@Transactional이 붙은 모든 메서드"</code></pre>
+
+        <p>
+          Pointcut은 <strong>"어디"</strong>를 정의한다. 자세한 표현식 문법은 4편에서.
+        </p>
+
+        <h3>3. Advice — 그 지점에서 무엇을 할지</h3>
+
+        <p>
+          Pointcut에 매칭되는 JoinPoint에서 실행할 코드.
+          "메서드 실행 전에 이걸 해라", "예외 발생 시 이걸 해라" 같은 동작.
+        </p>
+
+        <pre><code>@Before("serviceLayer()")
+public void logBefore(JoinPoint jp) {
+    log.info("Method called: {}", jp.getSignature().getName());
+}
+
+@AfterThrowing(pointcut = "serviceLayer()", throwing = "ex")
+public void logException(JoinPoint jp, Exception ex) {
+    log.error("Method failed: {}", jp.getSignature().getName(), ex);
+}</code></pre>
+
+        <p>
+          Advice는 <strong>"무엇을"</strong>을 정의한다.
+          5가지 종류(Before, After, AfterReturning, AfterThrowing, Around)가 있고 3편에서 자세히.
+        </p>
+
+        <h3>4. Aspect — Pointcut + Advice의 묶음</h3>
+
+        <p>
+          횡단 관심사 하나를 표현하는 단위.
+          Pointcut(어디에)과 Advice(무엇을)를 한 클래스에 모은 것.
+        </p>
+
+        <pre><code>@Aspect
+@Component
+public class LoggingAspect {
+
+    @Pointcut("execution(* com.example.service.*.*(..))")
+    public void serviceLayer() {}
+
+    @Before("serviceLayer()")
+    public void logBefore(JoinPoint jp) {
+        log.info("Calling: {}", jp.getSignature().getName());
+    }
+
+    @AfterReturning(pointcut = "serviceLayer()", returning = "result")
+    public void logAfter(JoinPoint jp, Object result) {
+        log.info("Returned: {}", result);
+    }
+}</code></pre>
+
+        <p>
+          이 한 클래스가 "로깅"이라는 횡단 관심사 전부를 담는다.
+          어디에 적용할지(Pointcut), 적용 시점에 무엇을 할지(Advice 여러 개).
+          Aspect는 "관심사 하나를 모듈화한 단위"다.
+        </p>
+
+        <h3>5. Weaving — 실제 적용</h3>
+
+        <p>
+          Aspect를 실제 코드에 끼워넣는 작업.
+          "옷감을 짠다(weave)"는 의미에서 온 용어.
+          서비스 코드와 Aspect를 직물처럼 짜 합쳐 최종 동작을 만드는 것.
+        </p>
+
+        <pre><code>Weaving이 일어나는 시점:
+
+1. Compile-Time Weaving (CTW)
+   - 컴파일 시점에 .class 파일에 Aspect 코드를 직접 박음
+   - AspectJ 컴파일러(ajc)가 함
+
+2. Load-Time Weaving (LTW)
+   - 클래스가 JVM에 로드되는 순간 동적으로 끼워넣음
+   - 특별한 Java agent 필요
+
+3. Runtime Weaving
+   - 런타임에 프록시 객체로 감싸서 적용
+   - Spring AOP의 방식 ★</code></pre>
+
+        <p>
+          Spring AOP는 Runtime Weaving을 쓴다.
+          이게 Bean 생명주기 시리즈에서 본 "BeanPostProcessor.after에서 프록시 만들어진다"의 본체.
+          정확한 메커니즘은 다음 편(2편)에서.
+        </p>
+
+        <h2>다섯 용어를 한 그림으로</h2>
+
+        <pre><code>[비즈니스 코드]
+       │
+       │ 메서드 호출 시점들 (JoinPoint 후보들)
+       │
+       ↓
+       어떤 JoinPoint에 적용할까? → Pointcut으로 명시
+       무엇을 할까?              → Advice로 명시
+       이 둘을 묶은 단위           → Aspect
+
+       그리고 실제로 비즈니스 코드와 Aspect가 합쳐지는 작업 → Weaving</code></pre>
+
+        <p>
+          Aspect = Pointcut + Advice
+          Weaving = Aspect를 실제 코드에 적용하는 일
+          JoinPoint = 적용될 수 있는 후보 지점들
+        </p>
+
+        <h2>왜 Spring이 AOP를 자체 제공하는가</h2>
+
+        <p>
+          AOP의 표준 구현은 AspectJ다. Spring 이전부터 있던 별도 라이브러리.
+          그런데 Spring은 자체 AOP를 만들었다. 왜?
+        </p>
+
+        <pre><code>AspectJ:
+  - 가장 강력. 모든 JoinPoint 지원.
+  - 별도 컴파일러나 Java agent 필요
+  - 학습 곡선 가파름
+
+Spring AOP:
+  - JoinPoint 메서드 실행만
+  - Spring 컨테이너만 있으면 동작 (별도 도구 X)
+  - 기존 Java 컴파일/실행 환경 그대로
+  - 학습 곡선 완만</code></pre>
+
+        <p>
+          Spring의 철학: <strong>"80%의 사용 케이스를 가장 단순하게 처리"</strong>.
+          횡단 관심사의 대부분이 메서드 단위라 메서드 실행 JoinPoint만으로 충분하다.
+          그 이상이 필요하면 AspectJ를 같이 쓰면 된다.
+        </p>
+
+        <h2>이 시리즈의 목표</h2>
+
+        <pre><code>1편 (이 글): AOP가 풀려는 문제와 다섯 핵심 용어
+2편: Spring AOP의 동작 원리 — Proxy Weaving이 정확히 어떻게
+3편: Advice의 종류와 실행 흐름 — @Before/@After/@Around 같은 디테일
+4편: Pointcut 표현식과 Spring AOP의 한계 — self-invocation, final 클래스 등
+
+목표:
+  - @Transactional이 어떻게 작동하는지 그림이 그려진다
+  - Spring AOP를 직접 사용해 횡단 관심사를 분리할 수 있다
+  - Spring AOP의 한계를 이해하고 AspectJ를 언제 쓸지 판단할 수 있다</code></pre>
+
+        <p>
+          다음 편에서는 Spring이 Runtime Weaving을 어떻게 구현하는지,
+          그리고 Bean 생명주기에서 본 "BeanPostProcessor.after에서 만들어지는 프록시"가
+          정확히 어떤 객체인지 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

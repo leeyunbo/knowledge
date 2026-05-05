@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>소멸 — Bean이 사라지기까지 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 4/4</div>
+        <h1>소멸 — Bean이 사라지기까지</h1>
+        <p class="subtitle">
+          애플리케이션 종료 시 일어나는 일.
+          @PreDestroy의 정확한 위치, Graceful Shutdown, Singleton과 Prototype의 결정적 차이.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Spring Bean 생명주기</div>
+        <ol>
+          <li><a href="./01-bean이-만들어지기까지.html">Bean이 만들어지기까지</a></li>
+          <li><a href="./02-의존성-주입.html">의존성 주입의 시점과 방식</a></li>
+          <li><a href="./03-초기화-콜백.html">초기화 콜백과 BeanPostProcessor</a></li>
+          <li class="current">소멸 — Bean이 사라지기까지</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 빈을 명시적으로 소멸시켜야 하나</h2>
+
+        <p>
+          애플리케이션이 끝나면 JVM이 메모리를 회수한다. 그래서 객체는 자동으로 사라진다.
+          그런데 Spring이 별도의 소멸 콜백을 두는 이유는 <strong>외부 자원의 정리</strong> 때문이다.
+        </p>
+
+        <pre><code>빈이 들고 있을 수 있는 외부 자원:
+  - DB 커넥션 풀 (HikariCP의 활성 connection들)
+  - HTTP 클라이언트의 connection pool
+  - 파일 핸들
+  - Redis 클라이언트
+  - 메시징 시스템 컨슈머 (Kafka, RabbitMQ)
+  - 백그라운드 스레드</code></pre>
+
+        <p>
+          JVM이 종료되면 OS가 자원을 회수해주긴 하지만,
+          <strong>"종료 직전에 정리 작업을 한 후 닫고 싶다"</strong>는 케이스가 많다.
+          예를 들어 진행 중인 요청 마무리, 메시지 큐에 미전송 메시지 flush, 서버에 disconnect 알림 등.
+        </p>
+
+        <p>
+          이런 정리 로직을 빈의 소멸 콜백에 두는 게 표준 패턴이다.
+        </p>
+
+        <h2>소멸 콜백의 세 가지 방식</h2>
+
+        <p>
+          초기화 콜백과 거의 대칭이다. 세 가지 방식이 있고 권장 순서도 비슷하다.
+        </p>
+
+        <h3>1. @PreDestroy (가장 권장)</h3>
+
+        <pre><code>@Component
+public class CacheService {
+    private final RedisClient redis;
+
+    @PreDestroy
+    public void cleanup() {
+        redis.flushPending();
+        redis.disconnect();
+        log.info("Redis 연결 정리 완료");
+    }
+}</code></pre>
+
+        <p>
+          JSR-250 표준. Spring 의존성 없음. @PostConstruct와 짝.
+          가장 권장.
+        </p>
+
+        <h3>2. DisposableBean 인터페이스</h3>
+
+        <pre><code>@Component
+public class CacheService implements DisposableBean {
+    @Override
+    public void destroy() {
+        redis.disconnect();
+    }
+}</code></pre>
+
+        <p>
+          Spring 인터페이스에 의존. 메서드 이름이 강제. 권장 안 함.
+          그러나 Spring 생태계 안에서만 쓰는 라이브러리는 가끔 사용.
+        </p>
+
+        <h3>3. @Bean(destroyMethod)</h3>
+
+        <pre><code>@Configuration
+public class AppConfig {
+    @Bean(destroyMethod = "close")
+    public DataSource dataSource() {
+        return new HikariDataSource();
+    }
+}
+
+@Bean(destroyMethod = "shutdown")
+public ExecutorService executorService() {
+    return Executors.newFixedThreadPool(10);
+}</code></pre>
+
+        <p>
+          제3자 라이브러리 객체에 유용.
+          그 객체에 close/shutdown/disconnect 같은 정리 메서드가 있을 때.
+        </p>
+
+        <h3>특수: AutoCloseable / Closeable 자동 감지</h3>
+
+        <pre><code>@Bean
+public DataSource dataSource() {
+    return new HikariDataSource();   // HikariDataSource는 Closeable 구현
+}
+
+→ destroyMethod 명시 안 해도 Spring이 자동으로 close() 호출
+→ 단, @Bean(destroyMethod = "") 로 빈 문자열 명시하면 자동 호출 비활성</code></pre>
+
+        <p>
+          AutoCloseable이나 Closeable을 구현한 객체는 Spring이 자동으로 정리한다.
+          편리하지만 명시적인 게 더 안전. 의도치 않게 close()가 호출되어 문제 생기기도.
+        </p>
+
+        <h2>실행 순서 — 셋이 다 있다면</h2>
+
+        <pre><code>1. @PreDestroy   ← 가장 먼저
+2. DisposableBean.destroy()
+3. @Bean(destroyMethod = "...")</code></pre>
+
+        <p>
+          초기화 콜백 순서와 정확히 대응. @PostConstruct가 먼저였듯 @PreDestroy도 먼저.
+        </p>
+
+        <h2>컨테이너 종료 흐름</h2>
+
+        <p>
+          애플리케이션이 종료될 때 정확히 무슨 일이 일어나는지 단계별로.
+        </p>
+
+        <h3>1. JVM이 종료 신호를 받음</h3>
+
+        <pre><code>발생 케이스:
+  - SIGTERM (kill 명령, kubectl delete pod 등)
+  - System.exit() 호출
+  - 메인 스레드 종료
+  - Spring Boot의 SpringApplication.exit() 호출</code></pre>
+
+        <h3>2. ApplicationContext의 close() 호출</h3>
+
+        <pre><code>Spring Boot는 자동으로 shutdown hook 등록:
+  Runtime.getRuntime().addShutdownHook(new Thread(() -> ctx.close()));
+
+→ JVM 종료 시 이 hook이 실행되어 ctx.close() 호출
+→ 이게 모든 빈 소멸의 시작점</code></pre>
+
+        <h3>3. 빈 소멸 순서 — 의존성 역순</h3>
+
+        <pre><code>A가 B에 의존, B가 C에 의존이라면:
+  생성 순서: C → B → A
+  소멸 순서: A → B → C  (역순)
+
+이유: A가 종료 시점에 B를 사용할 수 있어야 한다
+     B가 먼저 죽으면 A의 @PreDestroy에서 B 호출 시 NPE</code></pre>
+
+        <p>
+          Spring이 자동으로 의존성 그래프를 분석해서 역순으로 소멸시킨다.
+          개발자가 따로 신경 쓸 일 없음. 단, <code>@DependsOn</code>으로 명시한 순서도 같이 반영.
+        </p>
+
+        <h3>4. 각 빈의 소멸 콜백 호출</h3>
+
+        <pre><code>각 빈에 대해:
+  1. @PreDestroy 메서드들 실행
+  2. DisposableBean.destroy() 실행
+  3. @Bean(destroyMethod) 실행
+
+이 셋이 다 끝나야 그 빈이 "정리됨"으로 표시</code></pre>
+
+        <h3>5. ApplicationContext가 자기 자체를 정리</h3>
+
+        <pre><code>모든 빈이 정리된 후:
+  - BeanFactory가 들고 있던 빈 캐시 비움
+  - 등록된 BeanDefinition들 제거
+  - Listener들에게 ContextClosedEvent 발행
+
+여기까지 끝나면 컨테이너 종료 완료</code></pre>
+
+        <h2>Graceful Shutdown — 진행 중인 요청은 어떻게?</h2>
+
+        <p>
+          여기서 자주 만나는 문제: <strong>HTTP 요청이 처리 중인 상태에서 SIGTERM을 받으면 어떻게 될까?</strong>
+        </p>
+
+        <pre><code>옵션 1: 즉시 종료 (Hard Shutdown)
+  진행 중 요청 즉시 끊김 → 사용자에게 에러
+  데이터 일관성 깨질 수 있음 (트랜잭션 중간 종료)
+
+옵션 2: 진행 중 완료 대기 (Graceful Shutdown)
+  새 요청은 거부 (또는 LB 레벨에서 차단)
+  진행 중 요청은 끝까지 처리
+  모두 끝나면 그 다음에 빈 소멸</code></pre>
+
+        <p>
+          Graceful Shutdown이 정석. Spring Boot 2.3부터 내장 지원.
+        </p>
+
+        <h3>Spring Boot Graceful Shutdown 설정</h3>
+
+        <pre><code># application.yml
+server:
+  shutdown: graceful   # 기본은 immediate
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s   # 진행 중 요청에 줄 시간</code></pre>
+
+        <p>
+          이 설정만 추가하면:
+        </p>
+
+        <pre><code>1. SIGTERM 받음
+2. Tomcat/Jetty가 새 connection 거부 시작
+3. 기존 진행 중 요청은 계속 처리 (최대 30초)
+4. 30초 안에 다 끝나면: 정상 컨텍스트 close
+5. 30초 넘으면: 강제 종료</code></pre>
+
+        <p>
+          Kubernetes 환경에선 추가로 <code>preStop</code> hook과 readiness probe를 같이 써서
+          더 부드러운 종료를 만든다. 이건 운영/인프라 영역.
+        </p>
+
+        <h2>Singleton과 Prototype의 소멸 차이</h2>
+
+        <p>
+          1편에서 짚은 차이가 소멸 시점에서 결정적으로 드러난다.
+        </p>
+
+        <h3>Singleton</h3>
+
+        <pre><code>- 컨테이너가 인스턴스를 들고 있음
+- 컨테이너 종료 시 자동으로 @PreDestroy / destroy 호출
+- 개발자가 따로 신경 쓸 일 없음</code></pre>
+
+        <h3>Prototype</h3>
+
+        <pre><code>- 컨테이너가 인스턴스를 안 들고 있음 (만들어 주고 손 뗌)
+- 컨테이너 종료 시에도 @PreDestroy 자동 호출 X
+- 사용자가 직접 정리 책임 (또는 GC만 의지)
+
+@Component
+@Scope("prototype")
+public class Worker {
+    @PreDestroy
+    public void cleanup() { ... }   // 자동 호출 안 됨
+}</code></pre>
+
+        <p>
+          이게 Prototype의 큰 함정. 정리 콜백을 두지만 호출 안 된다.
+          외부 자원을 들고 있는 prototype 빈은 메모리 누수 위험.
+          그래서 prototype은 가능한 한 안 쓰고,
+          쓰더라도 외부 자원 없는 가벼운 객체로 한정한다.
+        </p>
+
+        <h2>소멸에서 자주 만나는 함정</h2>
+
+        <h3>함정 1: @PreDestroy에서 시간 오래 걸리는 작업</h3>
+
+        <pre><code>@PreDestroy
+public void cleanup() {
+    // 큰 데이터를 DB에 flush
+    saveAllPendingData();   // 5분 걸릴 수 있음
+}
+
+문제:
+  - Graceful shutdown timeout 안에 안 끝날 수 있음
+  - Kubernetes의 terminationGracePeriodSeconds (기본 30초) 초과 시 강제 SIGKILL
+  - @PreDestroy 도중에 강제 종료 → 데이터 일관성 깨짐</code></pre>
+
+        <p>
+          @PreDestroy는 빠르게 끝나는 게 원칙.
+          긴 정리 작업은 별도 스레드/큐로 분리하거나, 정기 배치로 옮기는 게 안전.
+        </p>
+
+        <h3>함정 2: 다른 빈에 의존</h3>
+
+        <pre><code>@Component
+public class A {
+    @Autowired private B b;
+
+    @PreDestroy
+    public void cleanup() {
+        b.flush();   // B가 이미 destroy됐으면?
+    }
+}
+
+→ Spring이 의존성 역순으로 소멸시키니
+   A가 먼저 destroy되고 B가 나중. B는 아직 살아있음. OK.
+
+But:
+  복잡한 그래프나 @DependsOn 잘못 잡혀있으면 순서 어긋날 수 있음</code></pre>
+
+        <p>
+          @PreDestroy에서 다른 빈을 호출할 때는 그 빈이 아직 살아있을지 확신해야 한다.
+          단순한 의존성 그래프면 Spring이 알아서 처리하지만, 복잡하면 직접 검증 필요.
+        </p>
+
+        <h3>함정 3: 비정상 종료 (SIGKILL)</h3>
+
+        <pre><code>SIGKILL (kill -9)을 받으면:
+  - JVM이 즉시 종료
+  - shutdown hook 안 돌아감
+  - @PreDestroy 호출 안 됨
+  - 외부 자원 정리 안 됨
+
+이런 케이스를 위해선:
+  - 외부 시스템에서 연결 끊김 자동 감지 (heartbeat 등)
+  - 정리 안 된 자원의 자동 회수 (메시지 큐의 visibility timeout 등)
+  - 트랜잭션의 자동 롤백 의존</code></pre>
+
+        <p>
+          SIGKILL은 어쩔 수 없다. 정상 정리를 가정하지 말고,
+          비정상 종료에도 시스템이 복구되는 설계가 필요.
+        </p>
+
+        <h2>운영 검증</h2>
+
+        <pre><code>로컬에서 graceful shutdown 테스트:
+  1. 애플리케이션 시작
+  2. 긴 요청 시뮬레이션 (예: 10초 걸리는 API 호출)
+  3. SIGTERM (kill <PID>)
+  4. 진행 중 요청이 정상 응답하는지 확인
+
+Kubernetes 환경:
+  kubectl delete pod ... 시 동작 관찰
+  로그에서 @PreDestroy가 호출됐는지
+  진행 중 요청이 끊기지 않았는지
+
+Spring Boot Actuator:
+  /actuator/shutdown 엔드포인트로도 graceful shutdown 가능
+  (운영 환경에선 보안 고려해서 활성화)</code></pre>
+
+        <h2>전체 생명주기 — 1편부터 4편까지</h2>
+
+        <pre><code>[1편] BeanDefinition 등록
+       ↓
+       BeanFactoryPostProcessor (BeanDefinition 수정)
+       ↓
+       인스턴스화 (생성자 호출)
+       ↓
+[2편] 의존성 주입 (세터/필드)
+       ↓
+       Aware 콜백
+       ↓
+[3편] BeanPostProcessor.before
+       ↓
+       @PostConstruct
+       ↓
+       InitializingBean.afterPropertiesSet
+       ↓
+       @Bean(initMethod)
+       ↓
+       BeanPostProcessor.after  ← AOP 프록시 만들어짐
+       ↓
+       빈 사용 가능
+       ↓ ... 사용 ...
+[4편] 컨테이너 종료
+       ↓
+       의존성 역순 소멸
+       ↓
+       @PreDestroy
+       ↓
+       DisposableBean.destroy
+       ↓
+       @Bean(destroyMethod)
+       ↓
+       컨텍스트 close
+       ↓
+       JVM 종료</code></pre>
+
+        <h2>면접 답변 시뮬레이션</h2>
+
+        <p>
+          "Bean 생명주기에 대해 설명해주세요"
+        </p>
+
+        <pre><code>1. BeanDefinition 등록 → 인스턴스화 → 의존성 주입 →
+   초기화 콜백 → 사용 → 소멸의 순서
+
+2. 인스턴스화 시점에 결정되는 것: 생성자 주입
+3. 의존성 주입 시점에 일어나는 것: 세터/필드 주입, Aware 콜백
+
+4. BeanPostProcessor가 두 번 끼어드는 이유:
+   - before: 일반 후처리
+   - after: AOP 프록시 만드는 자리
+   - 그래서 @PostConstruct에선 AOP 적용 안 된 원본 객체
+
+5. 초기화 콜백 셋: @PostConstruct → InitializingBean → @Bean(initMethod)
+6. 소멸 콜백 셋: @PreDestroy → DisposableBean → @Bean(destroyMethod)
+
+7. 실무 디테일:
+   - 생성자 주입을 권장 (final, 불변, 테스트 용이, 순환 참조 차단)
+   - Spring Boot 2.6+ 순환 참조 기본 금지
+   - @PostConstruct에서 self-invocation은 AOP 미적용
+   - prototype 빈은 컨테이너가 소멸 안 시킴
+   - Graceful shutdown으로 진행 중 요청 보호</code></pre>
+
+        <p>
+          이 흐름이 자연스럽게 나오면 Spring 코어 이해도가 높다는 신호다.
+        </p>
+
+        <h2>시리즈 정리</h2>
+
+        <pre><code>1편: Bean이 만들어지기까지
+     - BeanDefinition (설계도)와 인스턴스 (실제 객체)의 분리
+     - 컴포넌트 스캔, @Bean, FactoryBean
+     - Singleton vs Prototype, Lazy
+
+2편: 의존성 주입의 시점과 방식
+     - 생성자 / 세터 / 필드 주입의 차이
+     - 생성자 주입이 권장되는 이유
+     - 순환 참조 발생과 Spring Boot 2.6 정책
+
+3편: 초기화 콜백과 BeanPostProcessor
+     - 의존성 주입 후의 7단계
+     - BeanPostProcessor가 빈을 가공하는 메커니즘
+     - AOP 프록시가 만들어지는 정확한 자리
+     - @PostConstruct self-invocation 함정
+
+4편: 소멸 — Bean이 사라지기까지
+     - 외부 자원 정리가 필요한 이유
+     - @PreDestroy / DisposableBean / destroyMethod
+     - 의존성 역순 소멸
+     - Graceful Shutdown
+     - Singleton vs Prototype의 소멸 차이</code></pre>
+
+        <p>
+          Spring이 어노테이션 한 줄로 만드는 마법이 사실은 이렇게 9단계의 흐름 위에서 작동한다.
+          이 흐름을 머릿속에 그릴 수 있으면 @Transactional이 왜 안 먹히는지,
+          순환 참조가 왜 일어나는지, AOP가 어디서 끼어드는지 같은 흔한 질문에 즉답할 수 있다.
+        </p>
+
+        <p>
+          다음 토픽으로 자연스럽게 이어지는 게 <strong>AOP 내부 동작</strong>과 <strong>프록시(JDK vs CGLIB)</strong>다.
+          이번 편에서 "BeanPostProcessor.after에서 AOP 프록시가 만들어진다"고 했는데,
+          그 프록시가 정확히 어떻게 만들어지고 어떻게 동작하는지가 다음 시리즈의 주제.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

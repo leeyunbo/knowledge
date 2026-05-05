@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pointcut과 Spring AOP의 한계 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 4/4</div>
+        <h1>Pointcut과 Spring AOP의 한계</h1>
+        <p class="subtitle">
+          Pointcut 표현식을 정확히 읽는 법.
+          self-invocation, final 클래스 같은 한계와 AspectJ로 넘어가야 하는 경계.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Spring AOP 내부 동작</div>
+        <ol>
+          <li><a href="./01-aop가-풀려는-문제.html">AOP가 풀려는 문제</a></li>
+          <li><a href="./02-spring-aop의-동작.html">Spring AOP의 동작 원리 — Proxy Weaving</a></li>
+          <li><a href="./03-advice의-종류와-실행-흐름.html">Advice의 종류와 실행 흐름</a></li>
+          <li class="current">Pointcut과 Spring AOP의 한계</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Pointcut 표현식의 구조</h2>
+
+        <p>
+          가장 자주 쓰는 <code>execution</code>의 정확한 문법.
+        </p>
+
+        <pre><code>execution(modifiers? return-type declaring-type? method-name(params) throws?)
+
+         │           │            │              │            │           │
+         생략 가능    필수          생략 가능       필수         필수        생략 가능
+
+예시:
+  execution(* com.example.service.UserService.findUser(..))
+            ↑   ↑                                ↑           ↑
+            │   declaring-type                   method-name params
+            return-type (any)</code></pre>
+
+        <p>
+          하나씩 풀어보면.
+        </p>
+
+        <h3>1. modifiers — public, private 등 (생략 가능)</h3>
+
+        <pre><code>execution(public * com.example.*.*(..))
+  → public 메서드만
+
+execution(* com.example.*.*(..))
+  → 생략 시 모든 modifier (Spring AOP는 어차피 public 메서드만 가로채니
+    실무적으로 의미 없음)</code></pre>
+
+        <h3>2. return-type — 반환 타입 (필수)</h3>
+
+        <pre><code>execution(String com.example.*.*(..))
+  → String 반환 메서드만
+
+execution(* com.example.*.*(..))
+  → 모든 반환 타입 (* 와일드카드)
+
+execution(java.util.List com.example.*.find*(..))
+  → List 반환 메서드만</code></pre>
+
+        <h3>3. declaring-type — 클래스 (생략 가능)</h3>
+
+        <pre><code>execution(* com.example.UserService.*(..))
+  → UserService 클래스의 메서드만
+
+execution(* com.example..*.*(..))
+  → com.example 하위 모든 패키지 (.. 는 재귀)
+
+execution(* *Service.*(..))
+  → 이름이 Service로 끝나는 모든 클래스
+
+execution(* *(..))
+  → 모든 클래스 (생략된 것과 같음)</code></pre>
+
+        <h3>4. method-name(params) — 메서드와 인자 (필수)</h3>
+
+        <pre><code>execution(* *.findUser(..))
+  → 메서드명 findUser
+
+execution(* *.find*(..))
+  → 메서드명이 find로 시작
+
+execution(* *(String))
+  → 인자가 String 한 개
+
+execution(* *(String, Long))
+  → 인자가 정확히 String, Long 두 개
+
+execution(* *(..))
+  → 인자 무관 (.. 는 0개 이상)
+
+execution(* *(*))
+  → 정확히 1개 인자, 어떤 타입이든
+
+execution(* *(String, ..))
+  → 첫 인자가 String, 나머지 무관</code></pre>
+
+        <h3>5. throws — 던지는 예외 (생략 가능)</h3>
+
+        <pre><code>execution(* *(..) throws IOException)
+  → IOException을 던지는 메서드만
+
+거의 안 쓴다. 실무 케이스가 드물다.</code></pre>
+
+        <h2>다른 자주 쓰는 Pointcut Designators</h2>
+
+        <p>
+          <code>execution</code> 외에도 다양한 PCD(Pointcut Designator)가 있다.
+        </p>
+
+        <h3>within — 특정 타입 안의 모든 메서드</h3>
+
+        <pre><code>within(com.example.service.UserService)
+  → UserService 클래스 안의 모든 메서드
+
+within(com.example.service..*)
+  → service 패키지와 그 하위 모든 클래스의 모든 메서드
+
+within과 execution의 차이:
+  within은 메서드 시그니처 매칭 안 함, 그냥 클래스만 봄
+  대량 매칭에 빠르고 단순</code></pre>
+
+        <h3>@annotation — 특정 어노테이션이 붙은 메서드</h3>
+
+        <pre><code>@annotation(org.springframework.transaction.annotation.Transactional)
+  → @Transactional이 붙은 메서드
+
+이게 사실 Spring 자체가 @Transactional을 처리하는 패턴.
+실무에서 자주 쓰는 PCD.</code></pre>
+
+        <h3>@within — 특정 어노테이션이 붙은 클래스의 모든 메서드</h3>
+
+        <pre><code>@within(org.springframework.stereotype.Service)
+  → @Service 붙은 클래스의 모든 메서드</code></pre>
+
+        <h3>@target — 런타임에 특정 어노테이션을 가진 객체의 메서드</h3>
+
+        <pre><code>@target(org.springframework.stereotype.Service)
+  → 런타임에 @Service인 객체의 메서드 호출
+
+@within과 @target 차이:
+  @within: 컴파일 시점에 클래스 자체에 어노테이션 있어야 매칭
+  @target: 런타임에 그 객체의 클래스 또는 부모 클래스에 어노테이션
+
+거의 같지만 상속 케이스에서 미묘한 차이.</code></pre>
+
+        <h3>args — 인자 타입 매칭</h3>
+
+        <pre><code>args(String, Long)
+  → 인자가 String, Long인 메서드
+
+args 안에 변수명을 적어 Advice에서 받을 수도 있음:
+
+@Before("execution(* com.example.*.findById(..)) && args(id)")
+public void logId(Long id) {
+    log.info("findById called with id: {}", id);
+}</code></pre>
+
+        <h2>Pointcut 조합 — and / or / not</h2>
+
+        <pre><code>// Service 패키지 + Transactional 어노테이션
+@Pointcut("within(com.example.service..*) && @annotation(...Transactional)")
+
+// findUser 또는 findUsers
+@Pointcut("execution(* *.findUser(..)) || execution(* *.findUsers(..))")
+
+// Service인데 *Repository 아님
+@Pointcut("within(com.example.service..*) && !within(com.example.service.*Repository)")</code></pre>
+
+        <h2>Pointcut 재사용</h2>
+
+        <pre><code>@Aspect
+public class CommonPointcuts {
+
+    @Pointcut("within(com.example.service..*)")
+    public void serviceLayer() {}
+
+    @Pointcut("@annotation(org.springframework.transaction.annotation.Transactional)")
+    public void transactional() {}
+
+    @Pointcut("serviceLayer() && transactional()")
+    public void transactionalService() {}
+}
+
+@Aspect
+public class LoggingAspect {
+    @Before("com.example.aop.CommonPointcuts.transactionalService()")
+    public void log(JoinPoint jp) { ... }
+}</code></pre>
+
+        <p>
+          Pointcut 메서드를 별도 클래스에 모아두고 다른 Aspect에서 참조하는 패턴.
+          코드 중복 없앰. Spring 공식 권장 패턴.
+        </p>
+
+        <h2>self-invocation 함정 — 다시 정확히</h2>
+
+        <p>
+          앞 편들에서 짚었던 함정. 정확한 메커니즘과 우회 방법을 본다.
+        </p>
+
+        <h3>왜 self-invocation이 적용 안 되는가</h3>
+
+        <pre><code>@Service
+public class OrderService {
+
+    @Transactional
+    public void createOrder() {
+        sendNotification();
+    }
+
+    @Transactional
+    public void sendNotification() { ... }
+}
+
+호출자가 외부에서 createOrder() 호출:
+
+  Caller → 프록시.createOrder() → 트랜잭션 시작 → 원본.createOrder() 실행
+                                                       ↓
+                                                  this.sendNotification()
+                                                  (this = 원본 객체)
+                                                       ↓
+                                                  프록시 안 거침
+                                                       ↓
+                                                  @Transactional 적용 안 됨</code></pre>
+
+        <p>
+          <code>this.sendNotification()</code>의 <code>this</code>는 원본 객체이지 프록시가 아니다.
+          그래서 프록시의 가로채기 메커니즘을 못 거친다. AOP가 적용 안 된다.
+        </p>
+
+        <h3>우회 방법 1: 자기 자신을 빈으로 주입</h3>
+
+        <pre><code>@Service
+public class OrderService {
+    private final OrderService self;
+
+    public OrderService(@Lazy OrderService self) {
+        this.self = self;   // 자기 자신을 주입받지만 사실은 프록시
+    }
+
+    @Transactional
+    public void createOrder() {
+        self.sendNotification();   // 프록시를 통한 호출
+    }
+
+    @Transactional
+    public void sendNotification() { ... }
+}
+
+→ self는 프록시 → self.sendNotification() 호출 시 가로채짐
+→ @Transactional 적용됨</code></pre>
+
+        <p>
+          @Lazy가 필요한 이유: 자기 자신을 생성자에서 주입받으려면 순환 참조와 비슷한 상황.
+          @Lazy로 프록시만 먼저 받고 실제 인스턴스화는 사용 시점에.
+        </p>
+
+        <h3>우회 방법 2: ApplicationContext에서 직접 가져오기</h3>
+
+        <pre><code>@Service
+public class OrderService implements ApplicationContextAware {
+    private ApplicationContext ctx;
+
+    public void setApplicationContext(ApplicationContext ctx) {
+        this.ctx = ctx;
+    }
+
+    @Transactional
+    public void createOrder() {
+        ctx.getBean(OrderService.class).sendNotification();
+    }
+}
+
+→ ctx에서 OrderService 빈을 가져오면 프록시
+→ 그 프록시의 sendNotification 호출하면 AOP 적용</code></pre>
+
+        <p>
+          가능은 하지만 추하다. 메서드를 직접 호출하지 않고 컨테이너를 거쳐 가는 것.
+          1번 방법이 더 깔끔.
+        </p>
+
+        <h3>우회 방법 3: 다른 빈으로 분리 (권장)</h3>
+
+        <pre><code>@Service
+public class OrderService {
+    private final NotificationService notificationService;
+
+    @Transactional
+    public void createOrder() {
+        notificationService.sendNotification();   // 다른 빈, 프록시 거침
+    }
+}
+
+@Service
+public class NotificationService {
+    @Transactional
+    public void sendNotification() { ... }
+}
+
+→ 자연스럽게 다른 빈이라 프록시를 거침
+→ AOP 적용됨
+→ 코드도 더 명확 (책임 분리)</code></pre>
+
+        <p>
+          가장 권장되는 방법. self-invocation이 필요해진 이유 자체를 들여다보면
+          보통 책임이 한 클래스에 너무 몰린 신호.
+          분리하는 게 코드도 깔끔하고 AOP 함정도 사라진다.
+        </p>
+
+        <h2>final 클래스 / 메서드의 한계</h2>
+
+        <pre><code>@Service
+public final class UserService {   // final 클래스
+    @Transactional
+    public void createUser() { ... }
+}
+
+→ Spring Boot 기본 (CGLIB)으로 프록시 만들려고 함
+→ CGLIB은 클래스 상속으로 프록시 만듦
+→ final 클래스는 상속 불가
+→ 프록시 생성 실패
+→ 보통 시작 시점에 에러 또는 AOP 적용 안 됨
+
+해결:
+  - final 제거 (대부분 정답)
+  - 인터페이스 추가하고 JDK 동적 프록시 사용
+  - 그 메서드만 final 빼기 (메서드별 final도 같은 문제)</code></pre>
+
+        <p>
+          Kotlin에서 자주 만나는 함정. Kotlin 클래스는 기본 final.
+          Spring Kotlin 사용시 <code>kotlin-allopen</code> 플러그인을 써서 자동으로 open으로 바꿔야 한다.
+        </p>
+
+        <h2>private 메서드 — 항상 안 됨</h2>
+
+        <pre><code>@Service
+public class OrderService {
+    @Transactional
+    private void internalMethod() { ... }   // ★ private
+}
+
+→ JDK 동적 프록시: 인터페이스 기반 → private 메서드는 인터페이스에 못 둠 → 적용 안 됨
+→ CGLIB: 상속 기반 → private는 상속 안 됨 → 적용 안 됨
+→ 어떤 프록시 방식이든 private 메서드 AOP 적용 불가
+
+해결:
+  - public으로 바꾸기 (가장 흔함)
+  - 메서드를 다른 클래스로 옮기기</code></pre>
+
+        <h2>Spring AOP가 안 될 때 — AspectJ로 가야 할까</h2>
+
+        <p>
+          Spring AOP의 한계가 정말 문제가 되는 케이스라면 AspectJ를 고려.
+          AspectJ는 더 강력하지만 설정이 복잡하다.
+        </p>
+
+        <h3>AspectJ가 추가로 가능한 것</h3>
+
+        <pre><code>1. 모든 JoinPoint 지원
+   - 메서드 호출 외에 메서드 실행, 생성자, 필드 접근 등
+   - private 메서드도 가로챔
+
+2. final 클래스/메서드도 가로챌 수 있음
+   - 컴파일 시점에 바이트코드 직접 변형하니까
+
+3. self-invocation 자동 적용
+   - 객체 자체에 코드가 박혀있어 어떤 호출이든 가로챔
+
+4. 약 8~35배 빠르다는 측정
+   - 런타임에 프록시 위임 비용이 없음 (관찰 사례 기반)</code></pre>
+
+        <h3>AspectJ 도입 비용</h3>
+
+        <pre><code>1. 별도 컴파일러 (ajc) 또는 Java agent 필요
+   - 빌드 설정 복잡해짐
+   - 빌드 시간 증가
+
+2. 학습 곡선
+   - Spring AOP는 어노테이션 몇 개로 끝
+   - AspectJ는 더 많은 개념과 설정
+
+3. 디버깅 어려움
+   - 컴파일된 바이트코드가 변형돼있어 디버거 추적이 미묘
+
+4. 대부분의 케이스에 과한 도구
+   - 80%의 횡단 관심사는 Spring AOP로 충분</code></pre>
+
+        <h3>언제 AspectJ로?</h3>
+
+        <pre><code>1. self-invocation을 정말 못 우회하는 경우 (드뭄)
+2. 도메인 객체의 메서드도 AOP 적용하고 싶음 (Spring 빈이 아닌 객체)
+3. 성능이 critical하고 프록시 오버헤드도 부담
+4. 필드 접근까지 가로채야 함 (예: 도메인 모델 변경 추적)
+
+→ 위 케이스 외에는 Spring AOP가 정답</code></pre>
+
+        <h2>운영 디버깅 — AOP 작동 확인</h2>
+
+        <pre><code>1. 빈이 프록시인지 확인
+   AopUtils.isAopProxy(bean)
+   AopUtils.isCglibProxy(bean)
+   AopUtils.isJdkDynamicProxy(bean)
+
+2. 적용된 Advisor 보기
+   Advised advised = (Advised) bean;
+   Advisor[] advisors = advised.getAdvisors();
+   // 각 Advisor 출력 → 어떤 Pointcut/Advice가 적용됐는지
+
+3. 디버그 로그
+   logging:
+     level:
+       org.springframework.aop: DEBUG
+       org.springframework.transaction: DEBUG
+
+   → 트랜잭션 시작/커밋, AOP 적용 여부 등을 로그로
+
+4. @Transactional 작동 확인
+   - 트랜잭션 매니저의 시작/커밋 로그
+   - DataSource의 connection acquire 로그</code></pre>
+
+        <h2>면접 답변 시뮬레이션</h2>
+
+        <p>
+          "Spring AOP의 동작 원리를 설명해주세요"
+        </p>
+
+        <pre><code>1. 횡단 관심사를 별도 모듈(Aspect)로 분리하는 패턴
+
+2. Spring AOP는 Runtime Weaving — 프록시 기반
+   - BeanPostProcessor.postProcessAfterInitialization 시점에
+     Aspect가 매칭되는 빈을 프록시로 감쌈
+
+3. 프록시 종류
+   - 인터페이스 있으면 JDK 동적 프록시
+   - 없으면 CGLIB (Spring Boot 기본은 항상 CGLIB)
+
+4. 프록시 동작
+   - 메서드 호출이 프록시에 들어옴
+   - 적용 가능한 Advisor (Pointcut + Advice) 체인 실행
+   - @Around 시작 → @Before → 원본 메서드 → @AfterReturning/@AfterThrowing → @After → @Around 끝
+
+5. 한계
+   - 메서드 실행 join point만 (필드/생성자 X)
+   - self-invocation 적용 안 됨 (this는 원본)
+   - final 클래스/메서드 적용 안 됨
+   - private 메서드 적용 안 됨
+
+6. 더 강력한 게 필요하면 AspectJ
+   - 컴파일/로드 타임 위빙
+   - 모든 JoinPoint 지원
+   - 단, 설정 복잡, 학습 곡선
+
+7. (실무 narrative 연결)
+   @Transactional이 어떻게 작동하는지 — Bean 생명주기에서 프록시가 만들어지고
+   그 프록시가 메서드 호출을 가로채 트랜잭션 시작/커밋/롤백을 자동 처리</code></pre>
+
+        <h2>시리즈 정리</h2>
+
+        <pre><code>1편: AOP가 풀려는 문제
+     - 횡단 관심사
+     - 5가지 핵심 용어 (JoinPoint, Pointcut, Advice, Aspect, Weaving)
+
+2편: Spring AOP의 동작 원리
+     - Runtime Weaving = 프록시
+     - BeanPostProcessor.after 시점에 프록시 만들어짐
+     - JDK 동적 프록시 vs CGLIB
+     - 한계의 출발점
+
+3편: Advice의 종류와 실행 흐름
+     - 5가지 Advice 위치
+     - 정상 / 예외 케이스 실행 순서
+     - 여러 Aspect 만나면 @Order
+
+4편: Pointcut과 Spring AOP의 한계
+     - execution 표현식 정확한 문법
+     - within, @annotation 등 다른 PCD
+     - self-invocation, final, private 한계
+     - AspectJ로 넘어가는 경계</code></pre>
+
+        <p>
+          @Transactional 한 줄이 어떻게 트랜잭션을 자동 관리하는지,
+          @Async가 어떻게 비동기를 만드는지,
+          @Cacheable이 어떻게 캐시를 적용하는지.
+          모두 이 메커니즘 위에서 작동한다.
+          이 그림이 한 번 그려지면 Spring의 마법이 더 이상 마법이 아니다.
+        </p>
+
+        <p>
+          다음 자연스러운 학습은 <strong>프록시 (JDK Dynamic vs CGLIB)</strong>의 디테일.
+          이 시리즈에서 "프록시가 만들어진다"고 했는데, 실제로 그 두 프록시가 어떻게 다르고
+          어떤 메서드 호출 메커니즘을 쓰는지가 다음 주제.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

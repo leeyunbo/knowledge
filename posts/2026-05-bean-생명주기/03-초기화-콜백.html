@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>초기화 콜백과 BeanPostProcessor (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 3/4</div>
+        <h1>초기화 콜백과 BeanPostProcessor</h1>
+        <p class="subtitle">
+          @PostConstruct는 정확히 언제 실행되나.
+          BeanPostProcessor가 빈을 어떻게 변형하나. AOP 프록시가 만들어지는 진짜 자리.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Spring Bean 생명주기</div>
+        <ol>
+          <li><a href="./01-bean이-만들어지기까지.html">Bean이 만들어지기까지</a></li>
+          <li><a href="./02-의존성-주입.html">의존성 주입의 시점과 방식</a></li>
+          <li class="current">초기화 콜백과 BeanPostProcessor</li>
+          <li><a href="./04-소멸.html">소멸 — Bean이 사라지기까지</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>의존성 주입 직후 일어나는 일</h2>
+
+        <p>
+          앞 편에서 의존성 주입이 끝났다. 이제 빈이 사용 준비를 마치기 직전 단계.
+          Spring 공식 문서가 정의하는 정확한 순서:
+        </p>
+
+        <pre><code>1. Aware 인터페이스 콜백
+2. BeanPostProcessor.postProcessBeforeInitialization()
+3. @PostConstruct 메서드 실행
+4. InitializingBean.afterPropertiesSet() 실행
+5. @Bean(initMethod = "...") 또는 init-method 실행
+6. BeanPostProcessor.postProcessAfterInitialization()
+7. 빈 사용 가능</code></pre>
+
+        <p>
+          이 7단계 중 BeanPostProcessor가 두 번 끼어든다(2와 6).
+          그 사이에 세 가지 초기화 콜백이 있고(3, 4, 5).
+          이 순서가 Spring 내부 동작의 가장 중요한 디테일이다.
+        </p>
+
+        <h2>BeanPostProcessor — 빈을 가공하는 후크</h2>
+
+        <p>
+          Spring 컨테이너의 가장 강력한 확장 포인트.
+          <strong>모든 빈에 대해</strong> 두 시점에 콜백을 받는다.
+        </p>
+
+        <pre><code>public interface BeanPostProcessor {
+
+    Object postProcessBeforeInitialization(Object bean, String beanName)
+            throws BeansException;
+
+    Object postProcessAfterInitialization(Object bean, String beanName)
+            throws BeansException;
+}</code></pre>
+
+        <p>
+          핵심: 두 메서드 모두 <code>Object</code>를 반환한다.
+          반환된 객체가 다음 단계에 전달된다.
+          <strong>원본 빈을 그대로 반환할 수도, 다른 객체로 교체할 수도 있다</strong>.
+        </p>
+
+        <h3>이게 왜 중요한가</h3>
+
+        <p>
+          BeanPostProcessor가 다른 객체를 반환하면, 그 시점부터 컨테이너가 들고 있는 건 그 다른 객체다.
+          원본은 사라진다. 이게 <strong>AOP 프록시가 만들어지는 정확한 메커니즘</strong>이다.
+        </p>
+
+        <pre><code>1. 원본 빈 인스턴스화: UserService 객체 만듦
+2. 의존성 주입 끝
+3. AOP 관련 BeanPostProcessor가 동작:
+   - 이 빈에 @Transactional이 붙어있나? 그렇다면 프록시 필요.
+   - 원본 UserService를 감싼 CGLIB 프록시 만듦
+   - 이 프록시를 반환
+
+4. 이후 컨테이너는 프록시를 빈으로 들고 있음
+5. @Autowired UserService로 주입받으면 실제로는 프록시가 주입됨</code></pre>
+
+        <p>
+          그래서 <code>userService.someMethod()</code> 호출 시
+          실제로는 프록시가 먼저 받아서 트랜잭션 시작 → 진짜 메서드 위임 → 트랜잭션 커밋 한다.
+          이게 @Transactional이 작동하는 본체다.
+        </p>
+
+        <h2>주요 BeanPostProcessor들 (Spring 내부)</h2>
+
+        <pre><code>AnnotationAwareAspectJAutoProxyCreator
+  - @Aspect나 advice가 적용되는 빈을 찾아 프록시로 감쌈
+  - AOP의 핵심
+
+CommonAnnotationBeanPostProcessor
+  - @PostConstruct, @PreDestroy를 처리
+  - JSR-250 표준 어노테이션 지원
+
+AutowiredAnnotationBeanPostProcessor
+  - @Autowired, @Value를 처리
+  - 의존성 주입의 실제 동작 주체
+
+ApplicationListenerDetector
+  - ApplicationListener 인터페이스 구현 빈을 찾아 등록</code></pre>
+
+        <p>
+          @Autowired, @PostConstruct, AOP 등 Spring의 거의 모든 마법이
+          BeanPostProcessor를 통해 구현된다.
+        </p>
+
+        <h2>커스텀 BeanPostProcessor — 만들 수 있다</h2>
+
+        <pre><code>@Component
+public class LoggingBeanPostProcessor implements BeanPostProcessor {
+
+    @Override
+    public Object postProcessBeforeInitialization(Object bean, String name) {
+        log.info("Before init: {} ({})", name, bean.getClass().getSimpleName());
+        return bean;   // 원본 그대로
+    }
+
+    @Override
+    public Object postProcessAfterInitialization(Object bean, String name) {
+        log.info("After init: {}", name);
+        return bean;
+    }
+}</code></pre>
+
+        <p>
+          예: 모든 서비스 빈을 자동으로 모니터링 프록시로 감싸기.
+          빈 만들 때마다 자동 로깅 추가하기.
+          빈 인스턴스에 메타데이터 자동 부여하기.
+        </p>
+
+        <p>
+          단, 직접 만드는 건 신중해야 한다. 모든 빈에 호출되니 무거우면 시작 시간이 길어진다.
+          그리고 BeanPostProcessor 자체가 빈이라 다른 빈보다 먼저 생성돼야 한다 (예외 케이스).
+        </p>
+
+        <h2>초기화 콜백 — 세 가지 방식</h2>
+
+        <p>
+          BeanPostProcessor.before와 after 사이에 일어난다.
+          Spring이 정의한 정확한 순서대로 실행된다.
+        </p>
+
+        <h3>1. @PostConstruct (가장 권장)</h3>
+
+        <pre><code>@Component
+public class CacheService {
+    private final RedisClient redis;
+
+    public CacheService(RedisClient redis) { this.redis = redis; }
+
+    @PostConstruct
+    public void init() {
+        // 의존성 주입이 끝난 후, 빈이 사용되기 직전에 호출
+        // 여기서 외부 연결 / 캐시 워밍 / 초기 데이터 로드 등
+        redis.connect();
+        loadInitialCache();
+    }
+}</code></pre>
+
+        <p>
+          JSR-250 표준 어노테이션. Spring 의존성 없이 사용 가능.
+          가장 권장. 코드가 명시적이고 깔끔.
+        </p>
+
+        <h3>2. InitializingBean 인터페이스</h3>
+
+        <pre><code>@Component
+public class CacheService implements InitializingBean {
+    @Override
+    public void afterPropertiesSet() {
+        redis.connect();
+        loadInitialCache();
+    }
+}</code></pre>
+
+        <p>
+          Spring 인터페이스에 의존. 권장하지 않음.
+          코드가 Spring과 강하게 결합되고 메서드 이름이 자유롭지 않다.
+          @PostConstruct가 있으니 이걸 굳이 쓸 이유 없다.
+        </p>
+
+        <h3>3. @Bean(initMethod)</h3>
+
+        <pre><code>@Configuration
+public class AppConfig {
+    @Bean(initMethod = "init")
+    public CacheService cacheService(RedisClient redis) {
+        return new CacheService(redis);
+    }
+}
+
+public class CacheService {
+    public void init() { ... }   // 이 메서드 호출됨
+}</code></pre>
+
+        <p>
+          제3자 라이브러리의 클래스를 빈으로 등록할 때 유용.
+          그 클래스에 @PostConstruct를 붙일 수 없을 때 (소스 변경 권한 없을 때).
+        </p>
+
+        <h3>실행 순서 — 셋이 다 있다면</h3>
+
+        <pre><code>1. @PostConstruct → 가장 먼저
+2. InitializingBean.afterPropertiesSet()
+3. @Bean(initMethod=...) 또는 XML init-method
+
+이 순서는 Spring이 보장한다.
+보통은 @PostConstruct 하나만 쓴다. 셋 다 쓸 일은 거의 없음.</code></pre>
+
+        <h2>초기화에서 일어나기 쉬운 함정</h2>
+
+        <h3>함정 1: 생성자에서 다른 빈 사용</h3>
+
+        <pre><code>@Component
+public class UserService {
+    private final UserRepository repo;
+
+    public UserService(UserRepository repo) {
+        this.repo = repo;
+        repo.findAll();    // ❌ 위험
+    }
+}
+
+왜 위험?
+  - 생성자 시점에 repo는 주입됐다
+  - 하지만 repo가 다른 빈(예: DataSource)에 의존한다면 그게 다 준비됐을지 보장 X
+  - 더 큰 문제: AOP 프록시가 아직 만들어지기 전이라 @Transactional이 적용 안 됨</code></pre>
+
+        <p>
+          생성자에선 의존성을 받기만 하고 사용하진 마라.
+          초기 로직은 @PostConstruct에 두는 게 정석.
+        </p>
+
+        <h3>함정 2: @PostConstruct에서 self-invocation</h3>
+
+        <pre><code>@Service
+public class OrderService {
+    @PostConstruct
+    public void init() {
+        loadInitialOrders();   // 같은 클래스의 메서드 호출
+    }
+
+    @Transactional
+    public void loadInitialOrders() { ... }   // ★ @Transactional 적용 안 됨
+}
+
+왜?
+  @PostConstruct는 BeanPostProcessor.before와 after 사이에서 실행됨
+  AOP 프록시는 after에서 만들어짐
+  → @PostConstruct 시점엔 프록시가 아직 없음
+  → @Transactional 메서드 호출해도 트랜잭션 시작 안 됨</code></pre>
+
+        <p>
+          Transactional Propagation 시리즈에서도 다뤘던 self-invocation 함정.
+          @PostConstruct에서 트랜잭션 메서드 호출하면 더더욱 안 됨.
+          AOP 자체가 적용 안 된 시점이라.
+        </p>
+
+        <h3>함정 3: @PostConstruct 메서드의 예외</h3>
+
+        <pre><code>@PostConstruct
+public void init() {
+    redis.connect();   // 실패하면?
+}
+
+→ BeanCreationException 던져짐
+→ 컨테이너 시작 실패
+→ 애플리케이션 자체가 안 뜸</code></pre>
+
+        <p>
+          @PostConstruct 안의 예외는 빈 생성 실패로 직결된다.
+          외부 의존성(DB, Redis, 외부 API) 연결 같은 건 신중히.
+          실패 시 애플리케이션이 떠야 하는 정책이라면 try-catch + 나중에 재시도 같은 패턴.
+        </p>
+
+        <h2>전체 생명주기 그림 — 한 번 더</h2>
+
+        <pre><code>[BeanDefinition 등록] (1편)
+       ↓
+[BeanFactoryPostProcessor]
+       ↓ BeanDefinition 수정 가능
+[인스턴스화 — 생성자 호출] (1편)
+       ↓ 생성자 주입은 여기서
+[프로퍼티 주입] (2편)
+       ↓ 세터/필드 주입
+[Aware 콜백] (2편)
+       ↓ ApplicationContextAware 등
+[BeanPostProcessor.before] ← ★ 이 편
+       ↓
+[@PostConstruct] ← ★ 이 편
+       ↓
+[InitializingBean.afterPropertiesSet]
+       ↓
+[@Bean(initMethod) / init-method]
+       ↓
+[BeanPostProcessor.after] ← ★ AOP 프록시 만들어지는 곳
+       ↓
+[빈 사용 가능]
+       ↓ ... 사용 ...
+[소멸] (4편)</code></pre>
+
+        <h2>그래서 AOP 프록시는 정확히 어디서?</h2>
+
+        <p>
+          많이 헷갈리는 부분이라 다시 정확히 짚자.
+          AOP 프록시는 <strong>BeanPostProcessor.postProcessAfterInitialization</strong>에서 만들어진다.
+        </p>
+
+        <pre><code>1. 원본 UserService 인스턴스화 (가짜 의존성 또는 final 의존성)
+2. 의존성 주입 끝
+3. Aware 콜백
+4. BeanPostProcessor.before (다른 처리들)
+5. @PostConstruct 실행 (★ 이 시점엔 원본 객체)
+6. InitializingBean.afterPropertiesSet
+7. @Bean initMethod
+8. ★ BeanPostProcessor.after에서 AnnotationAwareAspectJAutoProxyCreator가
+   원본을 감싸는 CGLIB 프록시 만들어 반환
+9. 컨테이너는 이제 프록시를 갖고 있음
+10. 다른 빈이 @Autowired UserService로 주입받으면 프록시가 주입됨</code></pre>
+
+        <p>
+          "@PostConstruct에서 self-invocation으로 @Transactional 안 먹힘" 의 본질이 5단계와 8단계의 시간 차이.
+          5단계 시점엔 아직 프록시가 없다.
+        </p>
+
+        <h2>운영 디버깅 팁</h2>
+
+        <pre><code>1. 빈이 진짜 만들어졌는지 확인
+   ApplicationContext.getBeanDefinitionNames()
+   ApplicationContext.containsBean("userService")
+
+2. 어떤 BeanPostProcessor가 등록됐는지
+   ApplicationContext.getBeansOfType(BeanPostProcessor.class)
+
+3. AOP 프록시 여부 확인
+   AopUtils.isAopProxy(bean)
+   AopUtils.isCglibProxy(bean)
+   AopUtils.isJdkDynamicProxy(bean)
+
+4. @PostConstruct가 실행됐는지
+   직접 로그 찍기 또는 디버거로 break point</code></pre>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>의존성 주입 → BeanPostProcessor.before → @PostConstruct
+  → InitializingBean → @Bean(initMethod) → BeanPostProcessor.after
+  → 빈 사용 가능
+
+BeanPostProcessor의 두 메서드는 모든 빈에 호출됨.
+반환 객체로 빈을 교체할 수 있음 → AOP 프록시의 메커니즘.
+
+@PostConstruct는 BeanPostProcessor 사이에서 실행 →
+이 시점엔 AOP 프록시 없음 → self-invocation 함정 주의.</code></pre>
+
+        <p>
+          여기까지가 빈이 만들어지고 사용 가능해지기까지의 모든 단계다.
+          마지막 편에서 빈이 어떻게 소멸하는지를 본다.
+          @PreDestroy, DisposableBean, 그리고 컨테이너 종료 흐름.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

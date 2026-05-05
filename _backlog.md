@@ -64,8 +64,8 @@
 - [ ] ★ 정규화 vs 반정규화 (2편)
 
 ### Spring 코어 internals
-- [ ] ★ Bean 생명주기 완전 분해 (4편)
-- [ ] ★ AOP 내부 동작 — Advisor / Pointcut / Weaving (4편)
+- [x] ★ Bean 생명주기 완전 분해 (4편)
+- [x] ★ AOP 내부 동작 — Advisor / Pointcut / Weaving (4편)
 - [ ] ★ 프록시 — JDK Dynamic vs CGLIB (3편)
 - [ ] ★ DI 방식 — 생성자 / 세터 / 필드 (2편)
 

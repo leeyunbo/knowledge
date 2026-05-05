@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advice의 종류와 실행 흐름 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 3/4</div>
+        <h1>Advice의 종류와 실행 흐름</h1>
+        <p class="subtitle">
+          @Before, @After, @AfterReturning, @AfterThrowing, @Around.
+          다섯이 메서드 호출 흐름의 어디에 끼어들고 여러 Aspect가 만나면 어떤 순서로 실행되는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Spring AOP 내부 동작</div>
+        <ol>
+          <li><a href="./01-aop가-풀려는-문제.html">AOP가 풀려는 문제</a></li>
+          <li><a href="./02-spring-aop의-동작.html">Spring AOP의 동작 원리 — Proxy Weaving</a></li>
+          <li class="current">Advice의 종류와 실행 흐름</li>
+          <li><a href="./04-pointcut과-spring-aop의-한계.html">Pointcut과 Spring AOP의 한계</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>5가지 Advice — 각자 끼어드는 시점</h2>
+
+        <p>
+          Spring AOP가 제공하는 Advice는 5종.
+          각자 메서드 호출 흐름의 다른 시점에 실행된다.
+        </p>
+
+        <pre><code>메서드 호출 흐름 안에서의 위치:
+
+  ┌─ @Around 시작
+  │
+  │  ┌─ @Before
+  │  │
+  │  │  ┌─ 원본 메서드 실행 ─┐
+  │  │  │                    │
+  │  │  │  ★ 비즈니스 로직   │
+  │  │  │                    │
+  │  │  └────────────────────┘
+  │  │       ↓ 정상 반환             ↓ 예외 발생
+  │  │  ┌─ @AfterReturning ─┐  ┌─ @AfterThrowing ─┐
+  │  │  └────────────────────┘  └───────────────────┘
+  │  │                ↓                ↓
+  │  │       ┌────── @After (둘 다) ──────┐
+  │  │       └────────────────────────────┘
+  │  └─ (원래 @Before와 짝이 아님, 그냥 실행 시점만 이름)
+  │
+  └─ @Around 끝</code></pre>
+
+        <p>
+          @Around가 가장 바깥. 그 안에서 @Before → 원본 메서드 → @After/@AfterReturning/@AfterThrowing 순.
+          이 순서를 정확히 알면 어떤 Advice를 언제 쓸지 자연스럽게 결정된다.
+        </p>
+
+        <h2>1. @Before — 메서드 실행 전</h2>
+
+        <pre><code>@Before("execution(* com.example.service.*.*(..))")
+public void logBefore(JoinPoint jp) {
+    log.info("메서드 호출 시작: {}", jp.getSignature().getName());
+}
+
+특징:
+  - 메서드가 실행되기 직전에 호출
+  - 메서드 실행을 막을 수 없음 (예외 던지면 막아짐)
+  - 메서드 실행 결과에 영향 못 줌 (반환값 변경 불가)
+
+흔한 용도:
+  - 인자 로깅
+  - 권한 검사 (조건 안 맞으면 예외 던져 차단)
+  - 메트릭 시작 시점 기록</code></pre>
+
+        <h3>JoinPoint 객체로 메서드 정보 받기</h3>
+
+        <pre><code>@Before("execution(* com.example.service.*.*(..))")
+public void logBefore(JoinPoint jp) {
+    Signature sig = jp.getSignature();
+    Object[] args = jp.getArgs();
+
+    log.info("Class: {}", sig.getDeclaringTypeName());
+    log.info("Method: {}", sig.getName());
+    log.info("Args: {}", Arrays.toString(args));
+}</code></pre>
+
+        <p>
+          JoinPoint는 현재 가로채진 메서드의 메타정보를 담는 객체.
+          어떤 클래스의 어떤 메서드가 어떤 인자로 호출됐는지 알 수 있다.
+        </p>
+
+        <h2>2. @After — 메서드 실행 후 (성공/실패 무관)</h2>
+
+        <pre><code>@After("execution(* com.example.service.*.*(..))")
+public void logAfter(JoinPoint jp) {
+    log.info("메서드 종료: {}", jp.getSignature().getName());
+}
+
+특징:
+  - 메서드가 끝난 후 호출 (정상 반환이든 예외든)
+  - try-finally의 finally와 비슷
+  - 반환값을 받을 수는 없음
+
+흔한 용도:
+  - 자원 정리 (한 번도 빠뜨리지 않게)
+  - 락 해제
+  - 트레이싱 종료 시점 기록</code></pre>
+
+        <h2>3. @AfterReturning — 정상 반환 시</h2>
+
+        <pre><code>@AfterReturning(
+    pointcut = "execution(* com.example.service.*.*(..))",
+    returning = "result"
+)
+public void logSuccess(JoinPoint jp, Object result) {
+    log.info("메서드 성공: {}, 반환값: {}", jp.getSignature().getName(), result);
+}
+
+특징:
+  - 메서드가 정상적으로 반환한 경우에만 호출
+  - 예외 발생 시엔 안 호출됨
+  - 반환값을 받을 수 있음 (returning 속성으로 이름 매핑)
+
+흔한 용도:
+  - 성공 로깅
+  - 결과 캐싱
+  - 결과 검증</code></pre>
+
+        <h3>반환값 타입 좁히기</h3>
+
+        <pre><code>@AfterReturning(
+    pointcut = "execution(* com.example.service.*.*(..))",
+    returning = "user"
+)
+public void logUserCreated(JoinPoint jp, User user) {   // ★ User 타입으로 좁힘
+    log.info("User 생성: {}", user.getId());
+}
+
+→ 반환값이 User 타입인 메서드만 매칭
+→ 다른 타입 반환하는 메서드는 이 Advice 적용 안 됨</code></pre>
+
+        <p>
+          returning 변수의 타입을 명시하면 그 타입을 반환하는 메서드만 자동 필터링된다.
+          편리한 기능.
+        </p>
+
+        <h2>4. @AfterThrowing — 예외 발생 시</h2>
+
+        <pre><code>@AfterThrowing(
+    pointcut = "execution(* com.example.service.*.*(..))",
+    throwing = "ex"
+)
+public void logException(JoinPoint jp, Exception ex) {
+    log.error("메서드 실패: {}", jp.getSignature().getName(), ex);
+}
+
+특징:
+  - 메서드에서 예외가 던져진 경우에만 호출
+  - 정상 반환 시엔 안 호출됨
+  - 예외 객체를 받을 수 있음 (throwing 속성으로 이름 매핑)
+
+  ⚠️ 예외를 잡거나 변형할 수는 없음 (예외는 그대로 호출자에게 전파됨)
+  → 예외 변형이 필요하면 @Around 사용
+
+흔한 용도:
+  - 에러 로깅
+  - 알림 발송
+  - 에러 메트릭 기록</code></pre>
+
+        <h3>특정 예외 타입만 매칭</h3>
+
+        <pre><code>@AfterThrowing(
+    pointcut = "execution(* com.example.service.*.*(..))",
+    throwing = "ex"
+)
+public void logBusinessException(JoinPoint jp, BusinessException ex) {
+    // BusinessException 타입의 예외만 매칭
+    log.error("비즈니스 에러: {}", ex.getCode());
+}</code></pre>
+
+        <h2>5. @Around — 가장 강력한 Advice</h2>
+
+        <pre><code>@Around("execution(* com.example.service.*.*(..))")
+public Object measureTime(ProceedingJoinPoint pjp) throws Throwable {
+    long start = System.currentTimeMillis();
+    try {
+        Object result = pjp.proceed();   // ★ 원본 메서드 실행
+        long elapsed = System.currentTimeMillis() - start;
+        log.info("{} 실행 시간: {}ms", pjp.getSignature().getName(), elapsed);
+        return result;
+    } catch (Throwable ex) {
+        log.error("실행 중 에러: {}", pjp.getSignature().getName(), ex);
+        throw ex;
+    }
+}
+
+특징:
+  - 메서드 실행 전과 후를 모두 감쌀 수 있음
+  - pjp.proceed()를 호출해야 원본 메서드가 실행됨
+  - proceed()를 호출 안 하면 원본 메서드가 실행 안 됨 → 메서드 차단 가능
+  - 반환값을 변형하거나 다른 값으로 대체 가능
+  - 예외를 잡고 다른 동작 가능
+  - 메서드 인자도 변형해서 proceed에 전달 가능
+
+흔한 용도:
+  - 트랜잭션 (시작/커밋/롤백 모두 처리)
+  - 캐싱 (캐시 hit이면 proceed 안 호출)
+  - Retry / Circuit Breaker
+  - 실행 시간 측정
+  - 인자/반환값 변형</code></pre>
+
+        <p>
+          @Around는 다른 4개를 모두 흉내낼 수 있다.
+          하지만 흉내낼 수 있다고 항상 @Around를 써야 하는 건 아니다.
+          단순한 케이스는 @Before가 더 명확하고 안전.
+        </p>
+
+        <h3>@Around에서 인자 변형</h3>
+
+        <pre><code>@Around("execution(* com.example.service.*.findUser(String))")
+public Object normalizeArg(ProceedingJoinPoint pjp) throws Throwable {
+    Object[] args = pjp.getArgs();
+    if (args[0] instanceof String) {
+        args[0] = ((String) args[0]).trim().toLowerCase();
+    }
+    return pjp.proceed(args);   // ★ 변형된 인자로 원본 호출
+}</code></pre>
+
+        <h3>@Around에서 메서드 차단</h3>
+
+        <pre><code>@Around("execution(* com.example.service.AdminService.*(..))")
+public Object checkAdmin(ProceedingJoinPoint pjp) throws Throwable {
+    if (!authService.isAdmin()) {
+        return null;   // ★ proceed 안 하고 null 반환 → 메서드 실행 차단
+    }
+    return pjp.proceed();
+}</code></pre>
+
+        <h2>다섯 Advice의 실행 순서 — 정상 반환 케이스</h2>
+
+        <pre><code>모든 Advice가 같은 메서드에 매칭된다고 가정:
+
+호출자가 메서드 부르면:
+
+1. @Around 시작 (proceed() 이전 코드)
+2. @Before
+3. ★ 원본 메서드 실행 ★
+4. @AfterReturning
+5. @After
+6. @Around 끝 (proceed() 이후 코드)
+7. 호출자에게 결과 반환</code></pre>
+
+        <h2>다섯 Advice의 실행 순서 — 예외 발생 케이스</h2>
+
+        <pre><code>1. @Around 시작 (proceed() 이전 코드)
+2. @Before
+3. ★ 원본 메서드 실행 ★ → 예외 발생
+4. @AfterThrowing
+5. @After
+6. @Around의 catch 블록 (proceed() 던진 예외)
+7. 예외가 호출자에게 전파</code></pre>
+
+        <p>
+          @AfterReturning과 @AfterThrowing이 mutually exclusive.
+          정상이면 Returning, 예외면 Throwing.
+          @After는 둘 다 실행 (finally 같은 역할).
+        </p>
+
+        <h2>여러 Aspect가 같이 있을 때 — @Order</h2>
+
+        <p>
+          한 메서드에 여러 Aspect가 적용될 수 있다.
+          예: 로깅 Aspect + 트랜잭션 Aspect + 권한 Aspect.
+          이때 어떤 순서로 실행될까?
+        </p>
+
+        <pre><code>@Aspect
+@Order(1)
+public class SecurityAspect { ... }
+
+@Aspect
+@Order(2)
+public class TransactionAspect { ... }
+
+@Aspect
+@Order(3)
+public class LoggingAspect { ... }
+
+→ @Order 숫자가 작을수록 바깥쪽
+→ 양파처럼 감싸짐: Security가 가장 바깥, Logging이 가장 안쪽
+
+호출 순서:
+  Security.before
+    Transaction.before
+      Logging.before
+        ★ 원본 메서드 ★
+      Logging.after
+    Transaction.after
+  Security.after</code></pre>
+
+        <p>
+          이 순서가 중요한 이유: <strong>"먼저 권한 검사 → 트랜잭션 시작 → 로깅"</strong> 같은 의도된 흐름이 있을 때.
+          예를 들어 권한이 없는데 트랜잭션을 열면 낭비. Security가 더 바깥쪽이어야.
+        </p>
+
+        <h3>@Order 안 정하면?</h3>
+
+        <pre><code>Spring 4.x까지: 적용 순서 결정 안 됨 (불확실)
+Spring 5.0+:    Aspect의 클래스 이름 알파벳 순? 아니, 정확히는 정해진 게 없음
+
+→ @Order를 명시적으로 잡는 게 안전
+→ 명시 안 하면 운에 맡기는 셈</code></pre>
+
+        <p>
+          여러 Aspect를 만들 때 @Order는 거의 필수.
+          잊으면 운영 중 미묘한 버그가 생긴다.
+          "왜 권한 검사가 트랜잭션 안에서 일어나지?" 같은.
+        </p>
+
+        <h2>같은 Aspect 안의 여러 Advice 순서</h2>
+
+        <pre><code>@Aspect
+public class MyAspect {
+    @Before("...") public void before1() {}
+    @Before("...") public void before2() {}
+    @After("...") public void after1() {}
+    @After("...") public void after2() {}
+}
+
+→ Spring 5.2.7+부터는 같은 Aspect 안에서도 정해진 순서 있음:
+   Before들끼리: 선언 순서 (또는 클래스 내 정의 순)
+
+근데 실무적으로:
+  같은 Aspect에 같은 종류 Advice 여러 개를 두지 마라.
+  헷갈림 + 디버깅 어려움.
+  관심사가 다르면 별도 Aspect로 분리.</code></pre>
+
+        <h2>실무 패턴 — 어떤 Advice를 언제 쓰나</h2>
+
+        <pre><code>요구사항                                 추천 Advice
+─────────────────────────────────────  ──────────
+인자 로깅 / 권한 검사                    @Before
+정상 반환 시 결과 처리                    @AfterReturning
+예외 시 에러 로깅 / 알림                 @AfterThrowing
+무조건 실행 (자원 정리)                  @After
+실행 시간 측정 / 트랜잭션 / 캐싱           @Around
+재시도 / Circuit Breaker                  @Around
+인자 / 반환값 변형                       @Around
+조건부 메서드 차단                        @Around</code></pre>
+
+        <p>
+          @Around가 가장 강력하지만 단순한 케이스에 굳이 쓰지 마라.
+          @Before/@AfterReturning이 더 명확하고 안전(proceed 호출 잊기 같은 실수 방지).
+        </p>
+
+        <h2>실수하기 쉬운 패턴</h2>
+
+        <h3>실수 1: @Around에서 proceed() 호출 누락</h3>
+
+        <pre><code>@Around("execution(* com.example.service.*.*(..))")
+public Object brokenAdvice(ProceedingJoinPoint pjp) {
+    log.info("called");
+    // ★ proceed() 안 호출 → 원본 메서드 실행 안 됨
+    return null;
+}
+
+→ 모든 메서드가 즉시 null 반환
+→ 시스템 동작 안 함
+→ 매우 자주 만나는 실수</code></pre>
+
+        <h3>실수 2: @AfterReturning에서 반환값 변경 시도</h3>
+
+        <pre><code>@AfterReturning(
+    pointcut = "execution(* com.example.service.*.*(..))",
+    returning = "result"
+)
+public void modifyResult(Object result) {
+    result = "변경된 값";   // ★ 의미 없음. 호출자에게 전달되는 결과는 안 바뀜
+}
+
+→ @AfterReturning은 결과를 받아 볼 수만 있고 변경 불가
+→ 반환값 변경하려면 @Around에서 다른 객체 return</code></pre>
+
+        <h3>실수 3: @AfterThrowing에서 예외 안 잡힘</h3>
+
+        <pre><code>@AfterThrowing(
+    pointcut = "execution(* com.example.service.*.*(..))",
+    throwing = "ex"
+)
+public void handleException(Exception ex) {
+    log.error("error", ex);
+    // 여기서 처리해도 예외는 그대로 호출자에게 전파됨
+}
+
+→ @AfterThrowing은 "예외를 본다"일 뿐 "잡는 게" 아님
+→ 예외 잡고 변형하려면 @Around에서 try-catch</code></pre>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>5가지 Advice:
+  @Before          — 메서드 실행 직전
+  @AfterReturning  — 정상 반환 시
+  @AfterThrowing   — 예외 발생 시
+  @After           — 둘 다 (finally 같음)
+  @Around          — 가장 바깥. 모두 흉내 가능. proceed() 필수.
+
+여러 Aspect 만나면 @Order로 순서 명시.
+같은 Aspect에 같은 종류 Advice 여러 개는 피하기.
+
+@Around는 강력하지만 단순 케이스에는 @Before가 더 명확.</code></pre>
+
+        <p>
+          다음 편(마지막)에서 Pointcut 표현식의 정확한 문법과
+          Spring AOP의 한계를 본다.
+          self-invocation을 어떻게 우회하는지, AspectJ로 가야 하는 케이스가 무엇인지.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

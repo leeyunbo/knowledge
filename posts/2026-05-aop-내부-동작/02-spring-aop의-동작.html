@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring AOP의 동작 원리 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 2/4</div>
+        <h1>Spring AOP의 동작 원리 — Proxy Weaving</h1>
+        <p class="subtitle">
+          어노테이션 한 줄이 어떻게 메서드 호출을 가로채는가.
+          BeanPostProcessor가 만드는 프록시의 정확한 정체.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Spring AOP 내부 동작</div>
+        <ol>
+          <li><a href="./01-aop가-풀려는-문제.html">AOP가 풀려는 문제</a></li>
+          <li class="current">Spring AOP의 동작 원리 — Proxy Weaving</li>
+          <li><a href="./03-advice의-종류와-실행-흐름.html">Advice의 종류와 실행 흐름</a></li>
+          <li><a href="./04-pointcut과-spring-aop의-한계.html">Pointcut과 Spring AOP의 한계</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>핵심 한 줄</h2>
+
+        <p>
+          Spring AOP의 동작 원리는 한 줄로 정리된다.
+        </p>
+
+        <p>
+          <strong>"Aspect가 적용될 빈을 진짜 빈으로 두지 않고, 그걸 감싼 프록시 객체로 교체한다."</strong>
+        </p>
+
+        <p>
+          이걸 시각화하면:
+        </p>
+
+        <pre><code>일반 빈:
+  컨테이너 ── userService(원본 UserService 객체) ──▶ 호출자
+                                                      ↑
+                                                동시에 직접 메서드 호출
+
+AOP 적용 빈:
+  컨테이너 ── userService(프록시 객체)
+                ├ 원본 UserService를 내부에 들고 있음
+                └ 메서드 호출이 들어오면:
+                   1. Advice를 먼저 실행 (예: 트랜잭션 시작)
+                   2. 원본 메서드 위임 호출
+                   3. Advice 후처리 실행 (예: 트랜잭션 커밋)
+                   ──────────────▶ 호출자에게 결과 반환</code></pre>
+
+        <p>
+          호출자는 자기가 받은 게 진짜 UserService인지 프록시인지 모른다.
+          타입은 같아 보이지만 실제로는 프록시. 메서드 호출이 가로채진다.
+        </p>
+
+        <h2>프록시가 만들어지는 자리 — Bean 생명주기와 연결</h2>
+
+        <p>
+          앞 시리즈(Bean 생명주기 3편)에서 다룬 내용이 여기서 정확한 의미를 갖는다.
+        </p>
+
+        <pre><code>Bean 생명주기 단계:
+  1. BeanDefinition 등록
+  2. 인스턴스화 (생성자 호출)
+  3. 의존성 주입
+  4. Aware 콜백
+  5. BeanPostProcessor.postProcessBeforeInitialization
+  6. @PostConstruct
+  7. InitializingBean.afterPropertiesSet
+  8. @Bean(initMethod)
+  9. ★ BeanPostProcessor.postProcessAfterInitialization ← AOP 프록시 만들어짐
+  10. 빈 사용 가능</code></pre>
+
+        <p>
+          9번 시점에 Spring의 <code>AnnotationAwareAspectJAutoProxyCreator</code>가 동작한다.
+          이게 BeanPostProcessor의 한 종류다.
+        </p>
+
+        <pre><code>AnnotationAwareAspectJAutoProxyCreator의 동작:
+
+  1. 만들어진 빈 (예: UserServiceImpl 객체)을 받음
+  2. 컨테이너에 등록된 Aspect들을 봄
+  3. 이 빈에 적용될 Advice가 있는지 Pointcut으로 매칭
+  4. 매칭되는 게 있으면:
+     - 원본 빈을 감싸는 프록시 객체 생성
+     - 프록시를 반환 (원본 대신)
+  5. 매칭되는 게 없으면:
+     - 원본 그대로 반환
+
+→ 컨테이너는 반환된 객체(프록시 또는 원본)를 빈으로 등록
+→ 다른 빈이 @Autowired로 받으면 프록시가 주입됨</code></pre>
+
+        <p>
+          이게 Bean 생명주기에서 짚은 "BeanPostProcessor가 빈을 교체할 수 있다"의 가장 중요한 활용 사례다.
+          AOP가 작동하는 진짜 메커니즘이 여기.
+        </p>
+
+        <h2>프록시는 어떻게 만들어지나 — 두 종류</h2>
+
+        <p>
+          Spring AOP가 사용하는 프록시는 두 종류다.
+          상황에 따라 적절한 것이 자동 선택된다.
+        </p>
+
+        <h3>JDK Dynamic Proxy</h3>
+
+        <pre><code>대상 빈이 인터페이스를 구현했을 때 사용.
+
+UserService 인터페이스:
+  public interface UserService {
+      User createUser(String name);
+  }
+
+UserServiceImpl 구현체:
+  @Service
+  public class UserServiceImpl implements UserService {
+      public User createUser(String name) { ... }
+  }
+
+Spring이 만드는 프록시:
+  - UserService 인터페이스를 구현한 동적 객체
+  - java.lang.reflect.Proxy.newProxyInstance(...)로 만듦
+  - 메서드 호출 시 InvocationHandler가 가로챔
+  - 거기서 Advice 실행 후 원본에 위임</code></pre>
+
+        <h3>CGLIB Proxy</h3>
+
+        <pre><code>대상 빈이 인터페이스를 구현 안 했을 때 (또는 강제로 클래스 기반 프록시 설정).
+
+UserService 클래스 (인터페이스 없음):
+  @Service
+  public class UserService {
+      public User createUser(String name) { ... }
+  }
+
+Spring이 만드는 프록시:
+  - UserService를 상속한 동적 클래스 (런타임에 바이트코드 생성)
+  - CGLIB 라이브러리가 만듦
+  - 메서드 호출 시 부모(UserService) 메서드를 가로채는 메커니즘
+  - 거기서 Advice 실행 후 super.method() 호출</code></pre>
+
+        <p>
+          두 프록시의 자세한 차이(성능, 한계, final 메서드 처리 등)는 별도 시리즈에서 다룬다.
+          여기선 "두 종류가 있고 자동 선택된다"만 알면 충분.
+        </p>
+
+        <h2>Spring Boot의 기본 — CGLIB</h2>
+
+        <p>
+          Spring Boot 2.0부터 기본은 CGLIB이다. 인터페이스가 있어도 CGLIB을 쓴다.
+        </p>
+
+        <pre><code># application.yml
+spring:
+  aop:
+    proxy-target-class: true   # Spring Boot 기본
+
+→ 인터페이스가 있어도 CGLIB 프록시 만듦
+→ false로 바꾸면: 인터페이스 있으면 JDK, 없으면 CGLIB</code></pre>
+
+        <p>
+          왜 CGLIB을 기본으로? 하위 호환과 일관성 때문.
+          인터페이스 없는 빈도 있어서 어차피 CGLIB이 필요한 경우가 많고,
+          한 가지로 통일하는 게 디버깅하기 쉽다.
+        </p>
+
+        <h2>프록시가 가로채는 흐름 — 단계별</h2>
+
+        <p>
+          호출자가 프록시 빈의 메서드를 부르면 정확히 어떤 일이 일어나는지.
+        </p>
+
+        <pre><code>Caller에서 userService.createUser("Alice")를 호출:
+
+1. 프록시의 createUser 메서드 진입
+2. 프록시가 자기에게 적용된 Advisor 체인을 봄
+   (Advisor = Pointcut + Advice의 묶음)
+3. 매칭되는 Advisor들을 순서대로 실행:
+   - @Around가 있으면 그 안에서 proceed() 시점까지의 코드
+   - @Before들이 차례로
+4. 원본 객체의 createUser 호출 (this.target.createUser("Alice"))
+5. 결과 받아서:
+   - @AfterReturning 실행 (정상 반환이면)
+   - @AfterThrowing 실행 (예외면)
+   - @After 실행 (둘 다)
+   - @Around의 proceed() 이후 코드 실행
+6. Caller에게 결과 반환</code></pre>
+
+        <p>
+          이게 @Transactional 한 줄이 트랜잭션 시작/커밋/롤백을 자동 처리하는 메커니즘.
+          호출자는 그냥 메서드를 부른 줄 알지만 프록시가 위/아래에 코드를 끼워넣은 것.
+        </p>
+
+        <h2>Advisor — Pointcut과 Advice의 묶음</h2>
+
+        <p>
+          Spring AOP 내부에선 한 가지 더 있다. Advisor라는 개념.
+        </p>
+
+        <pre><code>Advisor = Pointcut + Advice
+
+@Aspect
+public class LoggingAspect {
+    @Before("execution(* com.example.service.*.*(..))")
+    public void logBefore(JoinPoint jp) { ... }
+}
+
+→ Spring이 내부적으로 변환:
+  Pointcut: execution(* com.example.service.*.*(..))
+  Advice:   logBefore 메서드
+
+→ 둘이 합쳐져 Advisor 한 개가 됨
+→ ProxyFactory가 이 Advisor 목록을 들고 프록시 생성</code></pre>
+
+        <p>
+          개발자가 직접 Advisor를 만들 일은 거의 없다.
+          @Aspect가 자동으로 Advisor로 변환된다.
+          단지 Spring 소스 읽거나 깊은 디버깅할 때 이 용어가 등장하는 걸 알아두면 된다.
+        </p>
+
+        <h2>전체 그림 — 시간 순으로</h2>
+
+        <pre><code>[애플리케이션 시작]
+
+1. ApplicationContext 생성 시작
+2. @Aspect가 붙은 클래스들을 빈으로 등록
+3. 각 Aspect의 메서드를 분석해 Advisor 목록 추출
+4. AnnotationAwareAspectJAutoProxyCreator (BeanPostProcessor) 등록
+
+[빈 생성 단계 — 각 빈마다 반복]
+
+5. UserService 빈 생성 (생성자 호출 + 의존성 주입)
+6. @PostConstruct 호출
+7. AnnotationAwareAspectJAutoProxyCreator.postProcessAfterInitialization 호출:
+   - Advisor 목록 중 이 빈에 매칭되는 게 있는지 확인
+   - 있으면 ProxyFactory로 프록시 생성
+   - 프록시를 반환 (원본 대체)
+8. 컨테이너가 프록시를 빈으로 보관
+
+[런타임 — 메서드 호출]
+
+9. 다른 빈이 @Autowired UserService로 주입받음 (프록시가 주입됨)
+10. userService.createUser() 호출
+11. 프록시가 Advice 실행 → 원본 메서드 위임 → 후처리</code></pre>
+
+        <h2>왜 한계가 생기는가 — Spring AOP 한계의 출발점</h2>
+
+        <p>
+          이 메커니즘에서 Spring AOP의 모든 한계가 비롯된다.
+          몇 가지만 미리 짚고 4편에서 자세히.
+        </p>
+
+        <h3>한계 1: 같은 빈 안에서 메서드 호출(self-invocation)은 적용 안 됨</h3>
+
+        <pre><code>@Service
+public class OrderService {
+
+    @Transactional
+    public void createOrder() {
+        sendNotification();   // ★ 같은 클래스의 메서드 호출
+    }
+
+    @Transactional
+    public void sendNotification() { ... }
+}
+
+문제:
+  - 외부에서 createOrder()를 호출하면 프록시가 가로챔 → @Transactional 적용
+  - createOrder() 안의 sendNotification() 호출은
+    프록시가 아닌 this(원본 객체)를 통해 직접 호출
+  - 프록시를 거치지 않으니 sendNotification()의 @Transactional 적용 안 됨
+
+이게 그 유명한 self-invocation 함정.</code></pre>
+
+        <p>
+          Transactional Propagation 시리즈에서도 짚은 함정.
+          본질이 여기 있다. AOP는 프록시가 가로채야 작동하는데,
+          내부 호출은 프록시를 안 거치니 적용 안 됨.
+        </p>
+
+        <h3>한계 2: 메서드 실행만 가로챔</h3>
+
+        <pre><code>가능:
+  - 메서드 호출 시작 (Before, Around)
+  - 메서드 정상 반환 (AfterReturning)
+  - 메서드 예외 (AfterThrowing)
+
+불가능:
+  - 필드 접근 (예: user.name = "..."를 가로채기)
+  - 객체 생성 (new Object())
+  - private 메서드 호출 (인터페이스/상속 기반이라 private 불가)
+  - final 메서드 (오버라이드 불가)
+  - static 메서드</code></pre>
+
+        <p>
+          AspectJ는 이 모두를 가로챌 수 있다. Spring AOP는 메서드 실행만.
+          80%의 케이스에 충분하지만, 더 정교한 횡단 관심사가 필요하면 AspectJ로.
+        </p>
+
+        <h3>한계 3: final 클래스에 적용 불가 (CGLIB)</h3>
+
+        <pre><code>@Service
+public final class UserService {   // final 클래스
+    @Transactional
+    public void doSomething() { ... }
+}
+
+→ CGLIB은 클래스 상속으로 프록시 만듦
+→ final 클래스는 상속 불가 → 프록시 생성 실패
+→ AOP 적용 안 됨 (조용히 넘어가거나 에러)
+
+JDK 동적 프록시도 마찬가지:
+  - 인터페이스 기반이라 클래스의 final 자체는 무관
+  - 그러나 인터페이스 없는 final 클래스는 CGLIB도 못 쓰니 결국 적용 불가</code></pre>
+
+        <h2>이 시리즈가 답할 다음 질문들</h2>
+
+        <pre><code>3편: Advice 5종은 정확히 언제 호출되나?
+     여러 Aspect가 같이 적용되면 순서는?
+     @Around와 @Before의 차이는?
+
+4편: Pointcut 표현식 정확한 문법은?
+     execution, within, @annotation, @target 등의 차이?
+     self-invocation을 어떻게 우회하나?
+     Spring AOP가 안 될 때 AspectJ로 가야 하나?</code></pre>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>Spring AOP =
+  Aspect 적용될 빈을 BeanPostProcessor.after 시점에 프록시로 교체.
+  프록시가 메서드 호출을 가로채 Advice 실행 후 원본에 위임.
+
+핵심 메커니즘:
+  - Runtime Weaving (프록시 기반)
+  - 메서드 실행만 가로챔
+  - 프록시는 JDK Dynamic Proxy 또는 CGLIB
+  - Spring Boot 기본은 CGLIB
+
+여기서 모든 한계 비롯됨:
+  - self-invocation 무시 (프록시 거치지 않으니)
+  - 메서드 실행만 (필드/생성자 등 X)
+  - final 클래스/메서드 적용 불가</code></pre>
+
+        <p>
+          다음 편에서 Advice 5종(@Before, @After, @AfterReturning, @AfterThrowing, @Around)이
+          정확히 메서드 호출 흐름의 어디에 끼어들고, 여러 개가 같이 있을 때 어떤 순서로 실행되는지 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>
