@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MVCC의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 1/3</div>
+        <h1>MVCC의 정체 — 같은 행을 여러 버전으로</h1>
+        <p class="subtitle">
+          어떻게 읽기와 쓰기가 서로 안 막을 수 있는가.
+          ReadView, Undo Log, 트랜잭션 ID가 만드는 그림.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">MVCC와 잠금</div>
+        <ol>
+          <li class="current">MVCC의 정체</li>
+          <li><a href="./02-innodb-잠금-구조.html">InnoDB 잠금의 구조</a></li>
+          <li><a href="./03-mvcc-잠금이-만나는-지점.html">MVCC와 잠금이 만나는 지점</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 MVCC가 필요했는가</h2>
+
+        <p>
+          전통적 락 기반 동시성 제어를 생각해보자.
+          한 트랜잭션이 행을 읽으면 S락(공유 락)을, 쓰면 X락(전용 락)을 건다.
+          이 모델의 가장 큰 문제는 <strong>읽기와 쓰기가 서로 막는다는 것</strong>.
+        </p>
+
+        <pre><code>락 기반:
+  T1: SELECT (S락) → 읽는 동안 누구도 못 씀
+  T2: UPDATE 시도 → S락 풀릴 때까지 대기
+
+또는:
+
+  T1: UPDATE (X락) → 쓰는 동안 누구도 못 읽음
+  T2: SELECT 시도 → X락 풀릴 때까지 대기</code></pre>
+
+        <p>
+          OLTP 환경에선 읽기가 쓰기보다 훨씬 자주 발생한다.
+          긴 분석 쿼리 한 개가 동시에 일어나는 모든 쓰기를 멈춘다면 시스템이 멈춘다.
+        </p>
+
+        <p>
+          여기서 등장한 게 <strong>MVCC(Multi-Version Concurrency Control)</strong>다.
+          핵심 아이디어:
+        </p>
+
+        <p>
+          <strong>"한 행을 여러 버전으로 동시에 들고 있자.
+          쓰기는 새 버전을 만들고, 읽기는 자기 트랜잭션 시작 시점의 버전을 본다."</strong>
+        </p>
+
+        <p>
+          그러면 읽기와 쓰기가 서로 안 막는다.
+          쓰기는 새 버전을 만들 뿐이고, 읽기는 옛 버전을 보면 되니까.
+        </p>
+
+        <h2>InnoDB MVCC의 구성 요소</h2>
+
+        <p>
+          MySQL InnoDB의 MVCC를 구체적으로 보자. 세 가지가 핵심.
+        </p>
+
+        <pre><code>1. 각 행의 hidden 컬럼 (DB_TRX_ID, DB_ROLL_PTR, DB_ROW_ID)
+2. Undo Log — 옛 버전들의 체인
+3. ReadView — 트랜잭션 시작 시점의 스냅샷</code></pre>
+
+        <h3>1. 행의 hidden 컬럼</h3>
+
+        <p>
+          InnoDB의 모든 행에는 사용자가 정의하지 않은 hidden 컬럼이 따라붙는다.
+        </p>
+
+        <pre><code>DB_TRX_ID (6 byte)
+  - 이 행을 마지막으로 수정한 트랜잭션의 ID
+  - INSERT, UPDATE, DELETE 시점에 갱신
+
+DB_ROLL_PTR (7 byte)
+  - 이 행의 옛 버전이 저장된 Undo Log의 위치 포인터
+  - 옛 버전 → 또 그 옛 버전 → ... 의 체인을 형성
+
+DB_ROW_ID (6 byte)
+  - PK가 정의되지 않은 테이블에 대한 자동 row ID
+  - PK 있으면 사용 안 됨</code></pre>
+
+        <p>
+          <code>DB_TRX_ID</code>와 <code>DB_ROLL_PTR</code>이 MVCC의 양 축이다.
+          누가 이 행을 만들었나(TRX_ID), 그 전 모습은 어디 있나(ROLL_PTR).
+        </p>
+
+        <h3>2. Undo Log — 옛 버전들의 체인</h3>
+
+        <p>
+          UPDATE가 일어나면 InnoDB는 <strong>새 값을 행에 쓰면서 옛 값을 Undo Log에 복사</strong>한다.
+        </p>
+
+        <pre><code>초기:
+  users: id=1, name='Alice', amount=10000
+  trx_id=100, roll_ptr=NULL
+
+T200이 amount=9000으로 UPDATE:
+
+  users: id=1, name='Alice', amount=9000
+  trx_id=200, roll_ptr=★
+
+  Undo Log:
+    ★ → { trx_id=100, amount=10000, roll_ptr=NULL }
+
+또 T300이 amount=8000으로 UPDATE:
+
+  users: id=1, name='Alice', amount=8000
+  trx_id=300, roll_ptr=☆
+
+  Undo Log:
+    ☆ → { trx_id=200, amount=9000, roll_ptr=★ }
+    ★ → { trx_id=100, amount=10000, roll_ptr=NULL }</code></pre>
+
+        <p>
+          현재 행에서 시작해 <code>roll_ptr</code> 따라가면 모든 옛 버전을 거슬러 올라갈 수 있다.
+          이게 "버전 체인"이고, MVCC가 옛 데이터를 재구성하는 방법이다.
+        </p>
+
+        <h3>3. ReadView — 트랜잭션의 가시성 기준</h3>
+
+        <p>
+          트랜잭션이 SELECT를 할 때 InnoDB는 ReadView라는 자료구조를 만든다.
+          이게 "이 트랜잭션이 어느 시점의 데이터를 봐야 하나"를 정한다.
+        </p>
+
+        <pre><code>ReadView 구조:
+  m_ids          : ReadView 생성 시점에 활성 중인(미커밋) 트랜잭션 ID 목록
+  m_up_limit_id  : m_ids 중 가장 작은 값 (이보다 작은 trx_id는 모두 커밋됨)
+  m_low_limit_id : 다음에 발급될 트랜잭션 ID (이보다 큰 건 ReadView 생성 후 만들어진 것)
+  m_creator_trx_id : ReadView를 만든 트랜잭션 자신의 ID</code></pre>
+
+        <p>
+          이 네 값이 있으면 어떤 행 버전이든 "내가 봐야 하는가"를 판단할 수 있다.
+        </p>
+
+        <h2>가시성 판단 규칙</h2>
+
+        <p>
+          어떤 행 버전(<code>DB_TRX_ID</code> 값을 가진)을 만났을 때 InnoDB가 보여줄지 결정하는 규칙.
+        </p>
+
+        <pre><code>row의 DB_TRX_ID < m_up_limit_id
+  → ReadView 생성 전에 이미 커밋된 트랜잭션. 보임 ✅
+
+row의 DB_TRX_ID >= m_low_limit_id
+  → ReadView 생성 후에 시작된 트랜잭션. 안 보임 ❌
+  → roll_ptr 따라가서 옛 버전 시도
+
+row의 DB_TRX_ID가 m_ids에 포함됨
+  → ReadView 생성 시점에 미커밋이었던 트랜잭션. 안 보임 ❌
+  → roll_ptr 따라가서 옛 버전 시도
+
+row의 DB_TRX_ID가 m_creator_trx_id
+  → 내가 한 변경. 보임 ✅
+
+그 외 (m_up_limit_id <= DB_TRX_ID < m_low_limit_id이면서 m_ids에 없음)
+  → ReadView 생성 시점에 이미 커밋. 보임 ✅</code></pre>
+
+        <p>
+          간단히 요약하면:
+          <strong>"내 ReadView 생성 전에 커밋된 버전만 보여준다"</strong>.
+          그 외엔 옛 버전을 찾아 거슬러 올라간다.
+        </p>
+
+        <h2>READ COMMITTED와 REPEATABLE READ의 차이</h2>
+
+        <p>
+          MVCC 메커니즘은 같지만, ReadView를 언제 만드느냐가 다르다.
+        </p>
+
+        <pre><code>READ COMMITTED:
+  매 SELECT마다 새 ReadView 생성
+  → 매번 그 시점의 최신 커밋 데이터 봄
+  → 같은 트랜잭션 안에서도 다른 결과 가능 (Non-Repeatable Read)
+
+REPEATABLE READ:
+  트랜잭션 첫 SELECT 시 ReadView 한 번 생성
+  → 트랜잭션 끝까지 같은 ReadView 사용
+  → 항상 같은 시점의 스냅샷 (Non-Repeatable Read 차단)</code></pre>
+
+        <p>
+          격리 수준이 ReadView 생명주기를 결정한다.
+          이게 격리 수준 시리즈에서 본 "READ COMMITTED는 같은 트랜잭션에서 다른 값"과
+          "RR은 같은 값"의 메커니즘이다.
+        </p>
+
+        <h2>구체 예시 — REPEATABLE READ</h2>
+
+        <pre><code>초기 상태:
+  users: id=1, amount=10000, trx_id=100, roll_ptr=NULL
+
+T1 (RR) 시작 (trx_id=200):
+  ReadView 생성: m_ids=[150], up_limit=150, low_limit=201
+  T1: SELECT amount WHERE id=1
+    → 행의 trx_id=100 < up_limit=150 → 보임
+    → amount=10000
+
+T2 (trx_id=250)가 UPDATE amount=9000, COMMIT
+  현재 행: trx_id=250, amount=9000
+  Undo: { trx_id=100, amount=10000 }
+
+T1 다시 SELECT amount WHERE id=1:
+  같은 ReadView (RR이니까 재사용)
+  → 행의 trx_id=250 >= low_limit=201 → 안 보임
+  → roll_ptr 따라 옛 버전 → trx_id=100 < up_limit → 보임 → amount=10000
+
+T1: 일관되게 10000을 보고 있음. ✅</code></pre>
+
+        <h2>그럼 옛 버전들은 언제 청소되나 — Purge</h2>
+
+        <p>
+          UPDATE/DELETE가 계속 일어나면 Undo Log가 끝없이 쌓일 수 있다.
+          InnoDB는 백그라운드 스레드(<strong>purge thread</strong>)로 더 이상 필요 없는 옛 버전을 정리한다.
+        </p>
+
+        <pre><code>옛 버전이 더 이상 필요 없는 조건:
+  현재 활성 중인 모든 트랜잭션의 ReadView가
+  그 옛 버전을 안 본다고 확신할 수 있을 때
+
+→ 가장 오래된 ReadView보다 옛날 트랜잭션의 변경은 이미 다 보였거나,
+   또는 새로 시작될 트랜잭션도 더 새 버전을 보게 될 거니까 안전하게 정리</code></pre>
+
+        <p>
+          PostgreSQL의 VACUUM과 비슷한 역할.
+          다만 PostgreSQL은 옛 버전을 테이블 자체에 두는 반면(in-place),
+          InnoDB는 별도 Undo Tablespace에 둔다는 차이.
+        </p>
+
+        <h3>긴 트랜잭션의 위험</h3>
+
+        <p>
+          MVCC의 단점이 여기서 드러난다.
+          <strong>매우 긴 트랜잭션이 하나 있으면 그게 끝날 때까지 옛 버전을 못 정리한다</strong>.
+        </p>
+
+        <pre><code>예: T1이 1시간 동안 안 끝남 (대형 분석 쿼리)
+  → T1의 ReadView가 살아있음
+  → T1이 봐야 할 옛 버전들을 정리할 수 없음
+  → 그 사이 다른 트랜잭션의 UPDATE가 만든 옛 버전도 누적
+  → Undo Tablespace가 폭증
+  → 디스크 압박, 성능 저하</code></pre>
+
+        <p>
+          PostgreSQL에선 이걸 "VACUUM이 따라가지 못함"이라 표현하고,
+          MySQL에선 "history list length가 길어진다"고 표현한다.
+          긴 트랜잭션은 MVCC의 적이다. 짧게 유지하는 게 운영의 기본.
+        </p>
+
+        <h2>MVCC가 안 되는 영역</h2>
+
+        <p>
+          MVCC는 마법이지만 한계도 명확하다.
+        </p>
+
+        <h3>1. 쓰기끼리는 여전히 락이 필요</h3>
+
+        <pre><code>T1: UPDATE amount=9000
+T2: UPDATE amount=8000
+
+같은 행을 동시에 두 트랜잭션이 쓰려고 하면 Lost Update 위험.
+이건 MVCC로 못 푼다. 행에 X락을 걸어 직렬화해야 한다.
+
+→ MVCC는 읽기-쓰기 비충돌만 해결. 쓰기-쓰기는 락 영역.</code></pre>
+
+        <h3>2. 가시성과 잠금 충돌의 경계 — Lost Update 시나리오</h3>
+
+        <pre><code>T1: SELECT amount WHERE id=1   -- MVCC로 10000 읽음
+T2: UPDATE amount=9000, COMMIT
+T1: UPDATE amount = 10000 - 1000 = 9000 WHERE id=1   -- T2의 변경을 모르고 덮어씀
+
+T1은 T2의 결과(amount=9000)를 못 봤다 (RR이니까).
+하지만 UPDATE는 현재 행에 작용한다 (현재 row의 amount=9000을 9000으로 덮어씀).
+T1의 의도는 "10000에서 1000 빼기"였는데 T2의 -1000이 사라짐.</code></pre>
+
+        <p>
+          MVCC는 SELECT만 옛 버전을 보게 한다. UPDATE는 항상 현재 행에 작용.
+          이 미묘한 경계가 Lost Update의 본질이다.
+          비관 락(SELECT FOR UPDATE) 또는 낙관 락(version 컬럼)이 필요한 이유.
+        </p>
+
+        <h2>MVCC 한 줄 정리</h2>
+
+        <pre><code>MVCC =
+  옛 버전을 Undo Log에 보관 +
+  ReadView로 가시성 판단 +
+  읽기는 옛 버전 봐도 되니 락 안 걸고 통과
+
+→ 읽기-쓰기 비충돌. 동시성 폭발적으로 좋아짐.
+→ 그러나 쓰기-쓰기 충돌과 Lost Update는 여전히 락 영역.</code></pre>
+
+        <p>
+          이 그림이 InnoDB 동시성의 절반이다.
+          나머지 절반이 잠금. 다음 편에서 InnoDB 잠금의 종류와 동작을 본다.
+          격리 수준 시리즈 5편에서 짚었던 next-key lock도 정확히 어떤 메커니즘인지 풀린다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

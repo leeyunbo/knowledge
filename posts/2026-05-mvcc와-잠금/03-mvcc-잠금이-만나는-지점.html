@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MVCC와 잠금이 만나는 지점 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 3/3</div>
+        <h1>MVCC와 잠금이 만나는 지점</h1>
+        <p class="subtitle">
+          일반 SELECT vs SELECT FOR UPDATE의 결정적 차이.
+          데드락과 Lost Update를 푸는 두 갈래, 비관 락과 낙관 락.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">MVCC와 잠금</div>
+        <ol>
+          <li><a href="./01-mvcc의-정체.html">MVCC의 정체</a></li>
+          <li><a href="./02-innodb-잠금-구조.html">InnoDB 잠금의 구조</a></li>
+          <li class="current">MVCC와 잠금이 만나는 지점</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>두 종류의 SELECT — Snapshot Read와 Locking Read</h2>
+
+        <p>
+          1, 2편을 거쳐 두 메커니즘을 따로 봤다.
+          이제 한 트랜잭션 안에서 둘이 어떻게 공존하는지 본다.
+          핵심: <strong>같은 SELECT라도 어느 모드냐에 따라 동작이 완전히 다르다</strong>.
+        </p>
+
+        <pre><code>Snapshot Read (Consistent Read):
+  일반 SELECT
+  MVCC 사용. ReadView 시점의 옛 버전을 봄.
+  락 안 걸음. 동시성에 영향 없음.
+
+Locking Read:
+  SELECT ... FOR UPDATE
+  SELECT ... LOCK IN SHARE MODE
+  현재 행에 락을 걺. MVCC 우회.
+  반드시 최신 데이터를 봄.</code></pre>
+
+        <p>
+          1편에서 "MVCC가 락 없이 옛 버전을 본다"고 했고,
+          2편에서 "잠금은 어떻게 잡히는가"를 봤다.
+          이 둘이 한 트랜잭션 안에서 같이 쓰일 수 있다는 게 핵심이다.
+        </p>
+
+        <h2>같은 트랜잭션 안에서 둘이 공존</h2>
+
+        <pre><code>T1: BEGIN
+T1: SELECT amount FROM balance WHERE id=1   ← Snapshot Read (MVCC)
+    → ReadView 시점 값을 봄. 예: 10000.
+
+T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE  ← Locking Read
+    → 락을 잡고 현재 행을 봄. 예: 9000 (다른 트랜잭션이 이미 변경했을 수 있음)
+
+→ 같은 트랜잭션이 같은 행을 두 번 읽었는데
+   첫 번째는 10000, 두 번째는 9000.
+   왜? Snapshot Read와 Locking Read의 동작이 다르기 때문.</code></pre>
+
+        <p>
+          이게 헷갈리는 핵심.
+          REPEATABLE READ에서 같은 행은 같은 값을 반환한다고 했는데,
+          그건 <strong>Snapshot Read에 한정</strong>된다.
+          Locking Read는 그 약속을 깨고 현재 데이터를 본다.
+        </p>
+
+        <h2>왜 Locking Read는 MVCC를 우회하나</h2>
+
+        <p>
+          답: <strong>락의 목적이 "지금부터 이 행을 내가 잠시 점유해서 변경할 거다"이기 때문</strong>.
+          옛 버전에 락을 걸어봐야 의미 없다. 락은 현재 행에 걸어야 다른 트랜잭션을 막는다.
+        </p>
+
+        <pre><code>예: 잔액 차감
+
+비관 락 패턴:
+  T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE
+      → 현재 행 락 + 현재 값 봄 (가장 최신)
+  T1: 검증 (amount >= 1000인지)
+  T1: UPDATE amount = amount - 1000 WHERE id=1
+  T1: COMMIT
+
+만약 SELECT FOR UPDATE가 옛 버전을 봤다면?
+  → 옛 amount=10000을 보고 검증 통과
+  → 실제 현재 amount=500 (다른 트랜잭션이 차감)
+  → UPDATE 후 amount=-500 (잔액 음수). 사고.</code></pre>
+
+        <p>
+          비관 락의 핵심 목적은 "검증 + 수정의 원자성".
+          이 원자성을 보장하려면 검증할 때 봐야 하는 값은 반드시 현재 값.
+          그래서 Locking Read는 MVCC를 우회하고 현재 행을 본다.
+        </p>
+
+        <h2>Lost Update를 푸는 두 갈래</h2>
+
+        <p>
+          격리 수준 시리즈 3편에서 본 Lost Update 시나리오.
+          MVCC만으론 못 막는다. 두 가지 패턴으로 푼다.
+        </p>
+
+        <h3>패턴 1: 비관 락 (Pessimistic Lock)</h3>
+
+        <pre><code>"충돌이 일어날 거라 가정. 미리 락을 걸어 다른 트랜잭션을 막는다."
+
+T1: BEGIN
+T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE  -- X락
+T2: SELECT amount FROM balance WHERE id=1 FOR UPDATE  -- T1 락에 걸려 대기
+T1: UPDATE amount = amount - 1000 WHERE id=1
+T1: COMMIT  -- 락 해제
+T2: 그제서야 진행. 새 amount 봄. 검증 후 UPDATE.</code></pre>
+
+        <p>
+          가장 안전. 충돌이 자주 일어나는 곳에 적합.
+          단점: 락 대기로 동시성 떨어짐. 데드락 위험 증가.
+        </p>
+
+        <h3>패턴 2: 낙관 락 (Optimistic Lock)</h3>
+
+        <pre><code>"충돌이 거의 안 일어날 거라 가정. 일단 진행하고 충돌 시점에 검증."
+
+users 테이블에 version 컬럼 추가:
+  CREATE TABLE users (id, amount, version)
+
+T1: SELECT amount, version FROM balance WHERE id=1
+    → amount=10000, version=5
+T1: 검증 후 새 amount 계산: 9000
+
+T2: SELECT amount, version FROM balance WHERE id=1
+    → amount=10000, version=5 (T1의 변경 안 보임 — 아직 커밋 X)
+T2: 검증 후 새 amount 계산: 8000
+
+T1: UPDATE balance SET amount=9000, version=6 WHERE id=1 AND version=5
+    → 1 row affected. 성공. version 6으로 올라감.
+T1: COMMIT
+
+T2: UPDATE balance SET amount=8000, version=6 WHERE id=1 AND version=5
+    → 0 rows affected (version=5인 행 없음. 이미 6).
+    → 충돌 감지. 트랜잭션 롤백 또는 재시도.</code></pre>
+
+        <p>
+          충돌이 적을 때 매우 빠름. 락 대기 없음.
+          단점: 충돌 시 재시도 부담. 충돌이 자주 일어나면 retry storm.
+        </p>
+
+        <h3>어떤 패턴을 언제 쓰나</h3>
+
+        <pre><code>비관 락 (SELECT FOR UPDATE):
+  - 충돌 빈도 높음 (예: 인기 상품 재고 차감)
+  - 트랜잭션이 짧음 (락 보유 시간 짧음)
+  - 정확성이 절대적으로 중요
+
+낙관 락 (version 컬럼):
+  - 충돌 빈도 낮음 (예: 일반 사용자 프로필 수정)
+  - 트랜잭션이 길어질 수 있음 (락 안 걸어야 다른 트랜잭션 영향 X)
+  - 사용자 인터랙션 (편집 후 저장 같은 긴 시간)</code></pre>
+
+        <p>
+          Spring JPA는 둘 다 지원.
+          <code>@Lock(LockModeType.PESSIMISTIC_WRITE)</code>가 비관 락,
+          <code>@Version</code> 어노테이션이 낙관 락.
+          상황에 맞게 선택.
+        </p>
+
+        <h2>데드락 — MVCC 위에서도 일어난다</h2>
+
+        <p>
+          MVCC가 읽기-쓰기 충돌을 줄여주지만, 쓰기-쓰기 충돌은 여전히 락이라
+          데드락은 일어난다.
+        </p>
+
+        <h3>고전적 데드락 시나리오</h3>
+
+        <pre><code>T1                              T2
+─────                            ─────
+BEGIN                            BEGIN
+UPDATE A WHERE id=1              UPDATE A WHERE id=2
+  → id=1 X락 잡음                 → id=2 X락 잡음
+                                 UPDATE A WHERE id=1
+                                   → T1이 id=1 잡고 있어서 대기
+UPDATE A WHERE id=2
+  → T2가 id=2 잡고 있어서 대기
+
+→ 서로 상대 락을 기다림. 데드락.</code></pre>
+
+        <p>
+          InnoDB는 데드락을 자동 감지한다.
+          한 트랜잭션을 victim으로 골라 abort하고
+          나머지 트랜잭션이 진행하게 한다.
+          애플리케이션은 abort된 트랜잭션의 예외를 받아 재시도.
+        </p>
+
+        <h3>데드락 회피 패턴</h3>
+
+        <pre><code>1. 락 획득 순서 통일
+   여러 행에 락 걸 때 항상 같은 순서 (예: id 오름차순)
+   → "T1: 1→2, T2: 2→1" 패턴이 안 나옴. 데드락 발생 안 함.
+
+2. 트랜잭션 짧게 유지
+   락 보유 시간이 짧을수록 데드락 가능성 줄어듦.
+
+3. 인덱스 사용 확인
+   인덱스 안 타면 광범위 락 → 데드락 가능성 ↑
+   EXPLAIN으로 사전 검증.
+
+4. SKIP LOCKED 활용
+   큐 패턴이라면 락 걸린 행 건너뛰기. 다른 워커와 충돌 회피.
+
+5. 데드락 자동 재시도
+   Spring의 @Retryable 등으로 데드락 예외 시 자동 재시도</code></pre>
+
+        <h3>데드락 디버깅</h3>
+
+        <pre><code>SHOW ENGINE INNODB STATUS;
+  → LATEST DETECTED DEADLOCK 섹션
+  → 최근 발생한 데드락의 트랜잭션 정보, 락 정보, victim 결정 이유
+
+운영 중 데드락 모니터링:
+  Innodb_deadlocks 글로벌 변수 (누적 카운트)
+  주기적으로 폭증 여부 체크</code></pre>
+
+        <h2>SELECT FOR UPDATE와 SKIP LOCKED — 큐 패턴 한 번 더</h2>
+
+        <p>
+          격리 수준 5편에서 본 SKIP LOCKED. 여기서 다시 짚을 가치 있음.
+        </p>
+
+        <pre><code>일반 FOR UPDATE:
+  Worker 1: SELECT * FROM jobs WHERE status='PENDING' LIMIT 1 FOR UPDATE
+    → 첫 행 락
+  Worker 2: SELECT ... LIMIT 1 FOR UPDATE
+    → Worker 1 락 풀릴 때까지 대기
+  → 직렬 처리. N대 워커 의미 없음.
+
+FOR UPDATE SKIP LOCKED:
+  Worker 1: ... SKIP LOCKED → 첫 행 락
+  Worker 2: ... SKIP LOCKED → 첫 행 건너뛰고 두 번째 락
+  Worker 3: ... SKIP LOCKED → 세 번째 락
+  → 진정한 동시 처리. throughput N배.</code></pre>
+
+        <p>
+          MVCC의 락 우회 동작과 SKIP LOCKED의 결합이 큐 패턴의 핵심.
+          본인 쿠폰 narrative에 정확히 이런 구조가 있었다.
+        </p>
+
+        <h2>운영에서 자주 만나는 함정</h2>
+
+        <h3>함정 1: 긴 SELECT가 MVCC 청소를 막는다</h3>
+
+        <pre><code>분석 쿼리: SELECT ... FROM huge_table  -- 30분 걸림
+
+이 동안:
+  - Snapshot Read니까 락 안 걸음 (다른 트랜잭션 안 막음)
+  - 그러나 ReadView는 30분 동안 살아있음
+  - 그 시점의 옛 버전들을 청소 못 함
+  - Undo log 폭증, history list 폭증
+
+해결:
+  - 분석 쿼리는 read replica로 분리
+  - 또는 청크 단위로 나눠 짧게 실행</code></pre>
+
+        <h3>함정 2: FOR UPDATE의 광범위 락</h3>
+
+        <pre><code>SELECT * FROM users WHERE name LIKE 'Kim%' FOR UPDATE
+  name에 인덱스 없으면:
+    → 풀스캔하면서 모든 행에 next-key lock
+    → 사실상 테이블 전체 락
+    → 다른 모든 UPDATE/INSERT/DELETE 멈춤
+
+해결:
+  - WHERE 조건이 인덱스를 타도록
+  - 또는 FOR UPDATE 안 쓰고 다른 패턴 (낙관 락 등)</code></pre>
+
+        <h3>함정 3: Locking Read 후 Snapshot Read</h3>
+
+        <pre><code>T1: SELECT ... FOR UPDATE   -- 현재 값 봄, 락 잡음
+T1: UPDATE ...
+T1: SELECT ...               -- ★ 일반 SELECT (Snapshot)
+
+이 마지막 SELECT는 어느 값을 봐야 할까?
+  - RR이라면 ReadView 시점 값
+  - 그러나 T1이 방금 한 UPDATE는 본인 변경이라 보임
+  - "다른 트랜잭션의 변경"은 안 보임
+
+→ 미묘한 케이스. 같은 트랜잭션 안에서도 SELECT 종류 따라 결과 다름.</code></pre>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>MVCC와 잠금은 직교한 두 메커니즘.
+
+  Snapshot Read = MVCC 사용, 락 안 걸음
+                   → 동시성 좋음, 옛 버전 봄
+
+  Locking Read   = 락 잡고 현재 행 봄
+                   → 다른 트랜잭션 막음, 검증+변경 원자성 보장
+
+같은 트랜잭션이 둘 다 쓸 수 있고, 결과가 다를 수 있음.
+
+Lost Update를 푸는 두 갈래:
+  비관 락 (SELECT FOR UPDATE) — 충돌 자주
+  낙관 락 (version 컬럼)        — 충돌 드뭄
+
+쓰기-쓰기 충돌은 여전히 락 영역 → 데드락 가능
+  → 락 순서 통일, 트랜잭션 짧게, 인덱스 확인, 자동 재시도</code></pre>
+
+        <h2>시리즈 정리</h2>
+
+        <pre><code>1편: MVCC의 정체
+     - 옛 버전을 Undo Log에 보관, ReadView로 가시성 판단
+     - 읽기와 쓰기가 서로 안 막음
+     - 긴 트랜잭션은 MVCC의 적
+
+2편: InnoDB 잠금의 구조
+     - Lock Mode (S/X/IS/IX) × Lock Granularity (Record/Gap/Next-Key)
+     - 격리 수준에 따라 자동으로 다른 락 적용
+     - 모든 락은 인덱스 단위 → 인덱스 활용 필수
+
+3편: MVCC와 잠금이 만나는 지점
+     - Snapshot Read vs Locking Read
+     - 비관 락 vs 낙관 락
+     - 데드락의 원인과 회피
+     - SKIP LOCKED와 큐 패턴</code></pre>
+
+        <p>
+          격리 수준 시리즈와 함께 보면 RDBMS 동시성 영역의 코어가 거의 다 풀린다.
+          격리 수준은 "무엇을 막는가"의 정의,
+          MVCC와 잠금은 "어떻게 막는가"의 메커니즘.
+          둘이 같이 면접 답변에 나오면 자연스럽게 이어진다.
+        </p>
+
+        <p>
+          다음 학습 후보: <strong>N+1과 fetch 전략</strong>(JPA 영역)이나
+          <strong>Bean 생명주기</strong>(Spring 영역)로 넘어가면
+          DB → JPA → Spring으로 자연스러운 흐름이 만들어진다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

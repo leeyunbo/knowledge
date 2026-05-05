@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InnoDB 잠금의 구조 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.05 · 시리즈 2/3</div>
+        <h1>InnoDB 잠금의 구조 — 행 락부터 갭 락까지</h1>
+        <p class="subtitle">
+          S, X, IS, IX. Record Lock, Gap Lock, Next-Key Lock.
+          격리 수준에 따라 어떻게 자동으로 적용되는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">MVCC와 잠금</div>
+        <ol>
+          <li><a href="./01-mvcc의-정체.html">MVCC의 정체</a></li>
+          <li class="current">InnoDB 잠금의 구조</li>
+          <li><a href="./03-mvcc-잠금이-만나는-지점.html">MVCC와 잠금이 만나는 지점</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>잠금의 두 차원</h2>
+
+        <p>
+          InnoDB 잠금을 이해하려면 두 차원을 분리해서 봐야 한다.
+        </p>
+
+        <pre><code>차원 1. 락의 종류 (Lock Mode)
+  - S (Shared): 공유 락. 여러 트랜잭션이 동시 읽기 가능
+  - X (Exclusive): 전용 락. 한 트랜잭션만 가짐
+  - IS / IX (Intention): "곧 S/X 락 걸 거야" 의도 표시
+
+차원 2. 락이 잡는 범위 (Lock Granularity)
+  - Record Lock: 인덱스 레코드 한 개
+  - Gap Lock: 인덱스 레코드 사이의 빈 공간
+  - Next-Key Lock: Record + Gap의 조합</code></pre>
+
+        <p>
+          이 두 차원이 직교한다. 어떤 SQL을 실행하느냐에 따라 두 차원의 조합이 결정된다.
+          예: <code>X 모드의 Next-Key Lock</code>, <code>S 모드의 Record Lock</code> 등.
+        </p>
+
+        <h2>Lock Mode — S와 X</h2>
+
+        <p>
+          가장 기본. 거의 모든 RDBMS에 있는 개념.
+        </p>
+
+        <pre><code>S (Shared / 공유 락):
+  SELECT ... LOCK IN SHARE MODE 같은 명시적 잠금 읽기에 걸림
+  여러 트랜잭션이 같은 행에 동시에 S락 가질 수 있음
+  X락과는 충돌
+
+X (Exclusive / 전용 락):
+  UPDATE / DELETE / SELECT ... FOR UPDATE에 걸림
+  한 번에 한 트랜잭션만 가질 수 있음
+  S락, X락 모두와 충돌</code></pre>
+
+        <h3>S/X 호환성</h3>
+
+        <pre><code>           기존 락
+요청 락    │  없음  │   S    │   X
+───────────┼────────┼────────┼────────
+   S       │  OK    │  OK    │  대기
+   X       │  OK    │  대기  │  대기
+
+→ X는 단독. S끼리만 같이 가짐.</code></pre>
+
+        <h2>Intention Lock — IS와 IX</h2>
+
+        <p>
+          이게 약간 어려운 개념. 왜 필요한가부터 보자.
+        </p>
+
+        <h3>왜 Intention Lock이 필요한가</h3>
+
+        <p>
+          InnoDB는 행 단위 락이 기본이지만, 가끔 테이블 단위 락이 필요한 경우도 있다
+          (예: ALTER TABLE, LOCK TABLES).
+          이때 "이 테이블에 행 락 걸린 게 있나"를 빠르게 알아야 한다.
+        </p>
+
+        <pre><code>테이블 락을 거는 트랜잭션이 매번 모든 행을 다 확인해야 한다면?
+  → 행이 100만 개면 100만 번 확인. 비효율.
+
+해결: 행 락을 걸 때 테이블에도 "의도(intention)"를 표시
+  → 테이블 락 거는 쪽은 "의도 락"만 보고 충돌 여부 판단</code></pre>
+
+        <h3>IS / IX 의미</h3>
+
+        <pre><code>IS (Intention Shared):
+  "이 테이블의 어떤 행에 S락을 걸 예정"
+  SELECT ... LOCK IN SHARE MODE 시 자동 부여
+
+IX (Intention Exclusive):
+  "이 테이블의 어떤 행에 X락을 걸 예정"
+  UPDATE / DELETE / SELECT FOR UPDATE 시 자동 부여</code></pre>
+
+        <p>
+          IS/IX는 행 락이 걸리기 전에 테이블 레벨에 자동으로 잡힌다.
+          개발자가 직접 신경 쓸 일은 거의 없다. "이런 게 있어 테이블 락이 효율적"이라는 것만 알면 됨.
+        </p>
+
+        <h3>전체 호환성 매트릭스</h3>
+
+        <pre><code>          기존 락
+요청      │  X    │  IX   │  S    │  IS
+──────────┼───────┼───────┼───────┼───────
+   X      │ 대기  │ 대기  │ 대기  │ 대기
+   IX     │ 대기  │ OK    │ 대기  │ OK
+   S      │ 대기  │ 대기  │ OK    │ OK
+   IS     │ 대기  │ OK    │ OK    │ OK
+
+핵심:
+  - X는 모든 것과 충돌
+  - IX끼리, IS끼리는 호환 (의도만 표시일 뿐 실제 행 락은 다른 행일 수 있음)
+  - S는 IX와 충돌 (S는 "지금 읽고 있다", IX는 "곧 쓸 거다", 둘이 같이 못 감)
+  - IS는 X 빼곤 다 호환 (가장 약한 의도)</code></pre>
+
+        <h2>Lock Granularity — Record / Gap / Next-Key</h2>
+
+        <p>
+          격리 수준 5편에서 미리 짚은 내용. 여기서 더 자세히.
+        </p>
+
+        <h3>Record Lock — 인덱스 레코드 락</h3>
+
+        <pre><code>UPDATE users SET name='Bob' WHERE id = 5
+  → id=5인 인덱스 레코드 한 개에 X락
+
+다른 트랜잭션이 id=5 행을 수정/삭제하려 하면 대기.
+다른 행(id=3, id=7)은 영향 없음.</code></pre>
+
+        <p>
+          가장 단순한 형태. PK 또는 unique 인덱스로 정확히 한 행 매칭이면 거의 이게 적용됨.
+        </p>
+
+        <h3>Gap Lock — 인덱스 사이 빈 공간 락</h3>
+
+        <p>
+          행 자체가 아니라 <strong>레코드 사이의 갭</strong>에 거는 락.
+          이 갭 안에는 어떤 새 행도 INSERT 못 한다.
+        </p>
+
+        <pre><code>인덱스 (id 컬럼):
+  ... 3 ─ 5 ─ 8 ─ 12 ...
+
+3과 5 사이에 갭 락:
+  새 INSERT (id=4 등)가 막힘
+  기존 행(3, 5)에는 영향 없음
+
+목적: Phantom Read 방지
+  - 새 행이 들어오는 걸 막아 같은 SELECT 결과를 일관되게</code></pre>
+
+        <h3>Next-Key Lock — Record + Gap 조합</h3>
+
+        <p>
+          InnoDB의 RR에서 기본으로 잡히는 락 형태.
+        </p>
+
+        <pre><code>인덱스 (id 컬럼):
+  ... 3 ─ 5 ─ 8 ─ 12 ...
+
+id=5에 next-key lock:
+  → id=5 레코드 자체에 X락 (Record Lock)
+  → 3과 5 사이 갭에도 락 (Gap Lock)
+  → 합쳐서 (3, 5] 범위 잠금 (3 제외, 5 포함)
+
+다른 트랜잭션이 못 하는 것:
+  - id=5 UPDATE / DELETE
+  - id=4 INSERT (3과 5 사이)
+  - id=5 새로 INSERT (이미 있는 PK라 안 되긴 하지만)</code></pre>
+
+        <p>
+          <strong>왜 이 조합이 기본인가:</strong> Phantom Read를 자동으로 막으면서 Record Lock의 정확성도 유지.
+          격리 수준 시리즈에서 본 "MySQL InnoDB의 RR이 ANSI 정의보다 강하다"의 정확한 메커니즘이 이거다.
+        </p>
+
+        <h2>격리 수준에 따른 자동 락 동작</h2>
+
+        <p>
+          같은 SQL이라도 격리 수준에 따라 잡히는 락이 다르다.
+        </p>
+
+        <h3>READ COMMITTED — Record Lock만</h3>
+
+        <pre><code>UPDATE users SET name='Bob' WHERE id BETWEEN 5 AND 10
+  → 매칭되는 행 (id=5, 7, 10)에만 Record Lock
+  → 갭 락 없음
+
+장점: 다른 트랜잭션의 INSERT가 안 막힘. 동시성 좋음.
+단점: Phantom Read 가능.</code></pre>
+
+        <h3>REPEATABLE READ — Next-Key Lock</h3>
+
+        <pre><code>UPDATE users SET name='Bob' WHERE id BETWEEN 5 AND 10
+  → 매칭되는 행 (id=5, 7, 10)에 X락
+  → 그 행들 앞의 갭에도 락
+  → 결과적으로 [5, 10] 범위 전체 잠금 (대략)
+
+장점: Phantom 차단.
+단점: 락 범위 넓어 동시성 떨어짐. 특히 INSERT가 자주 막힘.</code></pre>
+
+        <h3>SERIALIZABLE — 모든 SELECT가 LOCK IN SHARE MODE</h3>
+
+        <pre><code>SELECT * FROM users WHERE id = 5
+  → 자동으로 SELECT * FROM users WHERE id = 5 LOCK IN SHARE MODE
+  → S락이 자동 부여
+
+→ 읽기까지 락이 잡히니 동시성 더 떨어짐.</code></pre>
+
+        <h2>락이 인덱스에 잡힌다 — 가장 중요한 디테일</h2>
+
+        <p>
+          격리 수준 시리즈에서도 짚었지만 다시 강조.
+          <strong>InnoDB의 모든 락은 인덱스 단위로 잡힌다</strong>.
+          PK 인덱스, 보조 인덱스, 어떤 인덱스든 그 인덱스의 레코드에 락이 걸린다.
+        </p>
+
+        <h3>인덱스 안 타는 WHERE의 위험</h3>
+
+        <pre><code>UPDATE users SET name='Bob' WHERE phone = '010-1234-5678'
+
+phone에 인덱스가 없다면:
+  → InnoDB는 모든 행을 풀스캔하면서 phone 비교
+  → 풀스캔하는 동안 모든 행에 X락 또는 next-key lock
+  → 사실상 테이블 전체 락
+  → 다른 모든 UPDATE/DELETE/INSERT가 대기</code></pre>
+
+        <p>
+          UPDATE/DELETE를 짤 때는 WHERE 조건이 인덱스를 타는지 항상 확인해야 한다.
+          인덱스 안 타면 의도치 않은 광범위 락으로 시스템이 멈춘다.
+          EXPLAIN으로 사전 확인.
+        </p>
+
+        <h3>유니크 인덱스 + 정확한 매칭의 특별 동작</h3>
+
+        <pre><code>UPDATE users SET name='Bob' WHERE id = 5    -- id는 PK
+
+InnoDB는 이 케이스를 알아채고 갭 락 안 걸음.
+정확히 id=5 Record Lock만.
+
+→ "유니크 인덱스 + 정확한 = 매칭"이면 갭 락 생략 (RR에서도)</code></pre>
+
+        <p>
+          최적화. PK 또는 unique 인덱스로 정확한 한 행을 잡을 때만 적용된다.
+          범위(<code>BETWEEN</code>, <code>&gt;</code>, <code>&lt;</code>)나 비유니크 인덱스면 next-key lock.
+        </p>
+
+        <h2>Insert Intention Lock — 약간 특수</h2>
+
+        <p>
+          INSERT 할 때 InnoDB가 사용하는 특수한 갭 락.
+          이름과 다르게 "갭 락의 한 종류"인데 동작이 약함.
+        </p>
+
+        <pre><code>INSERT INTO users (id, name) VALUES (10, 'Charlie')
+  → id=10 자리에 Insert Intention Lock
+
+이 락은 다른 Insert Intention Lock과는 호환됨
+  → 같은 갭에 여러 INSERT가 들어와도 서로 안 막음
+  → 단, 다른 트랜잭션의 next-key lock과는 충돌</code></pre>
+
+        <p>
+          INSERT 동시성을 위한 특수 처리.
+          "갭에 INSERT를 막는다"가 아니라 "다른 잠금이 그 갭을 잡고 있을 때만 대기"하는 약한 형태.
+        </p>
+
+        <h2>락 디버깅 — 어떻게 확인하나</h2>
+
+        <pre><code>-- 현재 데이터 락 (MySQL 8.0+)
+SELECT * FROM performance_schema.data_locks
+WHERE OBJECT_SCHEMA='your_db';
+
+  - LOCK_TYPE: TABLE / RECORD
+  - LOCK_MODE: S, X, IS, IX, GAP, NEXT-KEY 조합
+  - LOCK_STATUS: GRANTED / WAITING
+
+-- 락 대기 중인 트랜잭션
+SELECT * FROM performance_schema.data_lock_waits;
+
+  - REQUESTING_ENGINE_LOCK_ID: 대기 중인 락
+  - BLOCKING_ENGINE_LOCK_ID: 막고 있는 락
+
+-- 활성 트랜잭션 정보
+SELECT * FROM information_schema.innodb_trx;
+
+  - trx_state: RUNNING / LOCK WAIT
+  - trx_wait_started: 대기 시작 시간
+  - trx_query: 실행 중인 쿼리</code></pre>
+
+        <p>
+          "트랜잭션이 안 끝나고 멈춰있는데?" 상황의 거의 모든 답이 이 시스템 테이블에 있다.
+          누가 어느 락을 들고 있고 누가 기다리는지가 보인다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>InnoDB 락 =
+  Lock Mode (S / X / IS / IX) ×
+  Lock Granularity (Record / Gap / Next-Key)
+
+격리 수준이 어떤 조합을 자동 적용할지 결정.
+
+  RC: Record Lock 위주, 갭 락 거의 없음
+  RR: Next-Key Lock 위주 (Phantom 차단)
+  SERIALIZABLE: SELECT까지 S락 자동
+
+모든 락은 인덱스 단위로 잡히므로
+WHERE 조건이 인덱스를 타는지가 결정적.</code></pre>
+
+        <p>
+          이제 MVCC와 잠금이라는 두 메커니즘이 모두 풀렸다.
+          마지막 편에서 둘이 만나는 지점을 본다.
+          왜 일반 SELECT는 락 없이 동시성이 좋은가, 왜 SELECT FOR UPDATE는 다른가,
+          그리고 Lost Update와 데드락은 어떻게 다루는가.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

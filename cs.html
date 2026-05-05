@@ -100,7 +100,7 @@
     <!-- === 거대 별자리 (PC만) === -->
     <section class="galaxy-canvas">
       <div class="galaxy-meta">
-        <span><span id="totalText">11 / 103</span> · <span id="totalPct">11%</span></span>
+        <span><span id="totalText">12 / 103</span> · <span id="totalPct">12%</span></span>
       </div>
 
       <svg class="galaxy-svg" viewBox="0 0 1400 1200" xmlns="http://www.w3.org/2000/svg" aria-label="백엔드 CS 토픽 별자리">
@@ -463,8 +463,11 @@
            href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
           <g transform="translate(1170,500)" style="--ring-delay: 3.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">격리 수준</text></g>
         </a>
-        <a class="node group-C" data-state="locked" data-cat="DB" data-title="MVCC와 잠금" data-desc="언두 로그, 갭 락, 넥스트 키" href="./db.html">
-          <g transform="translate(1202,573)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-C" data-state="done" data-id="db-5" data-cat="DB"
+           data-title="MVCC와 잠금"
+           data-desc="ReadView, Undo Log, InnoDB 락 종류, 비관/낙관 락"
+           href="./posts/2026-05-mvcc와-잠금/01-mvcc의-정체.html">
+          <g transform="translate(1202,573)" style="--ring-delay: 4.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">MVCC</text></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="낙관 vs 비관 락 vs CAS" data-desc="언제 무엇을 쓰는가" href="./db.html">
           <g transform="translate(1071,653)"><circle class="node-circle" r="7" /></g>
@@ -617,8 +620,8 @@
       <a class="category-card cat-db" href="./db.html">
         <h2>DB</h2>
         <p class="cat-desc">인덱스, 트랜잭션, 락, 모델링</p>
-        <div class="progress-row"><span>2 / 13</span><span>15%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 15%"></div></div>
+        <div class="progress-row"><span>3 / 13</span><span>23%</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width: 23%"></div></div>
       </a>
       <a class="category-card cat-network" href="./network.html">
         <h2>네트워크</h2>

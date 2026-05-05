@@ -85,7 +85,7 @@
 
     <section class="graph-canvas">
       <div class="graph-meta">
-        <span><span id="progressText">2 / 13</span> · <span id="progressPct">15%</span></span>
+        <span><span id="progressText">3 / 13</span> · <span id="progressPct">23%</span></span>
       </div>
 
       <svg class="graph-svg" viewBox="0 0 800 620" xmlns="http://www.w3.org/2000/svg" aria-label="DB 토픽 그래프">
@@ -127,8 +127,11 @@
            href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
           <g transform="translate(400,130)" style="--ring-delay: 0.4s;"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">격리 수준</text></g>
         </a>
-        <a class="node group-B" data-state="locked" data-id="5" data-title="MVCC와 잠금" data-desc="언두 로그, 가시성 판단, 갭 락, 넥스트 키 락" href="#">
-          <g transform="translate(470,250)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">MVCC</text></g>
+        <a class="node group-B" data-state="done" data-id="5"
+           data-title="MVCC와 잠금"
+           data-desc="ReadView, Undo Log, InnoDB 락 종류, 비관/낙관 락"
+           href="./posts/2026-05-mvcc와-잠금/01-mvcc의-정체.html">
+          <g transform="translate(470,250)" style="--ring-delay: 0.8s;"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">MVCC</text></g>
         </a>
 
         <a class="node group-C" data-state="locked" data-id="6" data-title="낙관적 락 vs 비관적 락 vs CAS" data-desc="언제 무엇을 쓰는가, version 컬럼과 SELECT FOR UPDATE" href="#">
@@ -179,7 +182,9 @@
           <a class="topic-item done" href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
             <span class="topic-num">04</span><span class="topic-title">트랜잭션 격리 수준</span><span class="topic-meta">5편</span>
           </a>
-          <div class="topic-item locked"><span class="topic-num">05</span><span class="topic-title">MVCC와 잠금</span><span class="topic-meta">예정</span></div>
+          <a class="topic-item done" href="./posts/2026-05-mvcc와-잠금/01-mvcc의-정체.html">
+            <span class="topic-num">05</span><span class="topic-title">MVCC와 잠금</span><span class="topic-meta">3편</span>
+          </a>
         </div>
       </div>
 
