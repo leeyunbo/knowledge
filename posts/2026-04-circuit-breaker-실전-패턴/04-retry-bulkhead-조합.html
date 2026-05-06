@@ -46,7 +46,7 @@
 
         <h3>올바른 순서: Retry가 바깥</h3>
 
-        <pre><code>@Retry(name = "kakaoApi")
+        <pre><code class="language-java">@Retry(name = "kakaoApi")
 @CircuitBreaker(name = "kakaoApi", fallbackMethod = "fallback")
 public String sendWithRetry(String message) {
     return kakaoApi.send(message);
@@ -100,7 +100,7 @@ OPEN이 훨씬 늦어진다 → 외부 API가 죽어있어도 보호 반응이 �
         max-concurrent-calls: 5     # 동시에 5개까지만 허용
         max-wait-duration: 0ms      # 초과 시 즉시 BulkheadFullException</code></pre>
 
-        <pre><code>@Bulkhead(name = "kakaoApi", fallbackMethod = "fallback")
+        <pre><code class="language-java">@Bulkhead(name = "kakaoApi", fallbackMethod = "fallback")
 @CircuitBreaker(name = "kakaoApi", fallbackMethod = "fallback")
 public String sendBulkhead(String message) {
     return kakaoApi.send(message);
@@ -144,5 +144,6 @@ public String sendBulkhead(String message) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

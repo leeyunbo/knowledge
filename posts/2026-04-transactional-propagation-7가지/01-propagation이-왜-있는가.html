@@ -42,7 +42,7 @@
           여기까지는 다들 안다.
         </p>
 
-        <pre><code>@Transactional
+        <pre><code class="language-java">@Transactional
 public Order placeOrder(OrderRequest request) {
     Order order = orderRepository.save(...);
     paymentService.charge(order);
@@ -59,7 +59,7 @@ public Order placeOrder(OrderRequest request) {
           <code>@Transactional</code>이 있을 때 생긴다.
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class PaymentService {
 
     @Transactional
@@ -191,5 +191,6 @@ NEVER         외부 tx 있으면 예외, 없으면 tx 없이</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

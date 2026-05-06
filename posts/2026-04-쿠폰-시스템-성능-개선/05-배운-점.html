@@ -112,7 +112,7 @@
         <p>
           이번에 건진 가장 큰 것. 락이 걸린 행을 건너뛰는 이 한 줄이 70 → 259라는 차이를 만들었다.
         </p>
-        <pre><code>SELECT * FROM table WHERE ... LIMIT 1 FOR UPDATE SKIP LOCKED</code></pre>
+        <pre><code class="language-sql">SELECT * FROM table WHERE ... LIMIT 1 FOR UPDATE SKIP LOCKED</code></pre>
         <p>
           실무에서는 <strong>작업 큐(Job Queue)</strong> 패턴으로 자주 쓰인다. 워커 여러 대가 DB에서 일감을 가져갈 때
           각자 다른 작업을 대기 없이 집어가는 구조.
@@ -177,5 +177,6 @@
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

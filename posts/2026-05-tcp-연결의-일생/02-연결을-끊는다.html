@@ -170,7 +170,7 @@ socket.close();           // 이 줄까지 안 옴 → CLOSE_WAIT 발생</code><
           해법은 <code>try-with-resources</code>나 <code>finally</code> 블록.
         </p>
 
-        <pre><code>try (Socket socket = new Socket(host, port);
+        <pre><code class="language-java">try (Socket socket = new Socket(host, port);
      InputStream in = socket.getInputStream()) {
     process(in);
 }   // 예외 터져도 close() 자동 호출</code></pre>
@@ -190,7 +190,7 @@ socket.close();           // 이 줄까지 안 옴 → CLOSE_WAIT 발생</code><
           Linux는 프로세스당 file descriptor 상한이 있고, 보통 기본값이 1024나 4096이다.
         </p>
 
-        <pre><code>$ ulimit -n
+        <pre><code class="language-bash">$ ulimit -n
 4096</code></pre>
 
         <p>
@@ -201,7 +201,7 @@ socket.close();           // 이 줄까지 안 옴 → CLOSE_WAIT 발생</code><
 
         <h2>진단 — 우리 서버에 CLOSE_WAIT 얼마나 쌓였나</h2>
 
-        <pre><code>$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
+        <pre><code class="language-bash">$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
    3 CLOSE_WAIT
   18 ESTABLISHED
    2 LISTEN
@@ -213,7 +213,7 @@ socket.close();           // 이 줄까지 안 옴 → CLOSE_WAIT 발생</code><
           그건 leak이다.
         </p>
 
-        <pre><code>$ ss -tan state close-wait</code></pre>
+        <pre><code class="language-bash">$ ss -tan state close-wait</code></pre>
 
         <p>
           이 명령으로 CLOSE_WAIT인 socket과 그 상대 주소를 다 볼 수 있다.
@@ -248,5 +248,6 @@ socket.close();           // 이 줄까지 안 옴 → CLOSE_WAIT 발생</code><
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

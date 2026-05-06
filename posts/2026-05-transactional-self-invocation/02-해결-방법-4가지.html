@@ -36,7 +36,7 @@
 
         <h2>해법 1: 메서드를 다른 빈으로 분리 (가장 깔끔)</h2>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
 
     private final OrderTransactionService txService;   // 다른 빈 주입
@@ -80,7 +80,7 @@ public class OrderTransactionService {
 
         <h2>해법 2: 자기 자신을 주입 (self-injection)</h2>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
 
     private final OrderService self;   // ← 자기 자신을 주입
@@ -136,7 +136,7 @@ public class OrderService {
 
         <h2>해법 3: AopContext.currentProxy()로 프록시 직접 가져오기</h2>
 
-        <pre><code>// 설정에 한 줄 추가
+        <pre><code class="language-java">// 설정에 한 줄 추가
 @EnableAspectJAutoProxy(exposeProxy = true)   // ← 핵심
 @Configuration
 public class AopConfig { }
@@ -180,7 +180,7 @@ public class OrderService {
 
         <h2>해법 4: AspectJ 위빙으로 전환</h2>
 
-        <pre><code>@Configuration
+        <pre><code class="language-java">@Configuration
 @EnableTransactionManagement(mode = AdviceMode.ASPECTJ)   // ← AspectJ 모드
 public class AopConfig { }
 
@@ -197,7 +197,7 @@ public class OrderService {
 
         <h3>왜 동작하나</h3>
 
-        <pre><code>Spring AOP (기본):
+        <pre><code class="language-yaml">Spring AOP (기본):
   - 프록시 기반 — 런타임에 프록시 객체 생성
   - self-invocation 못 잡음
 
@@ -265,7 +265,7 @@ AspectJ:
 
         <h3>트랜잭션 경계를 위로 올리기</h3>
 
-        <pre><code>// before
+        <pre><code class="language-java">// before
 @Service
 public class OrderService {
     public void placeOrder(Order order) {
@@ -345,6 +345,7 @@ public class OrderService {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

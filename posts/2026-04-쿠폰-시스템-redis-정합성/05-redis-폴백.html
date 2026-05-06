@@ -57,7 +57,7 @@
           직관적인 방향은 이거다. Redis 연결이 실패하면 DB로 우회한다.
         </p>
 
-        <pre><code>try {
+        <pre><code class="language-java">try {
     return issueCouponWithRedis(userId, couponId);
 } catch (DataAccessResourceFailureException e) {
     return issueCouponWithDb(userId, couponId);  // 폴백
@@ -128,7 +128,7 @@ private CouponIssue issueCouponWithDb(Long userId, Long couponId) {
           실제 코드는 이렇게 단순해진다.
         </p>
 
-        <pre><code>@Transactional
+        <pre><code class="language-java">@Transactional
 public CouponIssue issueCoupon(Long userId, Long couponId) {
     // Redis 장애는 그대로 던짐 → ControllerAdvice에서 503 변환
     CouponCache.CouponCacheData couponData = loadCouponCacheData(couponId);
@@ -157,7 +157,7 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
           그대로 올라가서 <code>ControllerAdvice</code>가 받아 503으로 변환한다.
         </p>
 
-        <pre><code>@ExceptionHandler(DataAccessResourceFailureException.class)
+        <pre><code class="language-java">@ExceptionHandler(DataAccessResourceFailureException.class)
 public ResponseEntity&lt;Map&lt;String, String&gt;&gt; handleRedisUnavailable(DataAccessResourceFailureException e) {
     log.error("Redis unavailable: {}", e.getMessage());
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
@@ -382,5 +382,6 @@ Redis 장애:
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

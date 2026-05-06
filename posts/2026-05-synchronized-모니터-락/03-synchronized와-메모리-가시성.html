@@ -37,7 +37,7 @@
 
         <h2>가시성 문제 — 락만으로는 부족한 이유</h2>
 
-        <pre><code>// flag 하나로 thread B를 멈추려는 시도
+        <pre><code class="language-java">// flag 하나로 thread B를 멈추려는 시도
 class Worker {
     boolean running = true;
 
@@ -178,7 +178,7 @@ ARM CPU에선:
 
         <h2>volatile과의 비교</h2>
 
-        <pre><code>synchronized:
+        <pre><code class="language-yaml">synchronized:
   - 원자성 + 가시성 + 순서 모두 보장
   - 비용: 락 진입/해제
 
@@ -199,7 +199,7 @@ volatile:
 
         <h2>위 코드 다시 — 올바르게 만들기</h2>
 
-        <pre><code>// 방법 1: synchronized
+        <pre><code class="language-java">// 방법 1: synchronized
 class Worker {
     private boolean running = true;
     private final Object lock = new Object();
@@ -332,6 +332,7 @@ synchronized 시리즈 끝.
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

@@ -74,7 +74,7 @@
           가장 빠른 접근 경로다.
         </p>
 
-        <pre><code>SELECT * FROM users WHERE id = 1234567
+        <pre><code class="language-sql">SELECT * FROM users WHERE id = 1234567
   → 클러스터드 인덱스 탐색 (3~4 페이지 읽기)
   → 리프에서 데이터 행 발견
   → 끝</code></pre>
@@ -202,7 +202,7 @@ UUID v4 (무작위):
           DTO에 필요한 컬럼이 한정적이면 그 컬럼들이 다 들어간 인덱스를 만들면 된다.
         </p>
 
-        <pre><code>특정 화면이 자주 호출하는 쿼리:
+        <pre><code class="language-sql">특정 화면이 자주 호출하는 쿼리:
   SELECT id, email, name FROM users WHERE status = 'ACTIVE'
 
 기존 인덱스: (status)
@@ -215,7 +215,7 @@ UUID v4 (무작위):
 
         <h3>EXPLAIN에서 확인하는 법</h3>
 
-        <pre><code>EXPLAIN SELECT id, email FROM users WHERE email = 'a@x';
+        <pre><code class="language-sql">EXPLAIN SELECT id, email FROM users WHERE email = 'a@x';
 
 +----+-------------+-------+------+--------+----------------------+
 | id | type        | key   | rows | Extra                        |
@@ -256,14 +256,14 @@ Random I/O (랜덤 읽기):
 
         <h3>풀스캔은 Sequential I/O</h3>
 
-        <pre><code>SELECT * FROM users
+        <pre><code class="language-sql">SELECT * FROM users
   → 클러스터드 인덱스 리프를 처음부터 끝까지 순차 읽기
   → Sequential I/O
   → 1억 행 읽어도 단순 데이터 throughput에 가까움</code></pre>
 
         <h3>보조 인덱스 + Back to Table은 Random I/O</h3>
 
-        <pre><code>SELECT * FROM users WHERE age &gt; 50
+        <pre><code class="language-sql">SELECT * FROM users WHERE age &gt; 50
   → age 보조 인덱스로 매칭되는 PK 목록 얻음 (정렬돼있음)
   → 그 PK들로 클러스터드 인덱스를 차례로 탐색
   → 그러나 PK 자체는 정렬돼있어도, age=50 이상인 사용자의 PK는
@@ -292,7 +292,7 @@ Random I/O (랜덤 읽기):
           풀스캔으로 전환되는 패턴이 보인다.
         </p>
 
-        <pre><code>EXPLAIN SELECT * FROM users WHERE age &gt; 18;
+        <pre><code class="language-sql">EXPLAIN SELECT * FROM users WHERE age &gt; 18;
 
 +----+--------+-----+-------+-----------+
 | id | type   | key | rows  | Extra     |
@@ -376,5 +376,6 @@ Random I/O (랜덤 읽기):
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

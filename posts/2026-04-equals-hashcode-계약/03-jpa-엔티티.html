@@ -41,7 +41,7 @@
           Lombok이 보일러플레이트를 줄여주니까 자연스럽게 <code>@Data</code>를 붙인다.
         </p>
 
-        <pre><code>@Entity
+        <pre><code class="language-java">@Entity
 @Data
 @NoArgsConstructor
 public class User {
@@ -113,7 +113,7 @@ cache.contains(user);             // false
           Hibernate가 그 컬렉션을 로드하려고 SQL을 날린다.
         </p>
 
-        <pre><code>// 엔티티 하나의 hashCode 호출이
+        <pre><code class="language-sql">// 엔티티 하나의 hashCode 호출이
 user.hashCode();
 // → orders 필드 접근
 // → SELECT * FROM orders WHERE user_id = ? 추가 발생</code></pre>
@@ -164,7 +164,7 @@ user.equals(userProxy);             // false!
           이메일, 사용자 핸들, 주문번호처럼 <strong>변하지 않으면서 유일한 자연 키</strong>가 있으면 그걸 쓴다.
         </p>
 
-        <pre><code>@Override
+        <pre><code class="language-java">@Override
 public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof User u)) return false;
@@ -189,7 +189,7 @@ public int hashCode() {
           <code>hashCode</code>는 클래스 단위 상수로 고정한다.
         </p>
 
-        <pre><code>@Override
+        <pre><code class="language-java">@Override
 public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof User u)) return false;
@@ -247,5 +247,6 @@ public int hashCode() {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

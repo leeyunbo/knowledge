@@ -68,7 +68,7 @@
           가장 단순. 인덱스 레코드 한 개에 락을 건다.
         </p>
 
-        <pre><code>SELECT * FROM users WHERE id = 5 FOR UPDATE;
+        <pre><code class="language-sql">SELECT * FROM users WHERE id = 5 FOR UPDATE;
 → id=5인 인덱스 레코드에 X락(exclusive)
 
 다른 트랜잭션이 그 행 UPDATE/DELETE/SELECT FOR UPDATE 시도시 대기</code></pre>
@@ -80,7 +80,7 @@
           갭 락이 걸린 영역엔 INSERT가 못 들어간다.
         </p>
 
-        <pre><code>인덱스 (id 컬럼):
+        <pre><code class="language-sql">인덱스 (id 컬럼):
   ... 3 ─ 5 ─ 8 ─ 12 ...
 
 3과 5 사이의 갭에 락:
@@ -95,7 +95,7 @@
           <strong>Record Lock + Gap Lock</strong>의 조합. InnoDB의 RR에서 기본 락.
         </p>
 
-        <pre><code>인덱스 (id 컬럼):
+        <pre><code class="language-sql">인덱스 (id 컬럼):
   ... 3 ─ 5 ─ 8 ─ 12 ...
 
 id=5에 next-key lock:
@@ -138,7 +138,7 @@ T2: 그제서야 INSERT 진행</code></pre>
 
         <h3>주의: 일반 SELECT는 갭 락을 안 건다</h3>
 
-        <pre><code>SELECT * FROM coupons WHERE user_id = 1            -- 갭 락 안 걸림 (MVCC)
+        <pre><code class="language-sql">SELECT * FROM coupons WHERE user_id = 1            -- 갭 락 안 걸림 (MVCC)
 SELECT * FROM coupons WHERE user_id = 1 FOR UPDATE -- 갭 락 걸림
 SELECT * FROM coupons WHERE user_id = 1 LOCK IN SHARE MODE  -- 갭 락 걸림</code></pre>
 
@@ -167,7 +167,7 @@ SELECT * FROM coupons WHERE user_id = 1 LOCK IN SHARE MODE  -- 갭 락 걸림</c
 
         <h3>본인 쿠폰 narrative 연결</h3>
 
-        <pre><code>쿠폰 발급 동시성 문제:
+        <pre><code class="language-sql">쿠폰 발급 동시성 문제:
   T1: SELECT count FROM coupon WHERE id=1   -- 100개 남음
   T2: SELECT count FROM coupon WHERE id=1   -- 100개 남음
   T1: 발급 가능 판단 → UPDATE count = 99
@@ -191,7 +191,7 @@ SELECT * FROM coupons WHERE user_id = 1 LOCK IN SHARE MODE  -- 갭 락 걸림</c
           MySQL 8.0부터 지원. 이름 그대로 "락 걸린 행은 건너뛰고 안 걸린 것만 가져오기".
         </p>
 
-        <pre><code>SELECT * FROM jobs WHERE status='PENDING' LIMIT 1 FOR UPDATE SKIP LOCKED
+        <pre><code class="language-sql">SELECT * FROM jobs WHERE status='PENDING' LIMIT 1 FOR UPDATE SKIP LOCKED
   → status='PENDING'인 행 중에서
   → 다른 트랜잭션이 락 걸어둔 행은 건너뜀
   → 락 안 걸린 첫 번째 행을 가져오고 거기에 락</code></pre>
@@ -202,7 +202,7 @@ SELECT * FROM coupons WHERE user_id = 1 LOCK IN SHARE MODE  -- 갭 락 걸림</c
 
         <h3>큐 패턴 예시</h3>
 
-        <pre><code>여러 워커가 jobs 테이블에서 순차적으로 작업 가져가야 함.
+        <pre><code class="language-sql">여러 워커가 jobs 테이블에서 순차적으로 작업 가져가야 함.
 
 기존 (FOR UPDATE만):
   Worker 1: SELECT ... LIMIT 1 FOR UPDATE   -- 첫 행 락
@@ -225,7 +225,7 @@ SKIP LOCKED:
 
         <h2>NOWAIT — 락 걸려있으면 즉시 실패</h2>
 
-        <pre><code>SELECT * FROM users WHERE id=5 FOR UPDATE NOWAIT
+        <pre><code class="language-sql">SELECT * FROM users WHERE id=5 FOR UPDATE NOWAIT
   → id=5에 락 있으면 대기하지 말고 바로 에러 반환
 
 쓰임새:
@@ -263,7 +263,7 @@ SKIP LOCKED:
 
         <h2>운영 디버깅 — 락 모니터링</h2>
 
-        <pre><code>-- 현재 진행 중인 락 정보 (MySQL 8.0)
+        <pre><code class="language-sql">-- 현재 진행 중인 락 정보 (MySQL 8.0)
 SELECT * FROM performance_schema.data_locks;
 
 -- 락 대기 중인 트랜잭션
@@ -307,7 +307,7 @@ SELECT * FROM information_schema.innodb_trx;</code></pre>
           "트랜잭션 격리 수준에 대해 설명해주세요"
         </p>
 
-        <pre><code>1. ANSI SQL이 4단계로 정의 (READ UNCOMMITTED ~ SERIALIZABLE)
+        <pre><code class="language-sql">1. ANSI SQL이 4단계로 정의 (READ UNCOMMITTED ~ SERIALIZABLE)
 2. 3가지 부정합으로 격리 수준 구분 (Dirty / Non-Repeatable / Phantom)
 3. 위로 갈수록 동시성 좋고 정확성 약함, trade-off
 
@@ -368,6 +368,7 @@ SELECT * FROM information_schema.innodb_trx;</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

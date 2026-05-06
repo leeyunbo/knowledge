@@ -68,7 +68,7 @@ Pod J: 실패 0건 → CircuitBreaker CLOSED → 아직 외부 API 호출 중</c
           한 Pod가 OPEN을 감지하면 전체 Pod에 알린다.
         </p>
 
-        <pre><code>// 이벤트 발행 — CbEventListener 안에서
+        <pre><code class="language-java">// 이벤트 발행 — CbEventListener 안에서
 circuitBreaker.getEventPublisher().onStateTransition(event -> {
     if (toState == CircuitBreaker.State.OPEN) {
         rabbitTemplate.convertAndSend(
@@ -78,7 +78,7 @@ circuitBreaker.getEventPublisher().onStateTransition(event -> {
     }
 });</code></pre>
 
-        <pre><code>// 이벤트 수신 — 모든 Pod가 구독
+        <pre><code class="language-java">// 이벤트 수신 — 모든 Pod가 구독
 @RabbitListener(queues = "circuitbreaker.open.queue")
 public void onCircuitBreakerOpen(CircuitBreakerOpenEvent event) {
     log.warn("[분산 CircuitBreaker] {} OPEN 이벤트 수신. 강제 전이.", event.getName());
@@ -123,7 +123,7 @@ public void onCircuitBreakerOpen(CircuitBreakerOpenEvent event) {
 
         <p>수동으로 구현했다.</p>
 
-        <pre><code>// 시간대별 CircuitBreakerConfig를 미리 빌드해서 Registry에 등록
+        <pre><code class="language-java">// 시간대별 CircuitBreakerConfig를 미리 빌드해서 Registry에 등록
 CircuitBreakerConfig nightConfig = CircuitBreakerConfig.custom()
     .failureRateThreshold(80)
     .build();
@@ -165,5 +165,6 @@ public String send(String message) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

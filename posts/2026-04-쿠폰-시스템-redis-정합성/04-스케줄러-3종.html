@@ -46,7 +46,7 @@
         </p>
 
         <h2>1) syncFromDb — DB를 기준으로 Redis 채우기</h2>
-        <pre><code>@Scheduled(fixedDelay = 60_000)
+        <pre><code class="language-java">@Scheduled(fixedDelay = 60_000)
 @Transactional(readOnly = true)
 public void syncFromDb() {
     for (Coupon coupon : couponRepository.findAll()) {
@@ -75,7 +75,7 @@ public void syncFromDb() {
         </div>
 
         <h2>2) cleanupPending — 미확정 건 떨이</h2>
-        <pre><code>@Scheduled(fixedDelay = 30_000)
+        <pre><code class="language-java">@Scheduled(fixedDelay = 30_000)
 public void cleanupPending() {
     long now = System.currentTimeMillis();
     for (Coupon coupon : couponRepository.findAll()) {
@@ -113,7 +113,7 @@ public void cleanupPending() {
         </p>
 
         <h2>3) reverseSweep — SSCAN 전수 조사</h2>
-        <pre><code>public void reverseSweep() {
+        <pre><code class="language-java">public void reverseSweep() {
     for (Coupon coupon : couponRepository.findAll()) {
         List&lt;Long&gt; issuedInRedis = reservationStore.scanIssuedUserIds(coupon.getId(), 100);
         for (Long userId : issuedInRedis) {
@@ -148,7 +148,7 @@ public void cleanupPending() {
           어드민 엔드포인트로 빼놓고, 평소엔 잠자고 있다가 필요할 때만 깨운다.
         </div>
 
-        <pre><code>// @Scheduled 떼고 수동 호출 전용
+        <pre><code class="language-java">// @Scheduled 떼고 수동 호출 전용
 @PostMapping("/admin/reconciliation/sweep")
 public void triggerReverseSweep() {
     reconciliationScheduler.reverseSweep();
@@ -279,5 +279,6 @@ public void triggerReverseSweep() {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

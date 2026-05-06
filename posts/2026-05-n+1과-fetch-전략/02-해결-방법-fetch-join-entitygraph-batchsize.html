@@ -42,7 +42,7 @@ List&lt;Member&gt; findAllWithOrders();</code></pre>
 
         <h3>실행되는 SQL</h3>
 
-        <pre><code>SELECT m.*, o.*
+        <pre><code class="language-sql">SELECT m.*, o.*
 FROM member m
 LEFT JOIN orders o ON m.id = o.member_id
 
@@ -93,7 +93,7 @@ fetch join:
 
         <h2>해법 2: @EntityGraph</h2>
 
-        <pre><code>// 메서드 이름 쿼리에 EntityGraph 적용
+        <pre><code class="language-java">// 메서드 이름 쿼리에 EntityGraph 적용
 public interface MemberRepository extends JpaRepository&lt;Member, Long&gt; {
 
     @EntityGraph(attributePaths = {"orders"})
@@ -110,7 +110,7 @@ public interface MemberRepository extends JpaRepository&lt;Member, Long&gt; {
 
         <h3>실행되는 SQL</h3>
 
-        <pre><code>SELECT m.*, o.*
+        <pre><code class="language-sql">SELECT m.*, o.*
 FROM member m
 LEFT OUTER JOIN orders o ON m.id = o.member_id
 
@@ -119,7 +119,7 @@ LEFT OUTER JOIN orders o ON m.id = o.member_id
 
         <h3>Fetch Join과의 차이</h3>
 
-        <pre><code>Fetch Join:
+        <pre><code class="language-yaml">Fetch Join:
   - JPQL 쿼리에 직접 작성
   - "left join fetch" 명시
   - 쿼리와 fetch 전략이 한 곳
@@ -163,7 +163,7 @@ EntityGraph:
 
         <h2>해법 3: @BatchSize / default_batch_fetch_size</h2>
 
-        <pre><code>@Entity
+        <pre><code class="language-java">@Entity
 public class Member {
     ...
 
@@ -174,7 +174,7 @@ public class Member {
 
         <h3>또는 전역 설정</h3>
 
-        <pre><code>spring:
+        <pre><code class="language-yaml">spring:
   jpa:
     properties:
       hibernate:
@@ -241,7 +241,7 @@ JPA 표준           O (JPQL)           O (JPA 2.1)       X (Hibernate)
 
         <h2>실무 조합 패턴</h2>
 
-        <pre><code>1. 전역에 default_batch_fetch_size 설정
+        <pre><code class="language-sql">1. 전역에 default_batch_fetch_size 설정
    - 안전망. 의도치 않은 N+1을 자동 완화
    - 100~1000 사이 적절히
 
@@ -304,6 +304,7 @@ BatchSize: 페이지네이션과 호환되는 안전망, 전역 기본값
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

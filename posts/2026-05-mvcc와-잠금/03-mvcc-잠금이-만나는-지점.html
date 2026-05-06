@@ -43,7 +43,7 @@
           핵심: <strong>같은 SELECT라도 어느 모드냐에 따라 동작이 완전히 다르다</strong>.
         </p>
 
-        <pre><code>Snapshot Read (Consistent Read):
+        <pre><code class="language-sql">Snapshot Read (Consistent Read):
   일반 SELECT
   MVCC 사용. ReadView 시점의 옛 버전을 봄.
   락 안 걸음. 동시성에 영향 없음.
@@ -62,7 +62,7 @@ Locking Read:
 
         <h2>같은 트랜잭션 안에서 둘이 공존</h2>
 
-        <pre><code>T1: BEGIN
+        <pre><code class="language-sql">T1: BEGIN
 T1: SELECT amount FROM balance WHERE id=1   ← Snapshot Read (MVCC)
     → ReadView 시점 값을 봄. 예: 10000.
 
@@ -87,7 +87,7 @@ T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE  ← Locking Read
           옛 버전에 락을 걸어봐야 의미 없다. 락은 현재 행에 걸어야 다른 트랜잭션을 막는다.
         </p>
 
-        <pre><code>예: 잔액 차감
+        <pre><code class="language-sql">예: 잔액 차감
 
 비관 락 패턴:
   T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE
@@ -116,7 +116,7 @@ T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE  ← Locking Read
 
         <h3>패턴 1: 비관 락 (Pessimistic Lock)</h3>
 
-        <pre><code>"충돌이 일어날 거라 가정. 미리 락을 걸어 다른 트랜잭션을 막는다."
+        <pre><code class="language-sql">"충돌이 일어날 거라 가정. 미리 락을 걸어 다른 트랜잭션을 막는다."
 
 T1: BEGIN
 T1: SELECT amount FROM balance WHERE id=1 FOR UPDATE  -- X락
@@ -276,7 +276,7 @@ FOR UPDATE SKIP LOCKED:
 
         <h3>함정 2: FOR UPDATE의 광범위 락</h3>
 
-        <pre><code>SELECT * FROM users WHERE name LIKE 'Kim%' FOR UPDATE
+        <pre><code class="language-sql">SELECT * FROM users WHERE name LIKE 'Kim%' FOR UPDATE
   name에 인덱스 없으면:
     → 풀스캔하면서 모든 행에 next-key lock
     → 사실상 테이블 전체 락
@@ -288,7 +288,7 @@ FOR UPDATE SKIP LOCKED:
 
         <h3>함정 3: Locking Read 후 Snapshot Read</h3>
 
-        <pre><code>T1: SELECT ... FOR UPDATE   -- 현재 값 봄, 락 잡음
+        <pre><code class="language-sql">T1: SELECT ... FOR UPDATE   -- 현재 값 봄, 락 잡음
 T1: UPDATE ...
 T1: SELECT ...               -- ★ 일반 SELECT (Snapshot)
 
@@ -301,7 +301,7 @@ T1: SELECT ...               -- ★ 일반 SELECT (Snapshot)
 
         <h2>한 줄 정리</h2>
 
-        <pre><code>MVCC와 잠금은 직교한 두 메커니즘.
+        <pre><code class="language-sql">MVCC와 잠금은 직교한 두 메커니즘.
 
   Snapshot Read = MVCC 사용, 락 안 걸음
                    → 동시성 좋음, 옛 버전 봄
@@ -356,6 +356,7 @@ Lost Update를 푸는 두 갈래:
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

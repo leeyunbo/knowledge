@@ -48,7 +48,7 @@
 
         <h2>최소 시나리오 — Member와 Order</h2>
 
-        <pre><code>@Entity
+        <pre><code class="language-java">@Entity
 public class Member {
     @Id Long id;
     String name;
@@ -209,7 +209,7 @@ ORM 사용 시:
 
         <h3>1. SQL 로그 켜기</h3>
 
-        <pre><code>spring:
+        <pre><code class="language-yaml">spring:
   jpa:
     show-sql: true
     properties:
@@ -292,6 +292,7 @@ EAGER는 해결책 아님 — 컬렉션 조회에선 동일 함정.
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

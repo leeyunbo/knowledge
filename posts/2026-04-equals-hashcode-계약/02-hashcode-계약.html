@@ -59,7 +59,7 @@
           이 규칙을 정면으로 깨는 코드는 잘 안 짠다. 이런 식으로 짤 사람은 없다.
         </p>
 
-        <pre><code>@Override
+        <pre><code class="language-java">@Override
 public int hashCode() {
     return new Random().nextInt();  // 호출마다 다른 값
 }</code></pre>
@@ -71,7 +71,7 @@ public int hashCode() {
           <code>hashCode</code> 결과가 달라진다.
         </p>
 
-        <pre><code>class User {
+        <pre><code class="language-java">class User {
     private String name;
     private int age;
 
@@ -161,7 +161,7 @@ scores.size();                     // 1</code></pre>
           극단적으로 모든 객체가 같은 해시를 돌려주면 어떻게 되는지 보자.
         </p>
 
-        <pre><code>@Override
+        <pre><code class="language-java">@Override
 public int hashCode() {
     return 0;  // 모든 객체가 같은 해시
 }</code></pre>
@@ -187,7 +187,7 @@ public int hashCode() {
           IDE가 자동 생성하는 <code>hashCode</code>는 보통 두 형태 중 하나다.
         </p>
 
-        <pre><code>// 형태 A: 31 누적 패턴 (전통적)
+        <pre><code class="language-java">// 형태 A: 31 누적 패턴 (전통적)
 @Override
 public int hashCode() {
     int result = name.hashCode();
@@ -236,5 +236,6 @@ public int hashCode() {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

@@ -165,7 +165,7 @@ within과 execution의 차이:
 
         <h3>args — 인자 타입 매칭</h3>
 
-        <pre><code>args(String, Long)
+        <pre><code class="language-java">args(String, Long)
   → 인자가 String, Long인 메서드
 
 args 안에 변수명을 적어 Advice에서 받을 수도 있음:
@@ -188,7 +188,7 @@ public void logId(Long id) {
 
         <h2>Pointcut 재사용</h2>
 
-        <pre><code>@Aspect
+        <pre><code class="language-java">@Aspect
 public class CommonPointcuts {
 
     @Pointcut("within(com.example.service..*)")
@@ -250,7 +250,7 @@ public class OrderService {
 
         <h3>우회 방법 1: 자기 자신을 빈으로 주입</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
     private final OrderService self;
 
@@ -277,7 +277,7 @@ public class OrderService {
 
         <h3>우회 방법 2: ApplicationContext에서 직접 가져오기</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService implements ApplicationContextAware {
     private ApplicationContext ctx;
 
@@ -301,7 +301,7 @@ public class OrderService implements ApplicationContextAware {
 
         <h3>우회 방법 3: 다른 빈으로 분리 (권장)</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
     private final NotificationService notificationService;
 
@@ -518,6 +518,7 @@ public class OrderService {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

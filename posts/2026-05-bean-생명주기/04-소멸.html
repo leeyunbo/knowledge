@@ -69,7 +69,7 @@
 
         <h3>1. @PreDestroy (가장 권장)</h3>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class CacheService {
     private final RedisClient redis;
 
@@ -88,7 +88,7 @@ public class CacheService {
 
         <h3>2. DisposableBean 인터페이스</h3>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class CacheService implements DisposableBean {
     @Override
     public void destroy() {
@@ -103,7 +103,7 @@ public class CacheService implements DisposableBean {
 
         <h3>3. @Bean(destroyMethod)</h3>
 
-        <pre><code>@Configuration
+        <pre><code class="language-java">@Configuration
 public class AppConfig {
     @Bean(destroyMethod = "close")
     public DataSource dataSource() {
@@ -123,7 +123,7 @@ public ExecutorService executorService() {
 
         <h3>특수: AutoCloseable / Closeable 자동 감지</h3>
 
-        <pre><code>@Bean
+        <pre><code class="language-java">@Bean
 public DataSource dataSource() {
     return new HikariDataSource();   // HikariDataSource는 Closeable 구현
 }
@@ -221,7 +221,7 @@ public DataSource dataSource() {
 
         <h3>Spring Boot Graceful Shutdown 설정</h3>
 
-        <pre><code># application.yml
+        <pre><code class="language-yaml"># application.yml
 server:
   shutdown: graceful   # 기본은 immediate
 
@@ -258,7 +258,7 @@ spring:
 
         <h3>Prototype</h3>
 
-        <pre><code>- 컨테이너가 인스턴스를 안 들고 있음 (만들어 주고 손 뗌)
+        <pre><code class="language-java">- 컨테이너가 인스턴스를 안 들고 있음 (만들어 주고 손 뗌)
 - 컨테이너 종료 시에도 @PreDestroy 자동 호출 X
 - 사용자가 직접 정리 책임 (또는 GC만 의지)
 
@@ -280,7 +280,7 @@ public class Worker {
 
         <h3>함정 1: @PreDestroy에서 시간 오래 걸리는 작업</h3>
 
-        <pre><code>@PreDestroy
+        <pre><code class="language-java">@PreDestroy
 public void cleanup() {
     // 큰 데이터를 DB에 flush
     saveAllPendingData();   // 5분 걸릴 수 있음
@@ -298,7 +298,7 @@ public void cleanup() {
 
         <h3>함정 2: 다른 빈에 의존</h3>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class A {
     @Autowired private B b;
 
@@ -467,6 +467,7 @@ Spring Boot Actuator:
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

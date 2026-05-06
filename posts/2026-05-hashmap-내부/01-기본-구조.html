@@ -57,7 +57,7 @@
 
         <h2>핵심 필드 — table</h2>
 
-        <pre><code>// java.util.HashMap (OpenJDK 17 기준)
+        <pre><code class="language-java">// java.util.HashMap (OpenJDK 17 기준)
 public class HashMap&lt;K,V&gt; {
 
     transient Node&lt;K,V&gt;[] table;        // ★ 본체. 버킷 배열
@@ -78,7 +78,7 @@ public class HashMap&lt;K,V&gt; {
 
         <h2>Node — 한 칸에 들어가는 것</h2>
 
-        <pre><code>static class Node&lt;K,V&gt; implements Map.Entry&lt;K,V&gt; {
+        <pre><code class="language-java">static class Node&lt;K,V&gt; implements Map.Entry&lt;K,V&gt; {
     final int hash;       // ★ key의 해시값을 캐시 (재계산 안 하기 위해)
     final K key;
     V value;
@@ -284,6 +284,7 @@ static final int hash(Object key) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

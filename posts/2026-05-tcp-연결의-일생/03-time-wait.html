@@ -192,7 +192,7 @@
 
         <h2>증상 진단</h2>
 
-        <pre><code>$ ss -s
+        <pre><code class="language-bash">$ ss -s
 Total: 35821
 TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)</code></pre>
 
@@ -202,7 +202,7 @@ TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)</code></pre>
           이상적으로는 비슷한 규모이거나 timewait이 한 자릿수 배수여야 한다.
         </p>
 
-        <pre><code>$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
+        <pre><code class="language-bash">$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
    3 CLOSE_WAIT
   18 ESTABLISHED
    2 LISTEN
@@ -234,7 +234,7 @@ TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)</code></pre>
 
         <h3>2순위 — net.ipv4.tcp_tw_reuse</h3>
 
-        <pre><code>$ sysctl -w net.ipv4.tcp_tw_reuse=1</code></pre>
+        <pre><code class="language-bash">$ sysctl -w net.ipv4.tcp_tw_reuse=1</code></pre>
 
         <p>
           이 옵션은 TIME_WAIT 상태인 source port를 새 outbound 연결에 재사용하도록 허용한다.
@@ -250,7 +250,7 @@ TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)</code></pre>
 
         <h3>3순위 — ephemeral 풀 늘리기</h3>
 
-        <pre><code>$ sysctl -w net.ipv4.ip_local_port_range="10000 65000"</code></pre>
+        <pre><code class="language-bash">$ sysctl -w net.ipv4.ip_local_port_range="10000 65000"</code></pre>
 
         <p>
           기본 28,000개를 55,000개로 늘리는 식이다.
@@ -300,5 +300,6 @@ TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

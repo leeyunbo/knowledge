@@ -14,7 +14,8 @@
       "WebFetch(domain:javapro.io)",
       "WebFetch(domain:www.javaadvent.com)",
       "WebFetch(domain:www.anthropic.com)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(git restore *)"
     ]
   }
 }

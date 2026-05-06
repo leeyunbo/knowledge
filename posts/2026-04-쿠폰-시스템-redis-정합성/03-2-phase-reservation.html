@@ -39,7 +39,7 @@
         <p>
           1편에서 나왔던 구조를 다시 보자.
         </p>
-        <pre><code>try {
+        <pre><code class="language-java">try {
     Redis SADD
     Redis DECR
     DB INSERT
@@ -157,7 +157,7 @@ return 1
 
         <h2>Java 쪽은 이렇게 단순해진다</h2>
 
-        <pre><code>@Transactional
+        <pre><code class="language-java">@Transactional
 public CouponIssue issueCoupon(Long userId, Long couponId) {
     // Phase 1
     ReserveResult result = reservationStore.reserve(couponId, userId);
@@ -236,5 +236,6 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

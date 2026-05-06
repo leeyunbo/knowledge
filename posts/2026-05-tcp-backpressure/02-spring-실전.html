@@ -110,7 +110,7 @@ restClient.post().uri(uploadUrl).body(data).retrieve();  // 위험</code></pre>
 
         <h3>1단계 — multipart 비활성화</h3>
 
-        <pre><code># application.yml
+        <pre><code class="language-yaml"># application.yml
 spring:
   servlet:
     multipart:
@@ -130,7 +130,7 @@ server:
 
         <h3>2단계 — 컨트롤러는 InputStream을 직접 다룬다</h3>
 
-        <pre><code>@PostMapping(
+        <pre><code class="language-java">@PostMapping(
     value = "/v1/kakao/videos",
     consumes = APPLICATION_OCTET_STREAM_VALUE
 )
@@ -154,7 +154,7 @@ public UploadResponse upload(
 
         <h3>3단계 — RestClient에 InputStreamResource로 넘긴다</h3>
 
-        <pre><code>public UploadResponse uploadStream(
+        <pre><code class="language-java">public UploadResponse uploadStream(
     RegisterRes token, String fileName, long fileSize, InputStream in
 ) {
     var body = new MultipartBodyBuilder();
@@ -292,5 +292,6 @@ public UploadResponse upload(
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

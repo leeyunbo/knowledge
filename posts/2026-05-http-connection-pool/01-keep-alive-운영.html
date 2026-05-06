@@ -102,7 +102,7 @@ Keep-Alive: timeout=60, max=100
           애플리케이션 코드에서 매 호출마다 HTTP 클라이언트를 새로 만들면 어떻게 될까.
         </p>
 
-        <pre><code>// 잘못된 패턴
+        <pre><code class="language-java">// 잘못된 패턴
 public ResponseDto callKakao(Request req) {
     RestClient client = RestClient.create();   // ❌ 매번 새로 생성
     return client.post()
@@ -126,7 +126,7 @@ public ResponseDto callKakao(Request req) {
 
         <h2>올바른 모양 — 싱글톤 빈으로 관리</h2>
 
-        <pre><code>@Configuration
+        <pre><code class="language-java">@Configuration
 public class KakaoClientConfig {
 
     @Bean
@@ -290,5 +290,6 @@ maxPerRoute        = 도메인 하나당 최대 동시 연결 수</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

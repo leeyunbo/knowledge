@@ -302,7 +302,7 @@ WHERE phone = '01012345678'  ✅ (문자열 비교, 정상)</code></pre>
 
         <h3>④ OR 조건</h3>
 
-        <pre><code>WHERE user_id = 100 OR email = 'a@x'
+        <pre><code class="language-sql">WHERE user_id = 100 OR email = 'a@x'
 
 각 컬럼에 별도 인덱스 (user_id), (email)이 있어도
 한 쿼리에서 두 인덱스를 동시에 쓰는 건 어렵다.
@@ -341,7 +341,7 @@ WHERE id NOT IN (1, 2, 3)      ❌ 거의 인덱스 못 탐</code></pre>
 
         <h3>1. JPQL의 LOWER 자동 적용</h3>
 
-        <pre><code>@Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")
+        <pre><code class="language-sql">@Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")
 List&lt;User&gt; findByEmailIgnoreCase(@Param("email") String email);
 
 → 인덱스 못 탐 (① 패턴)</code></pre>
@@ -435,5 +435,6 @@ INSERT 한 건이 10개 인덱스 모두 갱신
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

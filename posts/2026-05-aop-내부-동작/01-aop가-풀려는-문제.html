@@ -42,7 +42,7 @@
           서비스 메서드를 짜다 보면 비슷한 패턴이 자꾸 반복된다.
         </p>
 
-        <pre><code>public class UserService {
+        <pre><code class="language-java">public class UserService {
     public User createUser(String name) {
         // 1. 권한 확인
         if (!authService.canCreate()) throw new AccessDenied();
@@ -150,7 +150,7 @@
           <code>@Transactional</code> 한 줄이 정확히 위에서 본 트랜잭션 횡단 관심사를 AOP로 처리한 것.
         </p>
 
-        <pre><code>// AOP 적용 전
+        <pre><code class="language-java">// AOP 적용 전
 public User createUser(String name) {
     TransactionStatus tx = txManager.getTransaction(...);
     try {
@@ -217,7 +217,7 @@ AspectJ가 지원하는 JoinPoint:
           JoinPoint들 중 <strong>실제로 어떤 것에 적용할지를 표현식으로 명시</strong>한 것.
         </p>
 
-        <pre><code>@Pointcut("execution(* com.example.service.*.*(..))")
+        <pre><code class="language-java">@Pointcut("execution(* com.example.service.*.*(..))")
 public void serviceLayer() {}
 
 → "com.example.service 패키지의 모든 클래스의 모든 메서드"
@@ -238,7 +238,7 @@ public void transactionalMethods() {}
           "메서드 실행 전에 이걸 해라", "예외 발생 시 이걸 해라" 같은 동작.
         </p>
 
-        <pre><code>@Before("serviceLayer()")
+        <pre><code class="language-java">@Before("serviceLayer()")
 public void logBefore(JoinPoint jp) {
     log.info("Method called: {}", jp.getSignature().getName());
 }
@@ -260,7 +260,7 @@ public void logException(JoinPoint jp, Exception ex) {
           Pointcut(어디에)과 Advice(무엇을)를 한 클래스에 모은 것.
         </p>
 
-        <pre><code>@Aspect
+        <pre><code class="language-java">@Aspect
 @Component
 public class LoggingAspect {
 
@@ -380,6 +380,7 @@ Spring AOP:
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

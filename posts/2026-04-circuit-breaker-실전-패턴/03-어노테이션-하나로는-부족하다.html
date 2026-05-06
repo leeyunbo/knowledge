@@ -41,7 +41,7 @@
 
         <p>CircuitBreaker를 처음 붙이면 보통 이렇게 끝낸다.</p>
 
-        <pre><code>@CircuitBreaker(name = "kakaoApi", fallbackMethod = "fallback")
+        <pre><code class="language-java">@CircuitBreaker(name = "kakaoApi", fallbackMethod = "fallback")
 public String send(String message) {
     return kakaoApi.send(message);
 }
@@ -117,7 +117,7 @@ private String fallback(String message, Throwable t) {
           Resilience4j는 <strong>가장 구체적인 타입</strong>부터 매칭한다.
         </p>
 
-        <pre><code>// 네트워크 오류 → DLQ 적재 (나중에 재처리)
+        <pre><code class="language-java">// 네트워크 오류 → DLQ 적재 (나중에 재처리)
 private String sendFallback(String message, KakaoNetworkException e) {
     log.error("[FALLBACK] 네트워크 오류. DLQ 적재: {}", message);
     return "DLQ 적재 완료";
@@ -146,7 +146,7 @@ private String sendFallback(String message, Throwable t) {
 
         <p><code>getEventPublisher()</code>로 상태 전이를 구독한다.</p>
 
-        <pre><code>@PostConstruct
+        <pre><code class="language-java">@PostConstruct
 public void subscribe() {
     CircuitBreaker circuitBreaker = registry.circuitBreaker("kakaoApi");
 
@@ -195,5 +195,6 @@ public void subscribe() {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

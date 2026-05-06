@@ -103,7 +103,7 @@ private 메서드 가로채기    X (인터페이스에 없음)         X (가�
 
         <h2>왜 Spring이 CGLIB을 기본으로 바꿨나</h2>
 
-        <pre><code>1. 일관성
+        <pre><code class="language-java">1. 일관성
    - 빈에 인터페이스가 있냐 없냐로 프록시 종류가 갈리면 디버깅이 헷갈림
    - "내 빈은 어떤 프록시지?"를 매번 따져야 함
    - CGLIB으로 통일하면 항상 같은 동작
@@ -137,7 +137,7 @@ private 메서드 가로채기    X (인터페이스에 없음)         X (가�
 
         <h3>함정 1: final 클래스에 @Transactional</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public final class UserService {   // final 클래스
     @Transactional
     public void createUser(String name) { ... }
@@ -154,7 +154,7 @@ public final class UserService {   // final 클래스
 
         <h3>함정 2: final 메서드에 @Transactional</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class UserService {
     @Transactional
     public final void createUser(String name) { ... }   // final 메서드
@@ -171,7 +171,7 @@ public class UserService {
 
         <h3>함정 3: private 메서드에 @Transactional</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class UserService {
     @Transactional
     private void createUser(String name) { ... }   // private
@@ -187,7 +187,7 @@ public class UserService {
 
         <h3>함정 4: 생성자/필드에서 의존성 사용</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class UserService {
     @Autowired
     private RealUserService realService;   // 빈
@@ -208,7 +208,7 @@ public class UserService {
 
         <h3>함정 5: 구체 타입 vs 인터페이스 타입 주입</h3>
 
-        <pre><code>// JDK 동적 프록시 모드 + 인터페이스 있음
+        <pre><code class="language-java">// JDK 동적 프록시 모드 + 인터페이스 있음
 
 public interface UserService {
     void createUser(String name);
@@ -312,7 +312,7 @@ Library/Framework 작성 시:
 
         <h2>한 줄 정리</h2>
 
-        <pre><code>JDK 동적 프록시:
+        <pre><code class="language-yaml">JDK 동적 프록시:
   인터페이스 기반, JDK 표준, Reflection 호출, 인터페이스 캐스팅만
 
 CGLIB:
@@ -333,6 +333,7 @@ final 안 쓰기, private 안 쓰기, 그것만 지키면 거의 함정 없음.<
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

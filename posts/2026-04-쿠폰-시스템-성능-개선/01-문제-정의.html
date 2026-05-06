@@ -97,7 +97,7 @@
         </ul>
 
         <h3>HikariCP 설정</h3>
-        <pre><code>spring:
+        <pre><code class="language-yaml">spring:
   datasource:
     hikari:
       maximum-pool-size: 20
@@ -132,7 +132,7 @@
           지연은 Repository 메서드 호출 시점에만 발생한다. 커넥션 생명주기랑 완전히 분리된다.
         </p>
 
-        <pre><code>@Aspect
+        <pre><code class="language-java">@Aspect
 @Component
 public class SlowRepositoryAspect {
 
@@ -155,7 +155,7 @@ public class SlowRepositoryAspect {
         <p>
           제일 직관적인 구현은 이런 모양이다.
         </p>
-        <pre><code>@Transactional
+        <pre><code class="language-java">@Transactional
 public CouponIssue issueCoupon(Long userId, Long couponId) {
     // 1. 유저 락 (중복 발급 방지)
     User user = userRepository.findByIdWithLock(userId)
@@ -230,5 +230,6 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

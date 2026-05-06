@@ -71,7 +71,7 @@
 
         <h2>1. @Before — 메서드 실행 전</h2>
 
-        <pre><code>@Before("execution(* com.example.service.*.*(..))")
+        <pre><code class="language-java">@Before("execution(* com.example.service.*.*(..))")
 public void logBefore(JoinPoint jp) {
     log.info("메서드 호출 시작: {}", jp.getSignature().getName());
 }
@@ -88,7 +88,7 @@ public void logBefore(JoinPoint jp) {
 
         <h3>JoinPoint 객체로 메서드 정보 받기</h3>
 
-        <pre><code>@Before("execution(* com.example.service.*.*(..))")
+        <pre><code class="language-java">@Before("execution(* com.example.service.*.*(..))")
 public void logBefore(JoinPoint jp) {
     Signature sig = jp.getSignature();
     Object[] args = jp.getArgs();
@@ -105,7 +105,7 @@ public void logBefore(JoinPoint jp) {
 
         <h2>2. @After — 메서드 실행 후 (성공/실패 무관)</h2>
 
-        <pre><code>@After("execution(* com.example.service.*.*(..))")
+        <pre><code class="language-java">@After("execution(* com.example.service.*.*(..))")
 public void logAfter(JoinPoint jp) {
     log.info("메서드 종료: {}", jp.getSignature().getName());
 }
@@ -122,7 +122,7 @@ public void logAfter(JoinPoint jp) {
 
         <h2>3. @AfterReturning — 정상 반환 시</h2>
 
-        <pre><code>@AfterReturning(
+        <pre><code class="language-java">@AfterReturning(
     pointcut = "execution(* com.example.service.*.*(..))",
     returning = "result"
 )
@@ -142,7 +142,7 @@ public void logSuccess(JoinPoint jp, Object result) {
 
         <h3>반환값 타입 좁히기</h3>
 
-        <pre><code>@AfterReturning(
+        <pre><code class="language-java">@AfterReturning(
     pointcut = "execution(* com.example.service.*.*(..))",
     returning = "user"
 )
@@ -160,7 +160,7 @@ public void logUserCreated(JoinPoint jp, User user) {   // ★ User 타입으로
 
         <h2>4. @AfterThrowing — 예외 발생 시</h2>
 
-        <pre><code>@AfterThrowing(
+        <pre><code class="language-java">@AfterThrowing(
     pointcut = "execution(* com.example.service.*.*(..))",
     throwing = "ex"
 )
@@ -183,7 +183,7 @@ public void logException(JoinPoint jp, Exception ex) {
 
         <h3>특정 예외 타입만 매칭</h3>
 
-        <pre><code>@AfterThrowing(
+        <pre><code class="language-java">@AfterThrowing(
     pointcut = "execution(* com.example.service.*.*(..))",
     throwing = "ex"
 )
@@ -194,7 +194,7 @@ public void logBusinessException(JoinPoint jp, BusinessException ex) {
 
         <h2>5. @Around — 가장 강력한 Advice</h2>
 
-        <pre><code>@Around("execution(* com.example.service.*.*(..))")
+        <pre><code class="language-java">@Around("execution(* com.example.service.*.*(..))")
 public Object measureTime(ProceedingJoinPoint pjp) throws Throwable {
     long start = System.currentTimeMillis();
     try {
@@ -231,7 +231,7 @@ public Object measureTime(ProceedingJoinPoint pjp) throws Throwable {
 
         <h3>@Around에서 인자 변형</h3>
 
-        <pre><code>@Around("execution(* com.example.service.*.findUser(String))")
+        <pre><code class="language-java">@Around("execution(* com.example.service.*.findUser(String))")
 public Object normalizeArg(ProceedingJoinPoint pjp) throws Throwable {
     Object[] args = pjp.getArgs();
     if (args[0] instanceof String) {
@@ -242,7 +242,7 @@ public Object normalizeArg(ProceedingJoinPoint pjp) throws Throwable {
 
         <h3>@Around에서 메서드 차단</h3>
 
-        <pre><code>@Around("execution(* com.example.service.AdminService.*(..))")
+        <pre><code class="language-java">@Around("execution(* com.example.service.AdminService.*(..))")
 public Object checkAdmin(ProceedingJoinPoint pjp) throws Throwable {
     if (!authService.isAdmin()) {
         return null;   // ★ proceed 안 하고 null 반환 → 메서드 실행 차단
@@ -288,7 +288,7 @@ public Object checkAdmin(ProceedingJoinPoint pjp) throws Throwable {
           이때 어떤 순서로 실행될까?
         </p>
 
-        <pre><code>@Aspect
+        <pre><code class="language-java">@Aspect
 @Order(1)
 public class SecurityAspect { ... }
 
@@ -333,7 +333,7 @@ Spring 5.0+:    Aspect의 클래스 이름 알파벳 순? 아니, 정확히는 �
 
         <h2>같은 Aspect 안의 여러 Advice 순서</h2>
 
-        <pre><code>@Aspect
+        <pre><code class="language-java">@Aspect
 public class MyAspect {
     @Before("...") public void before1() {}
     @Before("...") public void before2() {}
@@ -371,7 +371,7 @@ public class MyAspect {
 
         <h3>실수 1: @Around에서 proceed() 호출 누락</h3>
 
-        <pre><code>@Around("execution(* com.example.service.*.*(..))")
+        <pre><code class="language-java">@Around("execution(* com.example.service.*.*(..))")
 public Object brokenAdvice(ProceedingJoinPoint pjp) {
     log.info("called");
     // ★ proceed() 안 호출 → 원본 메서드 실행 안 됨
@@ -384,7 +384,7 @@ public Object brokenAdvice(ProceedingJoinPoint pjp) {
 
         <h3>실수 2: @AfterReturning에서 반환값 변경 시도</h3>
 
-        <pre><code>@AfterReturning(
+        <pre><code class="language-java">@AfterReturning(
     pointcut = "execution(* com.example.service.*.*(..))",
     returning = "result"
 )
@@ -397,7 +397,7 @@ public void modifyResult(Object result) {
 
         <h3>실수 3: @AfterThrowing에서 예외 안 잡힘</h3>
 
-        <pre><code>@AfterThrowing(
+        <pre><code class="language-java">@AfterThrowing(
     pointcut = "execution(* com.example.service.*.*(..))",
     throwing = "ex"
 )
@@ -436,6 +436,7 @@ public void handleException(Exception ex) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

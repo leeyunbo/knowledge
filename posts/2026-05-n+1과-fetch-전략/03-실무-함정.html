@@ -38,7 +38,7 @@
 
         <h2>함정 1: MultipleBagFetchException</h2>
 
-        <pre><code>@Entity
+        <pre><code class="language-java">@Entity
 public class Order {
     @OneToMany(mappedBy = "order")
     List&lt;OrderItem&gt; items;          // ★ List
@@ -162,7 +162,7 @@ memberRepo.findAllWithOrders(PageRequest.of(0, 10));   // 첫 10명만</code></p
 
         <h3>해결 방법 1 — BatchSize로 전환</h3>
 
-        <pre><code>// fetch join 빼고
+        <pre><code class="language-sql">// fetch join 빼고
 @Query("select m from Member m")
 Page&lt;Member&gt; findAllPage(Pageable pageable);
 
@@ -254,7 +254,7 @@ for (Member m : members) {
 
         <h3>해결 — count 쿼리 또는 @Formula</h3>
 
-        <pre><code>방법 1: 별도 쿼리로 카운트
+        <pre><code class="language-java">방법 1: 별도 쿼리로 카운트
   @Query("select m.id, count(o) from Member m left join m.orders o group by m.id")
   List&lt;Object[]&gt; findOrderCounts();
 
@@ -273,7 +273,7 @@ for (Member m : members) {
 
         <h2>해법의 끝판왕 — DTO 프로젝션</h2>
 
-        <pre><code>화면용 데이터는 엔티티 그래프가 아니라 DTO로 직접 가져오는 게 답.
+        <pre><code class="language-sql">화면용 데이터는 엔티티 그래프가 아니라 DTO로 직접 가져오는 게 답.
 
 @Query("select new com....OrderSummaryDto(o.id, o.amount, m.name) " +
        "from Order o join o.member m")
@@ -371,6 +371,7 @@ List&lt;OrderSummaryDto&gt; findOrderSummaries();
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

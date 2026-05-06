@@ -44,7 +44,7 @@
           각자 일어나는 시점이 다르다.
         </p>
 
-        <pre><code>1. 생성자 주입 (Constructor Injection)
+        <pre><code class="language-java">1. 생성자 주입 (Constructor Injection)
    public class UserService {
        private final UserRepository repo;
        public UserService(UserRepository repo) { this.repo = repo; }
@@ -104,7 +104,7 @@
 
         <h3>Lombok과의 조합</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 @RequiredArgsConstructor   // final 필드 자동으로 생성자 생성
 public class UserService {
     private final UserRepository repo;
@@ -149,7 +149,7 @@ public class UserService {
 
         <h2>필드 주입 — 가장 간단해 보이지만 가장 안 좋은</h2>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class UserService {
     @Autowired
     private UserRepository repo;
@@ -199,7 +199,7 @@ final 가능             ✅            ❌            ❌
           두 빈이 서로를 참조하면 어떻게 될까.
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class A {
     public A(B b) { ... }
 }
@@ -224,7 +224,7 @@ public class B {
 
         <h3>옛날엔 세터 주입으로 우회 가능했다</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class A {
     private B b;
     @Autowired
@@ -290,7 +290,7 @@ Spring 동작 (Spring Boot 2.5 이하):
 
         <h3>패턴 1: 공통 의존성 추출</h3>
 
-        <pre><code>Before:
+        <pre><code class="language-yaml">Before:
   A → B
   B → A    (순환)
 
@@ -318,7 +318,7 @@ A와 B가 직접 의존 안 함. 이벤트로 느슨하게 결합.</code></pre>
 
         <h3>패턴 3: @Lazy로 프록시 주입</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class A {
     private final B b;
     public A(@Lazy B b) { this.b = b; }   // ★ @Lazy
@@ -344,7 +344,7 @@ public class A {
           <strong>Aware 인터페이스</strong>를 구현하면 Spring 컨테이너 자체에 대한 정보를 받을 수 있다.
         </p>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class MyBean implements ApplicationContextAware {
     private ApplicationContext ctx;
 
@@ -409,6 +409,7 @@ Spring Boot 2.6+: 순환 참조 기본 차단.
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

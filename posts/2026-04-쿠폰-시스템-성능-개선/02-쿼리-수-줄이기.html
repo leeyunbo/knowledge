@@ -94,7 +94,7 @@
           근데 실제로 나가는 SQL은 이렇다.
         </p>
 
-        <pre><code>SELECT COUNT(*) &gt; 0
+        <pre><code class="language-sql">SELECT COUNT(*) &gt; 0
 FROM coupon_issue ci
 LEFT JOIN users u  ON ci.user_id = u.id
 LEFT JOIN coupons c ON ci.coupon_id = c.id
@@ -116,7 +116,7 @@ WHERE u.id = ? AND c.id = ?</code></pre>
           근데 Spring Data 메서드 파서는 이 최적화를 안 한다. 직접 JPQL로 써줘야 한다.
         </p>
 
-        <pre><code>@Query("SELECT COUNT(ci) > 0 FROM CouponIssue ci " +
+        <pre><code class="language-sql">@Query("SELECT COUNT(ci) > 0 FROM CouponIssue ci " +
        "WHERE ci.user.id = :userId AND ci.coupon.id = :couponId")
 boolean existsByUserIdAndCouponId(
     @Param("userId") Long userId,
@@ -126,7 +126,7 @@ boolean existsByUserIdAndCouponId(
           JPQL에서 <code>ci.user.id</code>라고 쓰면 Hibernate는 FK 컬럼이 같은 테이블에 있다는 걸 알고 JOIN을 생략한다.
         </p>
 
-        <pre><code>SELECT COUNT(*) &gt; 0
+        <pre><code class="language-sql">SELECT COUNT(*) &gt; 0
 FROM coupon_issue ci
 WHERE ci.user_id = ? AND ci.coupon_id = ?</code></pre>
 
@@ -141,7 +141,7 @@ WHERE ci.user_id = ? AND ci.coupon_id = ?</code></pre>
           발급 중에 변하지 않는다. 로컬 캐시로 빼도 된다.
         </p>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class CouponCache {
     private final Map&lt;Long, CouponCacheData&gt; cache = new ConcurrentHashMap&lt;&gt;();
 
@@ -181,7 +181,7 @@ public class CouponCache {
           JPA의 <code>getReferenceById</code>를 쓰면 DB 조회 없이 <strong>id만 가진 프록시 객체</strong>를 만들어준다.
         </p>
 
-        <pre><code>// 기존: findById → SELECT 1번
+        <pre><code class="language-sql">// 기존: findById → SELECT 1번
 Coupon coupon = couponRepository.findById(couponId).orElseThrow(...);
 
 // 개선: getReferenceById → 쿼리 0번
@@ -206,7 +206,7 @@ Coupon couponRef = couponRepository.getReferenceById(couponId);</code></pre>
           이벤트 + <code>@TransactionalEventListener</code> + <code>@Async</code> 조합으로 바꿨다.
         </p>
 
-        <pre><code>// 서비스에서 이벤트 발행
+        <pre><code class="language-java">// 서비스에서 이벤트 발행
 applicationEventPublisher.publishEvent(
     new CouponIssuedEvent(userId, couponId)
 );
@@ -299,5 +299,6 @@ public void sendIssueNotification(CouponIssuedEvent event) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

@@ -195,7 +195,7 @@ ephemeral 풀이 28K로 한정.</code></pre>
 
         <h2>진단 — TIME_WAIT를 어떻게 보는가</h2>
 
-        <pre><code>$ ss -s
+        <pre><code class="language-bash">$ ss -s
 Total: 35821
 TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)
                             ↑                              ↑
@@ -207,7 +207,7 @@ TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)
           정상이라면 timewait이 활성과 비슷하거나 한 자릿수 배수여야 한다.
         </p>
 
-        <pre><code>$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
+        <pre><code class="language-bash">$ netstat -an | awk '/^tcp/ {print $6}' | sort | uniq -c
    3 CLOSE_WAIT
   18 ESTABLISHED
    2 LISTEN
@@ -253,7 +253,7 @@ $ ss -tan state time-wait | awk '{print $4}' | sort | uniq -c | sort -rn | head
           OS 레벨에서 TIME_WAIT 상태인 source port를 새 outbound 연결에 안전하게 재사용하도록 허용.
         </p>
 
-        <pre><code>$ sysctl -w net.ipv4.tcp_tw_reuse=1</code></pre>
+        <pre><code class="language-bash">$ sysctl -w net.ipv4.tcp_tw_reuse=1</code></pre>
 
         <p>
           무작정 재사용하는 게 아니다. TCP timestamp 옵션을 이용해서
@@ -270,7 +270,7 @@ $ ss -tan state time-wait | awk '{print $4}' | sort | uniq -c | sort -rn | head
 
         <h3>3순위 — ephemeral 풀 자체를 늘리기</h3>
 
-        <pre><code>$ sysctl -w net.ipv4.ip_local_port_range="10000 65000"</code></pre>
+        <pre><code class="language-bash">$ sysctl -w net.ipv4.ip_local_port_range="10000 65000"</code></pre>
 
         <p>
           기본 28,000개를 55,000개로 늘리는 식.
@@ -344,5 +344,6 @@ OS 통계가 보여주는 것:
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

@@ -64,7 +64,7 @@
           <strong>모든 빈에 대해</strong> 두 시점에 콜백을 받는다.
         </p>
 
-        <pre><code>public interface BeanPostProcessor {
+        <pre><code class="language-java">public interface BeanPostProcessor {
 
     Object postProcessBeforeInitialization(Object bean, String beanName)
             throws BeansException;
@@ -86,7 +86,7 @@
           원본은 사라진다. 이게 <strong>AOP 프록시가 만들어지는 정확한 메커니즘</strong>이다.
         </p>
 
-        <pre><code>1. 원본 빈 인스턴스화: UserService 객체 만듦
+        <pre><code class="language-java">1. 원본 빈 인스턴스화: UserService 객체 만듦
 2. 의존성 주입 끝
 3. AOP 관련 BeanPostProcessor가 동작:
    - 이 빈에 @Transactional이 붙어있나? 그렇다면 프록시 필요.
@@ -126,7 +126,7 @@ ApplicationListenerDetector
 
         <h2>커스텀 BeanPostProcessor — 만들 수 있다</h2>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class LoggingBeanPostProcessor implements BeanPostProcessor {
 
     @Override
@@ -162,7 +162,7 @@ public class LoggingBeanPostProcessor implements BeanPostProcessor {
 
         <h3>1. @PostConstruct (가장 권장)</h3>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class CacheService {
     private final RedisClient redis;
 
@@ -184,7 +184,7 @@ public class CacheService {
 
         <h3>2. InitializingBean 인터페이스</h3>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class CacheService implements InitializingBean {
     @Override
     public void afterPropertiesSet() {
@@ -201,7 +201,7 @@ public class CacheService implements InitializingBean {
 
         <h3>3. @Bean(initMethod)</h3>
 
-        <pre><code>@Configuration
+        <pre><code class="language-java">@Configuration
 public class AppConfig {
     @Bean(initMethod = "init")
     public CacheService cacheService(RedisClient redis) {
@@ -231,7 +231,7 @@ public class CacheService {
 
         <h3>함정 1: 생성자에서 다른 빈 사용</h3>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 public class UserService {
     private final UserRepository repo;
 
@@ -253,7 +253,7 @@ public class UserService {
 
         <h3>함정 2: @PostConstruct에서 self-invocation</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
     @PostConstruct
     public void init() {
@@ -278,7 +278,7 @@ public class OrderService {
 
         <h3>함정 3: @PostConstruct 메서드의 예외</h3>
 
-        <pre><code>@PostConstruct
+        <pre><code class="language-java">@PostConstruct
 public void init() {
     redis.connect();   // 실패하면?
 }
@@ -326,7 +326,7 @@ public void init() {
           AOP 프록시는 <strong>BeanPostProcessor.postProcessAfterInitialization</strong>에서 만들어진다.
         </p>
 
-        <pre><code>1. 원본 UserService 인스턴스화 (가짜 의존성 또는 final 의존성)
+        <pre><code class="language-java">1. 원본 UserService 인스턴스화 (가짜 의존성 또는 final 의존성)
 2. 의존성 주입 끝
 3. Aware 콜백
 4. BeanPostProcessor.before (다른 처리들)
@@ -385,6 +385,7 @@ BeanPostProcessor의 두 메서드는 모든 빈에 호출됨.
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

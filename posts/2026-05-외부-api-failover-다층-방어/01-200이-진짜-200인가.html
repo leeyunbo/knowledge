@@ -200,7 +200,7 @@ SMS 응답:
           이 네 가지 중 하나로 매핑하는 게 시작이다.
         </p>
 
-        <pre><code>public enum SendResult {
+        <pre><code class="language-java">public enum SendResult {
     SUCCESS,
     BUSINESS_FAIL,
     RETRYABLE_FAIL,
@@ -231,7 +231,7 @@ public SendResult classify(KakaoResponse res) {
           그리고 결과별로 처리 정책을 분리한다.
         </p>
 
-        <pre><code>public void handleSend(SendRequest req) {
+        <pre><code class="language-java">public void handleSend(SendRequest req) {
     KakaoResponse res = kakaoClient.send(req);
     SendResult result = classify(res);
 
@@ -297,5 +297,6 @@ public SendResult classify(KakaoResponse res) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

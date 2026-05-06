@@ -70,7 +70,7 @@ dependencies {
           가장 먼저 잡아야 할 건 timeout. 외부 API 호출이 영원히 매달리지 않도록.
         </p>
 
-        <pre><code># application.yml
+        <pre><code class="language-yaml"># application.yml
 spring:
   http:
     client:
@@ -90,7 +90,7 @@ spring:
           1, 2, 3편의 원칙이 다 들어간 모양.
         </p>
 
-        <pre><code>@Configuration
+        <pre><code class="language-java">@Configuration
 public class KakaoClientConfig {
 
     @Bean
@@ -144,7 +144,7 @@ public class KakaoClientConfig {
           외부 API가 여러 개라면 빈을 분리해야 한다. 한 풀에 다 묶으면 안 된다.
         </p>
 
-        <pre><code>@Configuration
+        <pre><code class="language-java">@Configuration
 public class ExternalClientsConfig {
 
     @Bean(name = "kakaoRestClient")
@@ -197,7 +197,7 @@ public class ExternalClientsConfig {
           빈 이름으로 주입한다.
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class KakaoService {
 
     private final RestClient kakaoRestClient;
@@ -229,7 +229,7 @@ public class KakaoService {
           그걸 Micrometer로 등록한다.
         </p>
 
-        <pre><code>@Component
+        <pre><code class="language-java">@Component
 @RequiredArgsConstructor
 public class HttpPoolMetrics {
 
@@ -267,7 +267,7 @@ public class HttpPoolMetrics {
 
         <h3>함정 1 — RestClientBuilder를 매번 새로 만들기</h3>
 
-        <pre><code>// ❌ 매 호출마다 새 builder
+        <pre><code class="language-java">// ❌ 매 호출마다 새 builder
 public ResponseDto call() {
     return RestClient.builder()
         .baseUrl("https://api.kakao.com")
@@ -394,5 +394,6 @@ read-timeout: 10초      ← 응답이 10초 안에 안 오면 포기
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

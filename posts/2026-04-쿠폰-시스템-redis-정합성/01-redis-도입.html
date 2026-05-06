@@ -83,7 +83,7 @@
         <p>
           기존 DB 기반 로직에서 중복 체크와 재고 차감만 Redis로 빼냈다. 발급 이력 INSERT는 DB에 그대로 남긴다 (영속성 있는 기록이 필요하니까).
         </p>
-        <pre><code>@Transactional
+        <pre><code class="language-sql">@Transactional
 public CouponIssue issueCoupon(Long userId, Long couponId) {
     // 1. 중복 체크 + 발급 기록 (Redis SADD)
     boolean firstIssue = issueRedisStore.tryRecordIssue(couponId, userId);
@@ -122,7 +122,7 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
         <p>
           이런 그림이다.
         </p>
-        <pre><code>1. Redis SADD "5" → 성공 (Set에 추가됨)
+        <pre><code class="language-sql">1. Redis SADD "5" → 성공 (Set에 추가됨)
 2. Redis DECR     → 성공 (재고 1 줄어듦)
 3. DB INSERT      → 💥 서버가 여기서 죽음
 </code></pre>
@@ -156,7 +156,7 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
           처음엔 이걸 간단히 해결할 수 있을 줄 알았다. catch 블록에서 Redis 상태를 되돌리면 된다고 생각했다.
         </p>
 
-        <pre><code>try {
+        <pre><code class="language-java">try {
     // Redis 작업들
     // DB INSERT
 } catch (Exception e) {
@@ -224,5 +224,6 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

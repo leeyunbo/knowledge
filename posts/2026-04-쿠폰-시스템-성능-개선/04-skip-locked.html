@@ -89,7 +89,7 @@
           <li>그 행의 status를 TAKEN으로 바꾼다 (dirty checking으로 UPDATE)</li>
         </ol>
 
-        <pre><code>public interface CouponStockRepository extends JpaRepository&lt;CouponStock, Long&gt; {
+        <pre><code class="language-sql">public interface CouponStockRepository extends JpaRepository&lt;CouponStock, Long&gt; {
 
     @Query(value = "SELECT * FROM coupon_stock " +
                    "WHERE coupon_id = :couponId AND status = 'AVAILABLE' " +
@@ -110,7 +110,7 @@ stock.taken();  // dirty checking으로 UPDATE가 커밋 시점에 반영됨</co
           CouponStock 엔티티에 상태 전이 메서드만 추가.
         </p>
 
-        <pre><code>public void taken() {
+        <pre><code class="language-java">public void taken() {
     this.status = StockStatus.TAKEN;
 }</code></pre>
 
@@ -142,7 +142,7 @@ stock.taken();  // dirty checking으로 UPDATE가 커밋 시점에 반영됨</co
           대표적인 게 <strong>작업 큐(Job Queue)</strong>.
         </p>
 
-        <pre><code>-- 워커 여러 대가 "처리할 작업 하나 가져와"
+        <pre><code class="language-sql">-- 워커 여러 대가 "처리할 작업 하나 가져와"
 SELECT * FROM jobs WHERE status = 'PENDING'
 LIMIT 1 FOR UPDATE SKIP LOCKED</code></pre>
 
@@ -206,5 +206,6 @@ LIMIT 1 FOR UPDATE SKIP LOCKED</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

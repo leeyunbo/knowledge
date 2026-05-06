@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>포트폴리오 심화 커리큘럼 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --surface-hover: #1c1c1c;
+      --border: #2a2a2a;
+      --text: #f0f0f0;
+      --text-muted: #a0a0a0;
+      --text-faint: #606060;
+      --accent: #f472b6;
+      --warn: #fbbf24;
+      --danger: #ef4444;
+      --tier-1: #f472b6;
+      --tier-2: #60a5fa;
+      --tier-3: #a78bfa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; padding: 0;
+      font-family: 'Pretendard Variable', -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+    }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 48px 32px 120px; }
+
+    .nav-links {
+      display: flex; gap: 16px; margin-bottom: 32px;
+      padding-bottom: 16px; border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .nav-links a { color: var(--text-muted); text-decoration: none; }
+    .nav-links a:hover { color: var(--accent); }
+    .nav-links a.active { color: var(--accent); font-weight: 600; }
+
+    .header h1 { font-size: 32px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .header p { color: var(--text-muted); font-size: 15px; margin: 0 0 48px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px; margin-bottom: 48px;
+    }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px;
+    }
+    .stat-label {
+      font-size: 12px; color: var(--text-faint); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 8px;
+    }
+    .stat-value { font-size: 28px; font-weight: 700; line-height: 1; }
+    .stat-value.accent { color: var(--accent); }
+    .stat-value.warn { color: var(--warn); }
+    .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+    .overall-progress {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px; margin-bottom: 48px;
+    }
+    .overall-progress h2 {
+      margin: 0 0 16px; font-size: 18px; font-weight: 600;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .progress-bar {
+      height: 12px; background: var(--border);
+      border-radius: 6px; overflow: hidden; margin-bottom: 12px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #ec4899);
+    }
+    .progress-text {
+      display: flex; justify-content: space-between;
+      font-size: 13px; color: var(--text-muted);
+    }
+
+    .tier-section { margin-bottom: 40px; }
+    .tier-label {
+      font-size: 12px; color: var(--text-faint); text-transform: uppercase;
+      letter-spacing: 0.1em; margin-bottom: 12px; font-weight: 700;
+    }
+
+    .course {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; margin-bottom: 16px; overflow: hidden;
+      border-left: 4px solid var(--accent);
+    }
+    .course[data-tier="1"] { border-left-color: var(--tier-1); }
+    .course[data-tier="2"] { border-left-color: var(--tier-2); }
+    .course[data-tier="3"] { border-left-color: var(--tier-3); }
+
+    .course-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .course-title { font-size: 16px; font-weight: 600; }
+    .course-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .course-meta { display: flex; align-items: center; gap: 16px; }
+    .course-progress-mini { width: 120px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .course-progress-mini > div { height: 100%; background: var(--accent); }
+    .course-count { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-muted); min-width: 36px; text-align: right; }
+
+    .impact-badge {
+      display: inline-block; font-size: 11px; padding: 2px 8px;
+      background: var(--accent); color: var(--bg);
+      border-radius: 4px; margin-left: 8px; font-weight: 600;
+    }
+
+    .steps { border-top: 1px solid var(--border); padding: 8px 0; }
+    .step { padding: 12px 24px; display: flex; align-items: center; gap: 12px; }
+    .step:hover { background: var(--surface-hover); }
+    .step-mark { font-size: 16px; width: 24px; text-align: center; }
+    .step-mark.done { color: var(--accent); }
+    .step-mark.current { color: var(--warn); animation: pulse 2s infinite; }
+    .step-mark.pending { color: var(--text-faint); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .step-title { flex: 1; font-size: 14px; }
+    .step.done .step-title { color: var(--text-muted); text-decoration: line-through; }
+    .step.current .step-title { font-weight: 600; color: var(--warn); }
+    .step-time { font-size: 12px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+
+    .links {
+      margin-top: 48px; padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 24px; flex-wrap: wrap;
+      font-size: 13px; color: var(--text-muted);
+    }
+    .links a { color: var(--accent); text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+    .links code {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--surface); padding: 2px 8px;
+      border-radius: 4px; color: var(--accent);
+    }
+
+    .footer { margin-top: 80px; text-align: center; color: var(--text-faint); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <nav class="nav-links">
+      <a href="./index.html">← 일반 커리큘럼</a>
+      <a href="./portfolio.html" class="active">포트폴리오 커리큘럼</a>
+    </nav>
+
+    <header class="header">
+      <h1>포트폴리오 심화 커리큘럼</h1>
+      <p>
+        프로젝트 7개 · 27 step · <strong>면접관 앞에서 뚫고 들어와도 막힘없이 설명</strong> 만드는 훈련.<br>
+        일반 커리큘럼이 "배우는 것"이라면, 이건 "이미 한 걸 깊게 설명할 수 있게 만드는 것".
+      </p>
+    </header>
+
+    <section class="stats">
+      <div class="stat-card">
+        <div class="stat-label">완료 Step</div>
+        <div class="stat-value accent">1 / 27</div>
+        <div class="stat-sub">3.7% 진행</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">연속 학습일</div>
+        <div class="stat-value">1일</div>
+        <div class="stat-sub">최장 1일</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Mock Interview</div>
+        <div class="stat-value">0회</div>
+        <div class="stat-sub">압박 훈련</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">약점</div>
+        <div class="stat-value">0개</div>
+        <div class="stat-sub">/mock weak로 재시험</div>
+      </div>
+    </section>
+
+    <section class="overall-progress">
+      <h2>
+        <span>전체 진행도</span>
+        <span style="font-size: 13px; color: var(--text-muted); font-weight: 400;">
+          📍 Course P4 / Step P4.2 (진행 중)
+        </span>
+      </h2>
+      <div class="progress-bar"><div class="progress-fill" style="width: 3.7%"></div></div>
+      <div class="progress-text">
+        <span>시작</span>
+        <span>27 step · STAR 스피치 7개 완성</span>
+      </div>
+    </section>
+
+    <!-- TIER 1 -->
+    <div class="tier-section">
+      <div class="tier-label">Tier 1 · 우선 돌파 — 3주 안에 끝내면 면접 대응력 급상승</div>
+
+      <article class="course" data-tier="1">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P4 — ALIO-GW Failover 자동화 🔥<span class="impact-badge">7~8분 → 10~30초</span></div>
+            <div class="course-sub">Resilience4j · RabbitMQ · Redis · 동적 임계값 · 서버 조율</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 20%;"></div></div>
+            <div class="course-count">1/5</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step done"><span class="step-mark done">✅</span><span class="step-title">P4.1 Circuit Breaker 깊이</span><span class="step-time">완료 2026-04-22</span></div>
+          <div class="step current"><span class="step-mark current">🔄</span><span class="step-title">P4.2 동적 임계값 설계</span><span class="step-time">45분</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P4.3 RabbitMQ fanout + Redis 중복 방어</span><span class="step-time">60분</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P4.4 서버 단위 조율 메커니즘</span><span class="step-time">45분</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P4.5 STAR + 예상 질문 20개</span><span class="step-time">45분</span></div>
+        </div>
+      </article>
+
+      <article class="course" data-tier="1">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P1 — AI 에이전트 시스템<span class="impact-badge">월 120건 → 0건</span></div>
+            <div class="course-sub">Langchain4j · RAG · Tool Selection · SSE · 트레이싱</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 0%;"></div></div>
+            <div class="course-count">0/5</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P1.1 Tool Selection 메커니즘</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P1.2 RAG 구현 상세 (Gemini 임베딩, 청킹)</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P1.3 트레이싱 어드민 설계</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P1.4 SSE 스트리밍 구현</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P1.5 STAR + 예상 질문</span></div>
+        </div>
+      </article>
+
+      <article class="course" data-tier="1">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P2 — BCrypt → HMAC CPU 개선<span class="impact-badge">CPU 76% 감소</span></div>
+            <div class="course-sub">Thread Dump · 성능 분석 · 보안 · Spring Security</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 0%;"></div></div>
+            <div class="course-count">0/4</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P2.1 BCrypt 내부 구조 (Blowfish, cost factor, salt)</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P2.2 Thread Dump 분석 방법론</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P2.3 HMAC 보안 설명 (엔트로피, 서버 키)</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P2.4 STAR + 예상 질문</span></div>
+        </div>
+      </article>
+    </div>
+
+    <!-- TIER 2 -->
+    <div class="tier-section">
+      <div class="tier-label">Tier 2 · 전문성 심화</div>
+
+      <article class="course" data-tier="2">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P3 — TCP 도메인 분리<span class="impact-badge">3시간 배포 → 독립 배포</span></div>
+            <div class="course-sub">Netty · 아키텍처 리팩토링 · 무중단 배포</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 0%;"></div></div>
+            <div class="course-count">0/4</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P3.1 Netty 아키텍처 (EventLoop, Boss/Worker)</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P3.2 무중단 배포 한계 논리</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P3.3 도메인 분리 리팩토링</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P3.4 STAR + 예상 질문</span></div>
+        </div>
+      </article>
+
+      <article class="course" data-tier="2">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P6 — 관심사 분리 (AOP + Security)<span class="impact-badge">개발 공수 80% 절감</span></div>
+            <div class="course-sub">Spring Security · AOP · Bean Validation</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 0%;"></div></div>
+            <div class="course-count">0/4</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P6.1 Spring Security Filter 체인</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P6.2 AOP 기반 비즈니스 검증</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P6.3 Bean Validation 동작</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P6.4 STAR + 예상 질문</span></div>
+        </div>
+      </article>
+    </div>
+
+    <!-- TIER 3 -->
+    <div class="tier-section">
+      <div class="tier-label">Tier 3 · 마무리</div>
+
+      <article class="course" data-tier="3">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P7 — 사이드 프로젝트</div>
+            <div class="course-sub">Houseping · Stock Briefing · 아키텍처 진화 스토리</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 0%;"></div></div>
+            <div class="course-count">0/3</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P7.1 Houseping 아키텍처 4단계 진화</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P7.2 변경 잦은 외부 연동에만 Port/Adapter</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P7.3 Stock Briefing 파이프라인 + AI Judge</span></div>
+        </div>
+      </article>
+
+      <article class="course" data-tier="3">
+        <div class="course-header">
+          <div>
+            <div class="course-title">Course P5 — 연동 규격서 자동화</div>
+            <div class="course-sub">Spring REST Docs · OpenAPI · 커스텀 UI</div>
+          </div>
+          <div class="course-meta">
+            <div class="course-progress-mini"><div style="width: 0%;"></div></div>
+            <div class="course-count">0/2</div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P5.1 Spring REST Docs vs OpenAPI 비교</span></div>
+          <div class="step pending"><span class="step-mark pending">⬜</span><span class="step-title">P5.2 커스텀 UI + STAR</span></div>
+        </div>
+      </article>
+    </div>
+
+    <aside class="links">
+      <span>💻 Claude Code에서:</span>
+      <code>/portfolio-study</code>
+      <code>/portfolio-study resume</code>
+      <code>/portfolio-study recall</code>
+      <code>/portfolio-study cheat</code>
+      <code>/mock</code>
+      <code>/progress</code>
+    </aside>
+
+    <footer class="footer">
+      마지막 갱신: 2026-04-21 · 포트폴리오 커리큘럼 시작 · bok
+    </footer>
+
+  </div>
+</body>
+</html>

@@ -139,7 +139,7 @@
 
         <h3>실패 정의를 명시적으로</h3>
 
-        <pre><code>CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+        <pre><code class="language-java">CircuitBreakerConfig config = CircuitBreakerConfig.custom()
     .failureRateThreshold(50)               // 실패율 50% 넘으면 OPEN
     .slowCallRateThreshold(50)              // slow 비율 50% 넘으면 OPEN
     .slowCallDurationThreshold(Duration.ofSeconds(2))  // 2초 넘으면 slow
@@ -213,7 +213,7 @@ LB가 잡는 장애:                       CircuitBreaker가 잡는 장애:
           backend별로 실제 트래픽 응답을 추적해서, 통계가 나쁜 backend를 풀에서 자동 제거한다.
         </p>
 
-        <pre><code>clusters:
+        <pre><code class="language-yaml">clusters:
 - name: kakao_cluster
   outlier_detection:
     consecutive_5xx: 5                       # 5번 연속 5xx면 빼기
@@ -472,7 +472,7 @@ server {
 
         <h3>Spring 코드</h3>
 
-        <pre><code>@CircuitBreaker(name = "kakao-send", fallbackMethod = "fallback")
+        <pre><code class="language-java">@CircuitBreaker(name = "kakao-send", fallbackMethod = "fallback")
 public KakaoResponse send(KakaoRequest req) {
     return restClient.post()
         .uri("http://localhost:8080/v2/talk/send")  // sidecar로
@@ -527,5 +527,6 @@ public KakaoResponse fallback(KakaoRequest req, Throwable ex) {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

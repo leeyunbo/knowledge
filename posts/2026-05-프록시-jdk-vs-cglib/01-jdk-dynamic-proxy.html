@@ -68,7 +68,7 @@
           런타임에 그 인터페이스의 구현체를 동적으로 만들어낸다."</strong>
         </p>
 
-        <pre><code>전제:
+        <pre><code class="language-java">전제:
   대상 객체가 어떤 인터페이스를 구현해야 함
 
 UserService 인터페이스:
@@ -120,7 +120,7 @@ JDK 동적 프록시가 만드는 것:
 
         <h2>InvocationHandler — 가로채기의 본체</h2>
 
-        <pre><code>public interface InvocationHandler {
+        <pre><code class="language-java">public interface InvocationHandler {
     Object invoke(Object proxy, Method method, Object[] args) throws Throwable;
 }
 
@@ -139,7 +139,7 @@ JDK 동적 프록시가 만드는 것:
 
         <h2>실제 예시 — 메서드 실행 시간 측정 프록시</h2>
 
-        <pre><code>// 대상 인터페이스
+        <pre><code class="language-java">// 대상 인터페이스
 public interface UserService {
     User createUser(String name);
     User findUser(Long id);
@@ -204,7 +204,7 @@ proxy.findUser(1L);
           Java가 런타임에 생성하는 그 클래스는 대략 이렇게 생겼다 (사람이 보기 쉽게 표현):
         </p>
 
-        <pre><code>// JVM이 런타임에 생성하는 클래스 (이름은 보통 $Proxy0, $Proxy1 같은 식)
+        <pre><code class="language-java">// JVM이 런타임에 생성하는 클래스 (이름은 보통 $Proxy0, $Proxy1 같은 식)
 public final class $Proxy0 extends Proxy implements UserService {
 
     private static Method m_createUser;
@@ -305,7 +305,7 @@ public final class $Proxy0 extends Proxy implements UserService {
 
         <h3>제약 1의 의미</h3>
 
-        <pre><code>인터페이스 없는 클래스:
+        <pre><code class="language-java">인터페이스 없는 클래스:
 
   @Service
   public class UserService {   // 인터페이스 없이 구체 클래스만
@@ -317,7 +317,7 @@ public final class $Proxy0 extends Proxy implements UserService {
 
         <h3>제약 2의 의미</h3>
 
-        <pre><code>인터페이스에 일부 메서드만 있을 때:
+        <pre><code class="language-java">인터페이스에 일부 메서드만 있을 때:
 
   public interface UserService {
       User createUser(String name);    // 인터페이스에 있음
@@ -369,7 +369,7 @@ proxy.getClass().getName()        // "com.sun.proxy.$Proxy0" 같은 이름</code
           Spring AOP가 JDK 동적 프록시를 쓸 때:
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class UserServiceImpl implements UserService {
     @Transactional
     public User createUser(String name) { ... }
@@ -393,7 +393,7 @@ Spring이 동작:
           다른 빈이 <code>@Autowired UserService</code>가 아니라 <code>@Autowired UserServiceImpl</code>로 받으면?
         </p>
 
-        <pre><code>@Autowired
+        <pre><code class="language-java">@Autowired
 private UserServiceImpl userServiceImpl;   // ★ 구체 클래스로 주입 시도
 
 → 컨테이너가 들고 있는 건 $Proxy0 (UserService 구현)
@@ -431,6 +431,7 @@ private UserServiceImpl userServiceImpl;   // ★ 구체 클래스로 주입 시
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

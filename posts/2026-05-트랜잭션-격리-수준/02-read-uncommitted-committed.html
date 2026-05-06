@@ -45,7 +45,7 @@
           즉 P1(Dirty Read)이 발생할 수 있다.
         </p>
 
-        <pre><code>T1: BEGIN
+        <pre><code class="language-sql">T1: BEGIN
 T1: UPDATE balance SET amount = 9000 WHERE id = 1   -- 아직 커밋 X
 T2: SELECT amount FROM balance WHERE id = 1          -- 9000 읽음
 T1: ROLLBACK                                         -- T1 취소
@@ -82,7 +82,7 @@ T1: ROLLBACK                                         -- T1 취소
           즉 P1(Dirty Read)을 막는다.
         </p>
 
-        <pre><code>T1: BEGIN
+        <pre><code class="language-sql">T1: BEGIN
 T1: UPDATE balance SET amount = 9000 WHERE id = 1   -- 아직 커밋 X
 T2: SELECT amount FROM balance WHERE id = 1          -- T1의 변경 안 보임
                                                      -- 옛 값(10000) 읽음
@@ -137,7 +137,7 @@ T2가 또 읽음: 이번엔 새 버전 보임</code></pre>
 
         <h3>Non-Repeatable Read 시나리오</h3>
 
-        <pre><code>T1: BEGIN
+        <pre><code class="language-sql">T1: BEGIN
 T1: SELECT amount FROM balance WHERE id = 1   -- 10000 읽음
 T2: BEGIN
 T2: UPDATE balance SET amount = 9000 WHERE id = 1
@@ -173,7 +173,7 @@ T1: COMMIT</code></pre>
           READ COMMITTED가 가장 흔한 선택인 이유는 단순하다.
         </p>
 
-        <pre><code>1. Dirty Read만 막혀도 대부분의 비즈니스 로직은 OK
+        <pre><code class="language-sql">1. Dirty Read만 막혀도 대부분의 비즈니스 로직은 OK
 2. 동시성이 매우 좋음 (MVCC 기반이면 읽기-쓰기 안 막음)
 3. 더 강한 격리는 락 비용이 크다
 4. 부정합이 우려되는 곳에는 명시적 락(SELECT ... FOR UPDATE)으로 보강 가능</code></pre>
@@ -186,7 +186,7 @@ T1: COMMIT</code></pre>
 
         <h2>Spring에서 명시</h2>
 
-        <pre><code>@Transactional(isolation = Isolation.READ_COMMITTED)
+        <pre><code class="language-java">@Transactional(isolation = Isolation.READ_COMMITTED)
 public void transferMoney(Long from, Long to, BigDecimal amount) {
     // ...
 }</code></pre>
@@ -216,6 +216,7 @@ READ COMMITTED   — Dirty Read 차단. 가장 흔한 실무 선택.
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

@@ -42,7 +42,7 @@
           그런데 실무 코드는 인터페이스 없는 구체 클래스도 많다.
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class UserService {   // 인터페이스 없음
     @Transactional
     public void createUser(String name) { ... }
@@ -90,7 +90,7 @@ Spring
           핵심 메커니즘:
         </p>
 
-        <pre><code>원본 클래스:
+        <pre><code class="language-java">원본 클래스:
   public class UserService {
       public void createUser(String name) { ... }
   }
@@ -123,7 +123,7 @@ CGLIB이 만드는 동적 클래스:
           JDK 동적 프록시의 InvocationHandler에 대응하는 CGLIB의 인터페이스.
         </p>
 
-        <pre><code>public interface MethodInterceptor extends Callback {
+        <pre><code class="language-java">public interface MethodInterceptor extends Callback {
     Object intercept(
         Object obj,            // 프록시 객체 자기 자신
         Method method,          // 호출된 메서드 (java.lang.reflect.Method)
@@ -163,7 +163,7 @@ CGLIB 방식 (빠름 — 직접 호출):
 
         <h2>실제 예시 — Enhancer로 프록시 만들기</h2>
 
-        <pre><code>// 원본 클래스 (인터페이스 없음)
+        <pre><code class="language-java">// 원본 클래스 (인터페이스 없음)
 public class UserService {
     public User createUser(String name) {
         System.out.println("실제 메서드 실행: " + name);
@@ -213,7 +213,7 @@ proxy.createUser("Alice");
           런타임에 메모리에 생성되는 그 클래스를 사람이 읽기 쉬운 형태로 표현하면:
         </p>
 
-        <pre><code>public class UserService$$EnhancerByCGLIB$$abcd1234 extends UserService {
+        <pre><code class="language-java">public class UserService$$EnhancerByCGLIB$$abcd1234 extends UserService {
 
     private MethodInterceptor CGLIB$CALLBACK_0;
     private static final Method CGLIB$createUser$0$Method;
@@ -259,7 +259,7 @@ proxy.createUser("Alice");
 
         <h3>제약 1: final 클래스에 적용 불가</h3>
 
-        <pre><code>public final class UserService { ... }
+        <pre><code class="language-java">public final class UserService { ... }
 
 → Enhancer.setSuperclass(UserService.class) 시도
 → final 클래스는 상속 불가 → 클래스 생성 실패
@@ -288,7 +288,7 @@ proxy.createUser("Alice");
 
         <h3>제약 3: private 메서드는 가로챌 수 없다</h3>
 
-        <pre><code>public class UserService {
+        <pre><code class="language-java">public class UserService {
     @Transactional
     private void internalMethod() { ... }   // private
 }
@@ -304,7 +304,7 @@ proxy.createUser("Alice");
 
         <h3>제약 4: 부모 생성자가 필수로 호출됨</h3>
 
-        <pre><code>public class UserService {
+        <pre><code class="language-java">public class UserService {
     public UserService() {
         connectDatabase();   // 무거운 작업
     }
@@ -430,6 +430,7 @@ Spring Boot 2+ 기본 프록시 메커니즘.</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

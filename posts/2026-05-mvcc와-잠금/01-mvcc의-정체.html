@@ -43,7 +43,7 @@
           이 모델의 가장 큰 문제는 <strong>읽기와 쓰기가 서로 막는다는 것</strong>.
         </p>
 
-        <pre><code>락 기반:
+        <pre><code class="language-sql">락 기반:
   T1: SELECT (S락) → 읽는 동안 누구도 못 씀
   T2: UPDATE 시도 → S락 풀릴 때까지 대기
 
@@ -189,7 +189,7 @@ row의 DB_TRX_ID가 m_creator_trx_id
           MVCC 메커니즘은 같지만, ReadView를 언제 만드느냐가 다르다.
         </p>
 
-        <pre><code>READ COMMITTED:
+        <pre><code class="language-sql">READ COMMITTED:
   매 SELECT마다 새 ReadView 생성
   → 매번 그 시점의 최신 커밋 데이터 봄
   → 같은 트랜잭션 안에서도 다른 결과 가능 (Non-Repeatable Read)
@@ -275,7 +275,7 @@ T1: 일관되게 10000을 보고 있음. ✅</code></pre>
 
         <h3>1. 쓰기끼리는 여전히 락이 필요</h3>
 
-        <pre><code>T1: UPDATE amount=9000
+        <pre><code class="language-sql">T1: UPDATE amount=9000
 T2: UPDATE amount=8000
 
 같은 행을 동시에 두 트랜잭션이 쓰려고 하면 Lost Update 위험.
@@ -285,7 +285,7 @@ T2: UPDATE amount=8000
 
         <h3>2. 가시성과 잠금 충돌의 경계 — Lost Update 시나리오</h3>
 
-        <pre><code>T1: SELECT amount WHERE id=1   -- MVCC로 10000 읽음
+        <pre><code class="language-sql">T1: SELECT amount WHERE id=1   -- MVCC로 10000 읽음
 T2: UPDATE amount=9000, COMMIT
 T1: UPDATE amount = 10000 - 1000 = 9000 WHERE id=1   -- T2의 변경을 모르고 덮어씀
 
@@ -322,6 +322,7 @@ T1의 의도는 "10000에서 1000 빼기"였는데 T2의 -1000이 사라짐.</co
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>

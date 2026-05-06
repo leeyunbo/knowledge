@@ -45,7 +45,7 @@
           300 스레드가 전부 같은 쿼리를 날린다.
         </p>
 
-        <pre><code>UPDATE coupons SET remaining_quantity = remaining_quantity - 1
+        <pre><code class="language-sql">UPDATE coupons SET remaining_quantity = remaining_quantity - 1
 WHERE id = ? AND remaining_quantity &gt; 0</code></pre>
 
         <p>
@@ -93,7 +93,7 @@ WHERE id = ? AND remaining_quantity &gt; 0</code></pre>
           "300개 행, 각자 1장씩"으로 쪼개는 거다.
         </p>
 
-        <pre><code>CREATE TABLE coupon_stock (
+        <pre><code class="language-sql">CREATE TABLE coupon_stock (
     id         BIGINT PRIMARY KEY,
     coupon_id  BIGINT,
     status     VARCHAR  -- 'AVAILABLE' | 'TAKEN'
@@ -104,7 +104,7 @@ WHERE id = ? AND remaining_quantity &gt; 0</code></pre>
           발급 요청이 오면 AVAILABLE 상태인 행 하나를 TAKEN으로 바꾼다.
         </p>
 
-        <pre><code>UPDATE coupon_stock SET status = 'TAKEN'
+        <pre><code class="language-sql">UPDATE coupon_stock SET status = 'TAKEN'
 WHERE coupon_id = ? AND status = 'AVAILABLE' LIMIT 1</code></pre>
 
         <p>
@@ -124,7 +124,7 @@ WHERE coupon_id = ? AND status = 'AVAILABLE' LIMIT 1</code></pre>
           CouponStock 엔티티와 Repository를 만들었다.
         </p>
 
-        <pre><code>@Entity
+        <pre><code class="language-java">@Entity
 public class CouponStock {
     @Id @GeneratedValue
     private Long id;
@@ -149,7 +149,7 @@ public interface CouponStockRepository extends JpaRepository&lt;CouponStock, Lon
           DataInitializer에서 쿠폰 생성할 때 stock 300행을 같이 INSERT 하게 했다.
         </p>
 
-        <pre><code>Coupon coupon = couponRepository.save(new Coupon("Limited", ...));
+        <pre><code class="language-java">Coupon coupon = couponRepository.save(new Coupon("Limited", ...));
 
 List&lt;CouponStock&gt; stocks = new ArrayList&lt;&gt;();
 for (int i = 0; i &lt; 300; i++) {
@@ -173,7 +173,7 @@ couponStockRepository.saveAll(stocks);</code></pre>
           처음엔 구현이 잘못된 줄 알았다. 근데 실패한 요청들의 예외를 까보니까 이상했다.
         </p>
 
-        <pre><code>Caused by: org.hibernate.PessimisticLockException:
+        <pre><code class="language-sql">Caused by: org.hibernate.PessimisticLockException:
     JDBC exception executing SQL
     [UPDATE coupon_stock SET status = 'TAKEN' WHERE coupon_id = ? AND status = 'AVAILABLE' LIMIT 1]
     [Timeout trying to lock table "COUPON_STOCK"]</code></pre>
@@ -248,5 +248,6 @@ couponStockRepository.saveAll(stocks);</code></pre>
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

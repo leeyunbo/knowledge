@@ -122,7 +122,7 @@
           가장 자주 보이는 코드 패턴이다.
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
 
     @Transactional
@@ -211,7 +211,7 @@ public class OrderService {
           외부 트랜잭션에 영향을 주지 않는다.
         </p>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class PaymentService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -254,5 +254,6 @@ public class PaymentService {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>

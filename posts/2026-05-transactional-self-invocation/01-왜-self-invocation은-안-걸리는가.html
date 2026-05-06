@@ -36,7 +36,7 @@
 
         <h2>증상부터 — 코드는 멀쩡한데 트랜잭션이 안 걸린다</h2>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
 
     public void placeOrder(Order order) {
@@ -109,7 +109,7 @@ public class OrderService {
 
         <h2>구체적 예시 — CGLIB 동적 클래스 그림</h2>
 
-        <pre><code>// Spring이 만든 프록시 클래스 (개념적 표현)
+        <pre><code class="language-java">// Spring이 만든 프록시 클래스 (개념적 표현)
 public class OrderService$$EnhancerByCGLIB$$abc extends OrderService {
 
     private MethodInterceptor interceptor;
@@ -148,7 +148,7 @@ controller.do() {
 
         <h2>JDK 동적 프록시도 똑같이 안 걸린다</h2>
 
-        <pre><code>public interface OrderService {
+        <pre><code class="language-java">public interface OrderService {
     void placeOrder(Order order);
     void save(Order order);
 }
@@ -176,7 +176,7 @@ public class OrderServiceImpl implements OrderService {
 
         <h3>형태 1: @Async도 똑같이 안 먹힘</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class NotificationService {
 
     public void send(Notification n) {
@@ -194,7 +194,7 @@ public class NotificationService {
 
         <h3>형태 2: @Cacheable도 마찬가지</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class ProductService {
 
     public Product getOrFetch(Long id) {
@@ -211,7 +211,7 @@ public class ProductService {
 
         <h3>형태 3: 같은 클래스의 다른 @Transactional도 전파 안 됨</h3>
 
-        <pre><code>@Service
+        <pre><code class="language-java">@Service
 public class OrderService {
 
     @Transactional
@@ -297,6 +297,7 @@ public class OrderService {
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
 </content>
