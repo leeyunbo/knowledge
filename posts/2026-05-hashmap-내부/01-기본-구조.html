@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashMap의 기본 구조 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 1/4</div>
+        <h1>HashMap의 기본 구조</h1>
+        <p class="subtitle">
+          Node 배열, 해시 함수, equals/hashCode 계약.
+          평균 O(1)이 되기까지 어떤 약속들이 깔려 있는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HashMap 내부</div>
+        <ol>
+          <li class="current">기본 구조</li>
+          <li><a href="./02-put-get과-해시-충돌.html">put/get의 흐름과 해시 충돌</a></li>
+          <li><a href="./03-resize와-load-factor.html">Resize와 Load Factor</a></li>
+          <li><a href="./04-treeify.html">Treeify — Red-Black Tree로 전환</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>HashMap이란 자료구조</h2>
+
+        <pre><code>역할: key → value 매핑을 평균 O(1)에 제공
+핵심 아이디어: key의 해시로 배열의 인덱스를 만든다
+   put: index = hash(key) % capacity → table[index]에 저장
+   get: index = hash(key) % capacity → table[index]에서 찾기
+
+결과:
+  배열 직접 인덱싱 = O(1)
+  단, 충돌이 없을 때
+  충돌이 많아지면 충돌 처리 구조의 비용이 더해짐</code></pre>
+
+        <p>
+          HashMap의 모든 디테일은 이 한 줄짜리 아이디어를
+          <strong>실제 사용 가능하게</strong> 만드는 보조 장치들이다.
+          충돌 어떻게 처리할지, 배열이 가득 차면 어떻게 늘릴지,
+          충돌이 너무 많아지면 어떻게 빠르게 찾을지.
+        </p>
+
+        <h2>핵심 필드 — table</h2>
+
+        <pre><code>// java.util.HashMap (OpenJDK 17 기준)
+public class HashMap&lt;K,V&gt; {
+
+    transient Node&lt;K,V&gt;[] table;        // ★ 본체. 버킷 배열
+    transient int size;                  // 저장된 엔트리 수
+    int threshold;                       // 다음 resize 임계값
+    final float loadFactor;              // 기본 0.75
+
+    static final int DEFAULT_INITIAL_CAPACITY = 1 &lt;&lt; 4;   // 16
+    static final float DEFAULT_LOAD_FACTOR = 0.75f;
+    static final int MAXIMUM_CAPACITY = 1 &lt;&lt; 30;          // ~10억
+    ...
+}</code></pre>
+
+        <p>
+          <code>table</code>이 본체. 길이는 항상 2의 제곱(16, 32, 64, ...).
+          왜 2의 제곱이냐는 인덱스 계산을 빠르게 하기 위해 — 다음 편에서.
+        </p>
+
+        <h2>Node — 한 칸에 들어가는 것</h2>
+
+        <pre><code>static class Node&lt;K,V&gt; implements Map.Entry&lt;K,V&gt; {
+    final int hash;       // ★ key의 해시값을 캐시 (재계산 안 하기 위해)
+    final K key;
+    V value;
+    Node&lt;K,V&gt; next;       // ★ 같은 버킷의 다음 노드 (체이닝)
+
+    Node(int hash, K key, V value, Node&lt;K,V&gt; next) {
+        this.hash = hash;
+        this.key = key;
+        this.value = value;
+        this.next = next;
+    }
+}</code></pre>
+
+        <p>
+          한 버킷에 노드 하나가 아니라 <strong>링크드 리스트</strong>가 들어갈 수 있다는 뜻.
+          충돌 시 같은 버킷에 여러 엔트리가 next 포인터로 연결됨.
+        </p>
+
+        <pre><code>table[index] 그림:
+
+  table[0] → null
+  table[1] → Node{hash, key, value, next} → Node{...} → null
+  table[2] → null
+  table[3] → Node{hash, key, value, next=null}
+  table[4] → Node → Node → Node → ... (충돌 많으면)
+  ...
+
+→ 충돌 적으면 next=null인 노드 하나만 (O(1) 접근)
+→ 충돌 많아지면 리스트가 길어짐 (O(n) 위험)
+→ Java 8+에선 너무 길어지면 트리로 변환 (4편에서)</code></pre>
+
+        <h2>해시 함수 — 두 단계</h2>
+
+        <p>
+          HashMap 안에서 인덱스가 만들어지는 과정은 <strong>두 단계</strong>다.
+        </p>
+
+        <h3>1단계: key.hashCode() — 사용자 정의</h3>
+
+        <pre><code>// HashMap 입장:
+int h = key.hashCode();   // Object.hashCode() 또는 사용자가 오버라이드한 것
+
+// 예시:
+"abc".hashCode() = 96354
+new Integer(42).hashCode() = 42
+
+equals/hashCode 시리즈에서 짚은 그것 — key의 hashCode가 분포 좋아야 함</code></pre>
+
+        <h3>2단계: HashMap 내부의 hash() — 보정</h3>
+
+        <pre><code>// java.util.HashMap.hash (OpenJDK 17)
+static final int hash(Object key) {
+    int h;
+    return (key == null) ? 0 : (h = key.hashCode()) ^ (h &gt;&gt;&gt; 16);
+}
+
+→ key.hashCode() 결과를 그대로 쓰지 않고
+  상위 16비트를 하위 16비트와 XOR
+→ 결과: 32비트 해시 안의 분포가 더 균일</code></pre>
+
+        <h3>왜 XOR로 섞나</h3>
+
+        <pre><code>인덱스 계산: index = hash &amp; (table.length - 1)
+  table.length가 2의 제곱이라 (length - 1)은 모든 비트가 1
+  예: length=16 → mask=0x0F = 0000 1111
+  → hash의 하위 4비트만 인덱스 결정에 사용
+
+문제:
+  사용자 hashCode가 상위 비트만 다르고 하위는 같은 케이스 (객체 주소 기반 등)
+  → 하위 4비트만 보면 다 같은 인덱스 → 충돌 폭증
+
+해결:
+  상위 16비트를 하위로 XOR해서 섞어두면
+  사용자 hashCode의 상위 비트도 인덱스 계산에 영향
+  → 분포가 균일해짐 (한 번의 비트 연산으로 큰 효과)</code></pre>
+
+        <p>
+          이 보정은 Java 8에서 단순화된 형태. Java 7에선 더 복잡한 4단계 비트 셔플이 있었지만,
+          Java 8에선 한 번의 XOR로 충분히 효과적이라고 판단해 단순화.
+        </p>
+
+        <h2>인덱스 계산 — 왜 % 가 아닌 & 인가</h2>
+
+        <pre><code>이론적: index = hash % table.length
+실제: index = hash &amp; (table.length - 1)
+
+이유:
+  % 연산은 CPU 명령어로 나누기 → 느림
+  &amp; 연산은 비트 AND → 매우 빠름
+  단, 둘이 같은 결과를 내려면 table.length가 2의 제곱이어야 함
+
+예:
+  length=16 (= 2^4)
+  hash=12345
+
+  12345 % 16 = 9
+  12345 &amp; 15 = 12345 &amp; 0b1111 = 0b0001 1001 &amp; 0b0000 1111 = 0b0000 1001 = 9
+  → 같은 결과
+
+  hash의 하위 4비트만 인덱스로 쓰는 셈
+  → 그래서 1단계에서 상위 16비트를 XOR로 섞어둔 게 의미가 있음</code></pre>
+
+        <h2>equals/hashCode 계약과의 연결</h2>
+
+        <p>
+          HashMap이 동작하려면 key 클래스의 <code>equals</code>와 <code>hashCode</code>가 계약을 지켜야 한다.
+          equals/hashCode 시리즈에서 깊이 다룬 그것.
+        </p>
+
+        <pre><code>계약 1: a.equals(b) == true → a.hashCode() == b.hashCode()
+
+  HashMap이 의존하는 부분:
+    "같은 key"라고 판단할 두 객체는 hashCode도 같아야 함
+    → 같은 버킷에 들어감
+    → equals 비교로 찾을 수 있음
+
+  위반 시:
+    같은 의미의 두 key가 다른 버킷에 들어감
+    → put 후 같은 key로 get 했는데 못 찾음
+    → 메모리 누수처럼 동작
+
+계약 2: hashCode는 객체가 변하지 않는 한 일관
+
+  HashMap이 의존하는 부분:
+    put할 때의 hashCode와 get할 때의 hashCode가 같아야 함
+    → 같은 인덱스에 도달
+    → 그 버킷에서 찾기
+
+  위반 시 (mutable key):
+    put 후 key의 필드를 바꾸면 hashCode가 변함
+    → get 시 다른 버킷을 찾음
+    → 데이터를 잃음 (그러나 컬렉션에는 남아있음 → 누수)</code></pre>
+
+        <p>
+          그래서 HashMap의 key는 <strong>불변(immutable)이거나 적어도 equals/hashCode에 영향 주는 필드는 변하지 않아야</strong> 한다.
+          String, Integer 같은 불변 타입이 key로 자주 쓰이는 이유.
+        </p>
+
+        <h2>HashMap의 평균 vs 최악</h2>
+
+        <pre><code>평균 (이상적인 분포 + 적당한 load factor):
+  put / get / remove: O(1)
+  → 배열 직접 인덱싱 + 짧은 리스트 (보통 길이 0~1) 탐색
+
+최악 (모든 key가 한 버킷에 충돌):
+  Java 7까지: O(n) — 한 리스트에 n개 다 매달림
+  Java 8+: O(log n) — 트리로 전환되니 트리 탐색
+
+평균을 보장하는 장치들:
+  1. 좋은 hash 함수 (사용자 + HashMap 보정)
+  2. 충분한 capacity (load factor 0.75에서 자동 확장)
+  3. 트리 fallback (Java 8+)</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HashMap이 평균 O(1)인 이유?</h3>
+
+        <p>
+          key의 해시로 배열 인덱스를 만들어 직접 접근하기 때문.
+          <code>index = hash &amp; (length - 1)</code>로 즉시 버킷을 찾고,
+          그 버킷의 짧은 체인만 검사하니 평균 상수 시간.
+        </p>
+
+        <h3>Q. capacity가 왜 항상 2의 제곱인가?</h3>
+
+        <p>
+          인덱스 계산을 <code>%</code> 대신 <code>&amp;</code>로 빠르게 하기 위해.
+          length가 2의 제곱이면 <code>hash % length == hash &amp; (length - 1)</code>이 성립.
+          나누기 연산이 비트 AND로 대체되어 훨씬 빠름.
+        </p>
+
+        <h3>Q. HashMap의 hash 함수가 key.hashCode()를 그대로 안 쓰는 이유?</h3>
+
+        <p>
+          인덱스 계산에 하위 비트만 사용되기 때문.
+          사용자 hashCode가 상위 비트만 다르면 충돌이 폭증할 수 있어,
+          <code>h ^ (h &gt;&gt;&gt; 16)</code>으로 상위/하위를 섞어 분포를 균일하게 만듦.
+        </p>
+
+        <h3>Q. HashMap의 key로 mutable 객체를 쓰면?</h3>
+
+        <p>
+          위험. put 이후 key의 필드가 변하면 hashCode가 달라져 다른 버킷을 찾게 되고,
+          데이터를 영원히 못 찾는 누수 상태가 됨. 항상 불변 타입을 key로 권장.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>HashMap = Node[] table + 해시로 인덱스 계산 + 충돌은 체인/트리
+
+핵심 약속:
+  - capacity는 2의 제곱
+  - hash 함수는 키 hashCode를 한 번 더 섞음 (상위 16비트 XOR)
+  - 인덱스는 hash &amp; (length - 1)
+  - key는 불변 + equals/hashCode 계약 준수
+
+다음: put/get이 실제로 어떻게 흐르는지, 충돌이 어떻게 처리되는지.</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

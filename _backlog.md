@@ -8,7 +8,7 @@
 
 ### Java 언어
 - [x] ★ `equals` / `hashCode` 계약 — 위반 시 무슨 일이 (3편)
-- [ ] ★ HashMap 내부 — 해시 충돌, 리해싱, treeify (4편)
+- [x] ★ HashMap 내부 — 해시 충돌, 리해싱, treeify (4편)
 - [ ] ★ Collection 비교 — ArrayList vs LinkedList, HashMap vs TreeMap (3편)
 
 ### JVM 내부
