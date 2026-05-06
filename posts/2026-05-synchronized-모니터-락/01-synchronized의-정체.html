@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>synchronized의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 1/3</div>
+        <h1>synchronized의 정체</h1>
+        <p class="subtitle">
+          모든 자바 객체에 숨어있는 모니터 락. 임계 영역과 mutual exclusion.
+          한 줄짜리 키워드 뒤에 어떤 메커니즘이 있는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">synchronized & 모니터 락</div>
+        <ol>
+          <li class="current">synchronized의 정체</li>
+          <li><a href="./02-객체-헤더와-락-진화.html">객체 헤더와 락 진화 — Biased / Lightweight / Heavyweight</a></li>
+          <li><a href="./03-synchronized와-메모리-가시성.html">synchronized와 메모리 가시성 — JMM과 happens-before</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>풀고자 하는 문제 — Race Condition</h2>
+
+        <pre><code>// 의도: 카운터 증가
+private int count = 0;
+
+public void increment() {
+    count++;   // ★ 여러 스레드가 동시에 호출하면?
+}
+
+// count++ 의 정체:
+//   1. count 메모리에서 읽기 (load)
+//   2. +1 (compute)
+//   3. 다시 메모리에 쓰기 (store)
+// → 세 단계 사이에 다른 스레드가 끼어들 수 있음</code></pre>
+
+        <h3>실제 발생하는 race</h3>
+
+        <pre><code>스레드 A와 B가 거의 동시에 increment() 호출:
+
+Step      A의 동작              B의 동작              count 메모리
+───────────────────────────────────────────────────────────────
+1         load (0 읽음)                                0
+2                              load (0 읽음)           0
+3         compute (0+1=1)                              0
+4                              compute (0+1=1)         0
+5         store (1 씀)                                 1
+6                              store (1 씀)            1   ← ★
+
+기대: count = 2
+결과: count = 1 (한 번 증가가 사라짐)</code></pre>
+
+        <p>
+          이런 현상을 race condition이라 한다. 임계 영역(critical section)이
+          원자적이지 않아 데이터가 깨지는 것.
+          synchronized는 이걸 막는 가장 기본적인 도구.
+        </p>
+
+        <h2>synchronized의 두 가지 사용</h2>
+
+        <h3>1. 메서드에 붙이기</h3>
+
+        <pre><code>public synchronized void increment() {
+    count++;
+}
+
+→ 메서드 진입할 때 'this'의 락을 획득
+→ 다른 스레드는 같은 인스턴스의 다른 synchronized 메서드도 호출 못 함
+→ 메서드 종료 시 락 해제
+
+static 메서드는 'this'가 없으므로:
+public static synchronized void doSomething() { ... }
+→ 클래스 객체 (Class 객체) 의 락을 획득</code></pre>
+
+        <h3>2. 블록에 붙이기 (락 객체 명시)</h3>
+
+        <pre><code>private final Object lock = new Object();
+
+public void increment() {
+    synchronized (lock) {
+        count++;
+    }
+}
+
+→ lock 객체의 모니터 락을 획득
+→ 임계 영역만 좁게 잡음 (메서드 일부만 보호)
+→ 락 객체를 분리해 다른 락과 독립 운용
+
+권장:
+  - 외부에서 접근 가능한 객체로 락 잡지 말기 (this 등)
+  - private final로 전용 락 객체 만들기
+  - 클래스 락 잡으려면 ClassName.class</code></pre>
+
+        <h2>모니터 락 — 모든 객체에 내장된 mutex</h2>
+
+        <pre><code>Java의 모든 객체는 본질적으로 모니터(monitor) 하나를 가짐
+  - 객체 헤더의 Mark Word에 락 정보 저장 (다음 편에서 자세히)
+  - intrinsic lock 또는 monitor lock이라 부름
+
+모니터의 두 부분:
+  1. Mutex (상호 배제) — 한 번에 한 스레드만 진입
+  2. Condition Variable — wait/notify로 조건 대기 (별도 주제)
+
+모니터는 1973년 Per Brinch Hansen, Tony Hoare가 제안한 동시성 추상화
+Java가 이를 객체에 직접 통합한 게 synchronized</code></pre>
+
+        <h3>synchronized의 동작 흐름</h3>
+
+        <pre><code>synchronized (obj) { 임계영역 }
+
+내부 동작:
+  1. obj의 모니터 락 획득 시도
+     - 다른 스레드가 잡고 있으면 대기
+     - 비어있으면 획득
+  2. 임계 영역 실행
+  3. 임계 영역 종료 시 락 해제
+     - 정상 종료든 예외든 항상 해제 (try-finally 같은 효과)
+  4. 대기하던 스레드 중 하나가 깨어남</code></pre>
+
+        <h2>JVM 바이트코드 — monitorenter / monitorexit</h2>
+
+        <pre><code>synchronized (lock) {
+    count++;
+}
+
+컴파일 후 바이트코드:
+  aload_1               // lock 객체 스택에
+  monitorenter          // 락 획득
+  // count++ 코드
+  aload_1
+  monitorexit           // 락 해제
+  // 예외 발생 시도 monitorexit 호출 (예외 핸들러로)
+
+→ JVM 명령어 두 개로 락 획득/해제 구현
+→ 자바 코드 수준의 키워드가 직접 바이트코드 명령어로 매핑</code></pre>
+
+        <h3>synchronized 메서드의 차이</h3>
+
+        <pre><code>public synchronized void increment() { count++; }
+
+바이트코드:
+  메서드에 ACC_SYNCHRONIZED 플래그만 표시
+  → JVM이 메서드 진입/종료 시 자동으로 락 처리
+  → monitorenter/monitorexit 명령어 명시 안 됨
+
+블록 synchronized와 효과는 동일하지만 메커니즘 약간 다름</code></pre>
+
+        <h2>재진입성 (Reentrancy)</h2>
+
+        <pre><code>public synchronized void outer() {
+    inner();   // ← 같은 락을 다시 잡으려 함
+}
+
+public synchronized void inner() {
+    ...
+}
+
+→ outer가 'this' 락 획득
+→ inner도 'this' 락 획득 시도
+→ 이미 자기가 잡고 있는 락이라 즉시 통과 (재진입 허용)
+
+이게 안 되면 데드락 (자기가 자기를 막음)
+ReentrantLock도 같은 이유로 "재진입 가능" 강조</code></pre>
+
+        <p>
+          Java의 모니터 락은 기본적으로 재진입 가능. 같은 스레드가 같은 락을 여러 번 잡아도 OK.
+          진입 카운트를 내부적으로 유지해서, 같은 횟수만큼 해제해야 락이 풀린다.
+        </p>
+
+        <h2>락의 단위 — 무엇을 보호하나</h2>
+
+        <pre><code>synchronized는 객체 단위로 락을 잡음
+  → 같은 객체의 synchronized 메서드/블록은 직렬화
+  → 다른 객체의 synchronized는 독립
+
+예시:
+  Counter c1 = new Counter();
+  Counter c2 = new Counter();
+
+  // 스레드 A: c1.increment() 호출
+  // 스레드 B: c2.increment() 호출 → 동시 실행 가능 (다른 락)
+
+  // 스레드 A: c1.increment() 호출
+  // 스레드 B: c1.decrement() 호출 → 직렬화 (같은 'this' 락)</code></pre>
+
+        <h3>락 단위의 함정</h3>
+
+        <pre><code>// 잘못된 패턴: 다른 락 객체로 보호하면 동시성 보장 안 됨
+private Object lockA = new Object();
+private Object lockB = new Object();
+private int count = 0;
+
+public void increment() {
+    synchronized (lockA) {
+        count++;
+    }
+}
+
+public void decrement() {
+    synchronized (lockB) {
+        count--;
+    }
+}
+
+→ A와 B 락이 별개라 동시 진입 가능
+→ count가 깨질 수 있음
+
+같은 데이터를 보호하는 모든 임계 영역은 같은 락으로 보호해야 함</code></pre>
+
+        <h2>synchronized vs ReentrantLock</h2>
+
+        <pre><code>synchronized:
+  ✓ 키워드 — 코드 간결
+  ✓ 자동 해제 (스코프 빠지면)
+  ✓ JVM이 최적화 (다음 편의 biased/lightweight)
+  ✗ 타임아웃 X
+  ✗ 인터럽트 X (락 대기 중)
+  ✗ tryLock X
+  ✗ 공정성 X
+
+ReentrantLock:
+  ✓ tryLock(timeout) — 타임아웃 가능
+  ✓ lockInterruptibly() — 인터럽트 가능
+  ✓ Condition으로 정교한 대기 큐
+  ✓ 공정성(fair) 모드 옵션
+  ✗ 명시적 lock/unlock — try-finally 잊으면 위험
+
+언제 무엇:
+  단순 임계 영역 → synchronized
+  타임아웃, 인터럽트, 공정성 필요 → ReentrantLock</code></pre>
+
+        <h2>synchronized의 한계 — 다음 편에서 풀어갈 주제</h2>
+
+        <pre><code>1. 성능: 락 경쟁 시 OS 수준 wait/notify로 빠짐 (느림)
+   → Java 6에서 biased lock, lightweight lock 도입
+   → 다음 편에서 진화 과정
+
+2. 공정성: 어떤 스레드가 먼저 깨어날지 보장 X
+   → ReentrantLock의 fair 모드가 답
+
+3. 메모리 가시성:
+   → synchronized는 자동으로 메모리 배리어 효과
+   → JMM, happens-before와 어떻게 연결되나
+   → 3편 주제
+
+4. 데드락: 두 락을 다른 순서로 잡으면 발생
+   → Deadlock 시리즈에서 deep dive</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. synchronized는 어떻게 동작하나?</h3>
+
+        <p>
+          모든 자바 객체에 내장된 모니터 락을 사용. 메서드 또는 블록에 붙이면 진입 시 락 획득,
+          종료 시 해제. JVM 바이트코드의 <code>monitorenter</code>/<code>monitorexit</code> 명령어로 구현.
+          같은 락에 대한 임계 영역들은 직렬화되어 race condition 방지.
+        </p>
+
+        <h3>Q. synchronized 메서드와 블록의 차이?</h3>
+
+        <p>
+          메서드는 <code>this</code>(static이면 클래스 객체) 락을 자동 사용, 메서드 전체가 임계 영역.
+          블록은 명시한 락 객체로 좁은 영역만 보호. 블록이 더 유연해서 권장 — 외부 노출 안 된 private 락 객체 사용.
+        </p>
+
+        <h3>Q. 재진입성이란?</h3>
+
+        <p>
+          같은 스레드가 이미 잡고 있는 락을 다시 잡을 수 있는 성질.
+          Java 모니터 락은 기본적으로 재진입 가능. 진입 카운트를 유지해서 같은 횟수만큼 풀어야 해제.
+          재진입 안 되면 자기가 자기를 막아 데드락이 됨.
+        </p>
+
+        <h3>Q. synchronized와 ReentrantLock 중 무엇을 쓸까?</h3>
+
+        <p>
+          단순 임계 영역엔 synchronized — 코드 간결하고 자동 해제.
+          타임아웃, 인터럽트 가능 락 대기, 공정성, Condition을 통한 정교한 신호가 필요하면 ReentrantLock.
+          ReentrantLock은 try-finally로 unlock을 반드시 호출해야 해서 실수 위험.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>synchronized = "이 임계 영역은 한 스레드만 진입"
+
+메커니즘:
+  - 모든 객체에 내장된 monitor lock 사용
+  - JVM의 monitorenter / monitorexit 명령어
+  - 재진입 가능 (같은 스레드는 통과)
+  - 같은 락의 임계 영역들은 직렬화
+
+함정:
+  - 락 단위 잘못 잡으면 보호 무효
+  - 외부 노출 락 객체 잡으면 외부에서 락 영향 가능
+
+다음 편: 그 락이 객체 헤더의 어디에 어떻게 표시되는지, biased/lightweight/heavyweight 진화 과정.</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>
