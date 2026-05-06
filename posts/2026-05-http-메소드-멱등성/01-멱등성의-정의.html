@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>멱등성의 정의 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 1/2</div>
+        <h1>멱등성의 정의</h1>
+        <p class="subtitle">
+          RFC 9110의 정의. safe와 idempotent의 구분.
+          왜 PUT은 멱등하고 POST는 아닌가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP 메소드와 멱등성</div>
+        <ol>
+          <li class="current">멱등성의 정의</li>
+          <li><a href="./02-실무-함정.html">실무 함정 — Idempotency Key, PATCH/DELETE</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>RFC 9110의 두 정의</h2>
+
+        <pre><code>RFC 9110 §9.2.1 (Safe Methods):
+  "A request method is considered safe if its defined semantics
+   are essentially read-only."
+
+  안전(safe) = 본질적으로 읽기 전용
+  → 서버 상태를 변경하지 않는 의도
+
+RFC 9110 §9.2.2 (Idempotent Methods):
+  "A request method is considered idempotent if the intended effect
+   on the server of multiple identical requests with that method is
+   the same as the effect for a single such request."
+
+  멱등(idempotent) = 같은 요청을 여러 번 보내도 의도된 서버 효과는 한 번 보낸 것과 동일</code></pre>
+
+        <p>
+          핵심 단어는 <strong>"intended effect"</strong>.
+          실제 응답이 같다는 게 아니라 <strong>서버 상태에 의도하는 변경이 같다</strong>는 뜻.
+          한 번이든 백 번이든 결국 같은 상태에 도달.
+        </p>
+
+        <h2>safe ⊂ idempotent</h2>
+
+        <pre><code>safe (읽기 전용)
+  → 서버 상태 안 바꿈
+  → 여러 번 보내도 같은 상태 (= 멱등)
+  ∴ safe면 자동으로 idempotent
+
+idempotent
+  → 서버 상태는 바꿔도 됨
+  → 단, 여러 번 보내도 결과 상태가 같아야 함
+  → safe보다 약한 조건
+
+세 등급:
+  safe + idempotent: GET, HEAD, OPTIONS, TRACE
+  idempotent only:   PUT, DELETE
+  neither:            POST, PATCH, CONNECT</code></pre>
+
+        <h2>각 메소드의 위치</h2>
+
+        <h3>GET — safe + idempotent</h3>
+
+        <pre><code>GET /users/123
+  → 사용자 정보 조회
+  → 한 번이든 100번이든 서버 상태 변화 없음
+  → 응답이 캐시되어도 안전</code></pre>
+
+        <p>
+          단, 카운터를 GET 시에 증가시키는 구현은 RFC 위반이지만 종종 보임.
+          그래도 "사용자가 의도한 효과는 조회"라는 점에서 safe로 분류.
+          서버 측에서 부수효과가 있더라도 "이건 클라이언트가 책임지는 변경이 아니다"는 의미.
+        </p>
+
+        <h3>HEAD — safe + idempotent</h3>
+
+        <pre><code>HEAD /users/123
+  → GET과 똑같지만 body 없이 헤더만
+  → 응답 크기, Last-Modified, ETag 확인 등에 사용
+  → 캐시 검증 시에도 활용</code></pre>
+
+        <h3>OPTIONS — safe + idempotent</h3>
+
+        <pre><code>OPTIONS /users/123
+  → 가능한 메소드 목록 조회 (Allow 헤더)
+  → CORS preflight에서 사용 (CORS 시리즈에서 짚은 그것)
+  → 서버 상태 안 바꿈</code></pre>
+
+        <h3>PUT — idempotent (not safe)</h3>
+
+        <pre><code>PUT /users/123
+Body: { name: "Alice", age: 30 }
+
+  → 사용자 123의 정보를 통째로 교체
+  → 첫 요청: { name: "Alice", age: 30 }로 갱신
+  → 두 번째 요청: 이미 그 값이라 변화 없음
+  → 100번째 요청: 여전히 같은 값
+  → 어느 시점이든 결과 상태가 같음 = 멱등
+
+핵심: PUT은 "이 자리에 이 값을 둬라"
+  → "있으면 갱신, 없으면 생성" 또는 "이미 있는 값으로 덮어쓰기"
+  → 결과는 항상 동일</code></pre>
+
+        <h3>DELETE — idempotent (not safe)</h3>
+
+        <pre><code>DELETE /users/123
+
+  → 사용자 123 삭제
+  → 첫 요청: 삭제됨
+  → 두 번째 요청: 이미 없음 → 404 또는 200
+  → 어느 쪽이든 "사용자 123이 없는 상태"는 동일
+  → 멱등
+
+미묘함:
+  HTTP 응답은 다를 수 있음 (200 OK vs 404 Not Found)
+  RFC가 말하는 멱등성은 "서버 상태"이지 "응답"이 아님
+  서버 상태의 관점에서 "사용자 123 부재"라는 결과가 같으므로 멱등</code></pre>
+
+        <h3>POST — neither</h3>
+
+        <pre><code>POST /orders
+Body: { itemId: 42, quantity: 1 }
+
+  → 새 주문 생성 (자원 신규 추가)
+  → 첫 요청: 주문 #1001 생성
+  → 두 번째 요청: 주문 #1002 생성 (다른 자원)
+  → 세 번째 요청: 주문 #1003 생성
+  → 같은 요청 N번 → 자원 N개 생성
+  → 결과 상태가 다름 = 멱등 X
+
+POST의 의미:
+  "이 컬렉션에 새 자원을 추가하라"
+  서버가 자원의 식별자를 결정 (Location 헤더로 응답)
+  같은 요청이라도 매번 새 자원이 생기는 게 정의된 동작</code></pre>
+
+        <h3>PATCH — neither (보통)</h3>
+
+        <pre><code>PATCH /users/123
+Body: { age: 31 }
+
+  → 사용자 123의 일부 필드만 갱신
+  → 첫 요청: age 31로
+  → 두 번째 요청: 이미 31이라 변화 없음 → 멱등으로 보임
+
+그러나:
+  PATCH /users/123
+  Body: { age++: 1 }   # 가상의 incremental 업데이트
+
+  → 매번 1씩 증가
+  → 멱등 X
+
+RFC 5789 (PATCH 정의):
+  "PATCH is neither safe nor idempotent as defined by [RFC7231]."
+  "However, PATCH can be used in such a way as to be idempotent..."
+
+  → 기본적으로 PATCH는 멱등 보장 X
+  → 단, 패치 내용이 멱등하게 작성되면 멱등할 수 있음
+  → 클라이언트는 멱등성 가정하지 말 것</code></pre>
+
+        <h3>TRACE — safe + idempotent (그러나 거의 안 씀)</h3>
+
+        <pre><code>TRACE /
+  → 요청을 그대로 응답으로 돌려줌 (디버깅용)
+  → safe + idempotent
+  → 보안 이슈로 대부분 서버 비활성화 (XST 공격)</code></pre>
+
+        <h2>멱등성 표 한눈에</h2>
+
+        <pre><code>Method     Safe   Idempotent   설명
+─────────────────────────────────────────────────────────
+GET        O       O           조회
+HEAD       O       O           헤더만 조회
+OPTIONS    O       O           가능 메소드 / CORS preflight
+TRACE      O       O           디버깅 (거의 안 씀)
+PUT        X       O           전체 교체 — 같은 결과 상태
+DELETE     X       O           삭제 — 같은 결과 상태
+POST       X       X           생성 — 매번 새 자원
+PATCH      X       X*          부분 수정 — 보통 멱등 X
+CONNECT    X       X           터널링 (TLS proxy 등)
+
+* PATCH는 패치 내용에 따라 멱등할 수도 있지만 기본 가정은 X</code></pre>
+
+        <h2>왜 멱등성이 중요한가</h2>
+
+        <h3>이유 1: 네트워크 재시도의 안전성</h3>
+
+        <pre><code>상황:
+  클라이언트가 요청 → 서버에서 처리 완료 → 응답이 네트워크 도중 유실
+  클라이언트는 "응답 안 옴"으로 판단 → 재시도
+
+POST면:
+  서버에서 자원이 또 생성됨 → 중복 주문, 중복 결제
+
+PUT/DELETE면:
+  같은 요청이라 결과 상태 동일 → 안전하게 재시도 가능
+
+→ 멱등 메소드는 자동 재시도가 가능
+→ 비멱등 메소드는 재시도 시 별도 보호 장치 필요 (다음 편: Idempotency Key)</code></pre>
+
+        <h3>이유 2: 캐싱 가능성</h3>
+
+        <pre><code>safe + idempotent 메소드는 응답을 캐시할 수 있음
+  - GET 응답을 CDN이 저장
+  - 두 번째 같은 요청은 origin server까지 안 가도 됨
+  - HEAD도 마찬가지
+
+POST 응답은 기본적으로 캐시 안 됨
+  - 새 자원 생성이라 의미 없음
+  - Cache-Control 명시 시 일부 가능하나 드문 케이스</code></pre>
+
+        <h3>이유 3: 분산 시스템에서의 일관성</h3>
+
+        <pre><code>Failover, Load Balancer 재라우팅, 메시지 큐 재처리 등에서
+멱등성이 깨지면 시스템이 일관성을 잃음
+
+예:
+  Kafka 메시지 처리 실패 → 재처리
+  메시지의 의미가 멱등이면 안전
+  비멱등이면 중복 부수효과 (예: 결제 두 번)
+
+분산 시스템 설계의 토대 = 멱등성
+이 시리즈와 별개로 "Idempotency Key 설계" 시리즈에서 더 깊이</code></pre>
+
+        <h2>왜 PUT은 멱등인데 POST는 아닌가 — 자원 식별자의 결정자</h2>
+
+        <pre><code>핵심 차이:
+  PUT — 클라이언트가 자원 식별자(URL)를 결정
+    PUT /users/123 → "123번 자원에 이 값을 둬라"
+    → 같은 요청 = 같은 자원에 같은 값 = 같은 결과
+
+  POST — 서버가 자원 식별자를 결정
+    POST /users → "users 컬렉션에 새 자원 추가"
+    → 서버가 ID를 부여 (auto-increment, UUID 생성 등)
+    → 같은 요청도 매번 새 ID = 다른 자원 = 다른 결과</code></pre>
+
+        <p>
+          그래서 RESTful 설계에서 자원 식별자가 명확하면 PUT을 쓰는 게 멱등성 보장에 유리.
+          POST는 "컬렉션에 추가" 의미일 때 사용.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. safe와 idempotent의 차이?</h3>
+
+        <p>
+          safe는 "서버 상태를 변경하지 않는" 읽기 전용. idempotent는 "여러 번 보내도 결과 상태가 같은" 동작.
+          safe는 자동으로 idempotent이지만 역은 아님. PUT/DELETE는 idempotent이지만 safe는 아님.
+        </p>
+
+        <h3>Q. POST와 PUT의 멱등성 차이는 왜 생기나?</h3>
+
+        <p>
+          자원 식별자를 누가 결정하느냐. PUT은 클라이언트가 URL로 자원을 명시하므로 같은 자원을 같은 값으로 덮어쓰는 결과.
+          POST는 서버가 자원 ID를 부여하므로 매번 새 자원이 생긴다.
+        </p>
+
+        <h3>Q. DELETE는 멱등한가?</h3>
+
+        <p>
+          멱등하다. 첫 요청에 삭제되고 두 번째는 404일 수 있지만, "그 자원이 없는 상태"라는 서버 상태는 동일.
+          RFC가 말하는 멱등성은 서버 상태이지 응답 코드가 아니다.
+        </p>
+
+        <h3>Q. PATCH는 멱등한가?</h3>
+
+        <p>
+          기본적으로 멱등 보장 X (RFC 5789). 패치 내용이 incremental(예: age += 1)이면 비멱등.
+          전체 필드 set이면 멱등할 수 있지만 클라이언트가 가정해선 안 됨.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>safe: 읽기 전용 — GET, HEAD, OPTIONS, TRACE
+idempotent: 여러 번 = 한 번의 결과 상태 — PUT, DELETE 추가
+neither: POST, PATCH
+
+멱등성의 본질: 같은 요청 N번 보내도 서버의 결과 상태가 같음.
+의미: 네트워크 재시도, 캐싱, 분산 시스템 일관성의 토대.
+
+다음 편: 비멱등 POST에서 중복 방지 — Idempotency Key, 그리고 DELETE/PATCH의 미묘함.</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

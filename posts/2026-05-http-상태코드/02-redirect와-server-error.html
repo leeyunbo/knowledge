@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redirect와 Server Error의 함정 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 2/2</div>
+        <h1>Redirect와 Server Error의 함정</h1>
+        <p class="subtitle">
+          301과 308의 차이가 메소드 보존에 있다.
+          502, 503, 504의 의미를 정확히 알면 장애 디버깅이 빨라진다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP 상태코드 — 헷갈리는 경계</div>
+        <ol>
+          <li><a href="./01-상태코드의-구조와-자주-헷갈리는-경계.html">상태코드의 구조와 자주 헷갈리는 경계</a></li>
+          <li class="current">Redirect와 Server Error의 함정</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>3xx — 리다이렉트의 종류</h2>
+
+        <pre><code>301 Moved Permanently  — 영구 이동
+302 Found             — 임시 이동 (예전 이름: Moved Temporarily)
+303 See Other         — POST 후 GET으로
+304 Not Modified      — 변경 없음 (캐시)
+307 Temporary Redirect — 임시 이동 + 메소드 보존
+308 Permanent Redirect — 영구 이동 + 메소드 보존</code></pre>
+
+        <h3>301 vs 308 — 영구 이동의 두 가지</h3>
+
+        <pre><code>둘 다 영구 이동 (Location 헤더에 새 URL).
+차이는 한 가지: 리다이렉트 후 클라이언트가 메소드를 유지하느냐.
+
+301:
+  POST /old → 301 + Location: /new
+  많은 클라이언트가 GET /new로 요청 (역사적 관행)
+  → POST의 body가 사라짐
+
+308:
+  POST /old → 308 + Location: /new
+  반드시 POST /new로 재요청 (RFC 7538)
+  → body 보존
+
+→ POST/PUT/DELETE를 영구 리다이렉트하려면 308이 안전
+→ 301은 GET 위주 자원에서 안전 (검색엔진도 301로 처리하면 새 URL로 인덱스 이전)</code></pre>
+
+        <h3>302 vs 307 — 임시 이동의 두 가지</h3>
+
+        <pre><code>302:
+  POST /old → 302 + Location: /new
+  많은 클라이언트가 GET /new로 변환
+  → 역사적 관행 (RFC 사양과 클라이언트 구현 불일치)
+
+307:
+  POST /old → 307 + Location: /new
+  반드시 POST /new로 재요청
+  → body 보존</code></pre>
+
+        <h3>303 See Other — POST/Redirect/GET 패턴</h3>
+
+        <pre><code>"이 POST 처리 끝났으니 GET으로 다음 페이지 가"
+POST /orders → 303 + Location: /orders/1001
+  → 클라이언트가 GET /orders/1001로 자동 이동
+
+용도:
+  - 폼 제출 후 새로고침 시 중복 제출 방지
+  - 결과 페이지로 이동시키는 표준 패턴
+  - PRG (Post/Redirect/Get) 패턴
+
+차이:
+  302는 메소드를 보존하지 않을 수도 있음 (구현 의존)
+  303은 명시적으로 GET으로 변환</code></pre>
+
+        <h3>304 Not Modified — 캐시 검증</h3>
+
+        <pre><code>GET /image.png
+If-None-Match: "abc123"   # 클라이언트가 가진 ETag
+
+서버 응답:
+  - 자원 안 변함 → 304 (body 없음)
+  - 변함 → 200 + 새 body + 새 ETag
+
+용도:
+  - 클라이언트가 캐시한 자원의 유효성 확인
+  - 트래픽 절감 (body 안 보냄)
+  - CDN/브라우저 캐시 핵심 메커니즘</code></pre>
+
+        <h2>리다이렉트 표 한눈에</h2>
+
+        <pre><code>코드  의미              메소드 보존    영구/임시
+─────────────────────────────────────────────────
+301   Moved Permanently   X (관행적)    영구
+302   Found               X (관행적)    임시
+303   See Other           GET 강제      임시
+304   Not Modified        해당 없음     캐시
+307   Temporary Redirect  O             임시
+308   Permanent Redirect  O             영구
+
+권장:
+  GET 자원 영구 이동: 301
+  GET 자원 임시 이동: 302 또는 307
+  POST/PUT 영구 이동: 308
+  POST/PUT 임시 이동: 307
+  POST 후 결과 페이지: 303 (PRG 패턴)</code></pre>
+
+        <h2>5xx — 서버 오류의 종류</h2>
+
+        <h3>500 Internal Server Error — 서버 일반 오류</h3>
+
+        <pre><code>"뭔가 서버에서 에러 났음 (구체적 분류 안 됨)"
+- 처리되지 않은 예외
+- NullPointerException 같은 코드 버그
+- DB 연결 실패 등 구체적 분류 안 한 모든 것
+
+가장 모호한 코드. 5xx 중에서 폴백.
+운영 입장에선 500이 자주 나오면 코드 버그 의심.</code></pre>
+
+        <h3>501 Not Implemented — 미구현</h3>
+
+        <pre><code>"이 메소드/기능은 서버가 구현 안 함"
+405와 차이:
+  405 — 자원이 그 메소드를 지원 안 함 (다른 메소드는 지원)
+  501 — 서버 자체가 그 메소드를 모름
+
+거의 안 봄. 보통 새 HTTP 메소드 도입 시 임시로 쓰임.</code></pre>
+
+        <h3>502 Bad Gateway — 게이트웨이 오류</h3>
+
+        <pre><code>"프록시/게이트웨이가 업스트림에서 잘못된 응답 받음"
+
+상황:
+  Client → Nginx → Backend
+  Backend가 응답 못 줌, 또는 깨진 응답
+  Nginx가 Client에게 502 반환
+
+원인:
+  - Backend 다운
+  - Backend가 잘못된 HTTP 응답 (헤더 깨짐, body 잘림)
+  - 프록시 단에서 stream 끊어짐
+
+디버깅:
+  Nginx 로그에서 upstream 응답 확인
+  Backend가 멀쩡한지부터 확인 (Pod down 등)</code></pre>
+
+        <h3>503 Service Unavailable — 서비스 불가</h3>
+
+        <pre><code>"서버가 일시적으로 응답할 수 없음"
+
+상황:
+  - 점검 중
+  - 과부하로 새 요청 거절
+  - 의존 서비스 다운으로 정상 처리 불가
+
+응답 헤더:
+  Retry-After: 120   # 2분 후 재시도
+
+503 vs 502:
+  502 — 게이트웨이/프록시가 업스트림 응답을 받지 못함
+  503 — 서버 자신이 "지금은 응답할 수 없다"고 의도적 반환
+
+→ 503은 서버가 스스로 알리는 의도적 메시지
+→ 502는 중간 단(보통 Nginx, ALB)이 알리는 메시지</code></pre>
+
+        <h3>504 Gateway Timeout — 게이트웨이 타임아웃</h3>
+
+        <pre><code>"프록시/게이트웨이가 업스트림 응답을 시간 안에 받지 못함"
+
+상황:
+  Client → Nginx → Backend (느림)
+  Backend가 30초 안에 응답 안 줌
+  Nginx의 proxy_read_timeout 초과 → 504
+
+502 vs 504:
+  502 — 응답 받았는데 깨졌거나 끊어짐
+  504 — 응답 자체를 시간 안에 못 받음
+
+해결:
+  - Backend 처리 시간 단축
+  - 비동기 패턴으로 전환 (202 Accepted)
+  - 프록시 timeout 늘리기 (근본 해결 아님)</code></pre>
+
+        <h2>5xx 표 한눈에</h2>
+
+        <pre><code>코드  의미                 누가 반환    원인
+────────────────────────────────────────────────────
+500   Internal Server Error  서버 자신   처리 안 된 예외, 일반 오류
+501   Not Implemented        서버 자신   메소드/기능 미구현
+502   Bad Gateway            프록시      업스트림이 깨진 응답
+503   Service Unavailable    서버 자신   의도적 일시 거부 (점검, 과부하)
+504   Gateway Timeout        프록시      업스트림이 응답 못 줌 (시간 초과)
+
+배치 그림:
+  Client → Proxy/Gateway → App Server → DB
+
+  502 / 504: Proxy ↔ App Server 사이 문제
+  500 / 503: App Server 내부 또는 의도적 거부</code></pre>
+
+        <h2>실무 디버깅 가이드</h2>
+
+        <pre><code>500 자주 발생:
+  → 애플리케이션 코드 예외 처리 누락
+  → 로그 확인 (스택 트레이스)
+  → APM (DataDog, Sentry) 으로 예외 탐지
+
+502 자주 발생:
+  → Backend Pod 다운/재시작
+  → Backend가 응답 형식 깨뜨림 (잘못된 헤더, body 잘림)
+  → 네트워크 끊어짐 (k8s에선 흔히)
+
+503 발생:
+  → 서버가 의도적으로 거부 — 어떤 이유인지 헬스체크/메트릭으로 확인
+  → 데이터베이스 다운으로 503 반환하는 경우도 있음
+
+504 발생:
+  → Backend 처리 시간 길어짐 — slow query, 외부 API 지연
+  → DB 락, 큐 적체 의심
+  → Backend 정상이지만 프록시 timeout이 짧을 수도</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 502와 504의 차이?</h3>
+
+        <p>
+          502는 게이트웨이/프록시가 업스트림에서 응답을 받았지만 그 응답이 깨졌거나 잘렸을 때.
+          504는 응답 자체를 시간 안에 받지 못했을 때(타임아웃).
+          502는 보통 Backend 다운/크래시, 504는 Backend 슬로우.
+        </p>
+
+        <h3>Q. 503은 누가 반환하나?</h3>
+
+        <p>
+          서버 자신이 의도적으로 반환. 점검 중이거나 과부하로 의도적으로 새 요청을 거부할 때.
+          Retry-After 헤더로 재시도 시점을 함께 알려주는 게 관례.
+        </p>
+
+        <h3>Q. POST를 영구 리다이렉트할 때 어떤 코드?</h3>
+
+        <p>
+          308. 301은 클라이언트가 관행적으로 GET으로 변환할 수 있어 body가 사라질 위험.
+          308은 RFC 7538에 메소드 보존이 명시되어 POST의 body까지 안전하게 전달됨.
+        </p>
+
+        <h3>Q. PRG 패턴이 뭔가?</h3>
+
+        <p>
+          Post/Redirect/Get. POST 처리 후 303 See Other로 GET 페이지로 리다이렉트.
+          폼 제출 후 새로고침 시 같은 POST가 재요청되어 중복 제출되는 문제를 막는 표준 패턴.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>3xx 리다이렉트:
+  메소드 보존 필요: 307(임시), 308(영구)
+  GET 위주: 301(영구), 302(임시)
+  POST 후 결과 페이지: 303 (PRG)
+  캐시 검증: 304
+
+5xx 서버 오류:
+  500 — 서버 일반 예외
+  502 — 프록시가 받은 업스트림 응답이 깨짐 (Backend 다운/크래시)
+  503 — 서버가 의도적 거부 (점검, 과부하)
+  504 — 프록시가 업스트림 응답 시간 초과 (Backend 슬로우)
+
+다음: synchronized & 모니터 락 — 동시성 시리즈 시작.</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

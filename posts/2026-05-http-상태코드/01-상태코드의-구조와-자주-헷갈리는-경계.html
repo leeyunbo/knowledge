@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>상태코드의 구조와 자주 헷갈리는 경계 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 1/2</div>
+        <h1>상태코드의 구조와 자주 헷갈리는 경계</h1>
+        <p class="subtitle">
+          1xx / 2xx / 3xx / 4xx / 5xx의 의미.
+          그리고 면접에서 단골로 나오는 헷갈리는 경계 — 401 vs 403, 400 vs 422.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP 상태코드 — 헷갈리는 경계</div>
+        <ol>
+          <li class="current">상태코드의 구조와 자주 헷갈리는 경계</li>
+          <li><a href="./02-redirect와-server-error.html">Redirect와 Server Error의 함정</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>5개의 클래스</h2>
+
+        <pre><code>1xx (Informational): 정보 — 요청 받음, 처리 진행 중
+2xx (Successful):    성공 — 요청 정상 처리됨
+3xx (Redirection):   리다이렉트 — 다른 곳으로 가야 함
+4xx (Client Error):  클라이언트 잘못
+5xx (Server Error):  서버 잘못</code></pre>
+
+        <p>
+          첫 자리수가 분류, 둘째/셋째 자리수는 세부 의미. 의미 모르겠으면 첫 자리수만 봐도 일단 분류는 됨.
+        </p>
+
+        <h2>2xx — 성공의 종류</h2>
+
+        <h3>200 OK — 가장 일반</h3>
+
+        <pre><code>요청 처리 성공, body에 결과 포함
+GET /users/123 → 200 + 사용자 정보
+POST /login → 200 + 토큰</code></pre>
+
+        <h3>201 Created — 자원 생성됨</h3>
+
+        <pre><code>POST /orders → 201 + Location: /orders/1001
+PUT /users/123 (없던 거 새로 생성) → 201
+
+Location 헤더에 새 자원의 URL을 명시하는 게 관례
+Body에 생성된 자원 데이터 포함하기도 함</code></pre>
+
+        <h3>202 Accepted — 비동기 수락</h3>
+
+        <pre><code>"요청 받았고, 나중에 처리할게"
+POST /reports/generate → 202 + Location: /reports/jobs/abc
+
+비동기 작업 트리거할 때 자주 사용
+클라이언트는 별도 엔드포인트(/jobs/abc)로 진행 상태 폴링</code></pre>
+
+        <h3>204 No Content — 성공이지만 body 없음</h3>
+
+        <pre><code>DELETE /users/123 → 204
+PUT /users/123 (성공 후 body 안 돌려줌) → 204
+
+200과 차이: body가 비어있다는 명시
+브라우저는 204 응답 시 화면 변화 없이 머무름</code></pre>
+
+        <h3>206 Partial Content — 범위 요청</h3>
+
+        <pre><code>GET /video.mp4
+Range: bytes=0-1023
+→ 206 + 첫 1024바이트만
+
+대용량 파일 분할 다운로드, 스트리밍 등에 사용</code></pre>
+
+        <h2>4xx — 클라이언트 오류</h2>
+
+        <h3>400 Bad Request — 요청 자체가 잘못됨</h3>
+
+        <pre><code>요청 형식 오류, 파싱 실패, 필수 필드 누락 등
+POST /users
+Body: { "name": "Alice", "age": "abc" }   // age는 숫자여야 함
+→ 400
+
+가장 모호한 코드. "뭐가 잘못됐는지"는 body로 알려주는 게 관례.</code></pre>
+
+        <h3>401 Unauthorized — 인증 안 됨</h3>
+
+        <pre><code>이름이 헷갈리는데 의미는 "인증이 필요한데 안 했거나 실패함"
+- 로그인 안 한 사용자가 보호된 API 접근
+- 토큰 만료 / 위조
+
+응답에 WWW-Authenticate 헤더가 와야 함 (RFC 9110)
+  WWW-Authenticate: Bearer realm="api"
+
+→ 클라이언트는 다시 인증 시도해야 함
+→ 401은 "넌 누구냐?"</code></pre>
+
+        <h3>403 Forbidden — 인가 안 됨</h3>
+
+        <pre><code>"누군지는 알겠지만 이건 못 하게 함"
+- 일반 유저가 admin API 호출
+- 다른 사람의 자원에 접근 시도
+
+WWW-Authenticate 없음 (재인증한다고 풀리는 문제 아님)
+
+→ 403은 "넌 누군지 알지만 이건 안 됨"</code></pre>
+
+        <h3>401 vs 403 — 면접 단골</h3>
+
+        <pre><code>401: 인증(Authentication) 부재 또는 실패
+  - 토큰 없음, 만료, 위조
+  - 다시 인증하면 풀릴 수 있음
+
+403: 인가(Authorization) 거부
+  - 인증은 됐지만 권한이 없음
+  - 다시 인증해도 안 풀림
+
+기억법:
+  401 → "인증 좀 해주세요"
+  403 → "인증은 됐는데 안 돼요"
+
+GitHub의 처리:
+  존재하지 않는 private repo 접근 → 404 (정보 노출 방지)
+  → 보안상 "있다"는 사실도 숨기기 위해 403 대신 404 반환
+
+  → 어떤 회사는 403/404를 보안 정책으로 통합 처리</code></pre>
+
+        <h3>404 Not Found — 자원 없음</h3>
+
+        <pre><code>해당 URL에 자원이 없음
+GET /users/9999 → 404 (사용자 9999 없음)
+
+미묘함:
+  "자원 없음"과 "라우트 없음" 구분
+  GET /typo-route → 404 (서버에 그런 endpoint 없음)
+  GET /users/9999 → 404 (있는 endpoint이지만 데이터 없음)
+
+  REST API 클라이언트 입장에서 둘 다 404로 같지만
+  서버 로그에선 구분해야 디버깅 용이</code></pre>
+
+        <h3>405 Method Not Allowed — 메소드 안 맞음</h3>
+
+        <pre><code>URL은 맞는데 그 메소드는 지원 안 함
+GET /users/123 → OK
+PATCH /users/123 → 405 (PATCH 미지원)
+
+응답에 Allow 헤더 필수
+  Allow: GET, PUT, DELETE</code></pre>
+
+        <h3>409 Conflict — 충돌</h3>
+
+        <pre><code>"현재 자원 상태와 충돌"
+- 동시 수정 충돌 (Optimistic Lock 실패)
+- 이미 존재하는 자원 다시 만들려 함 (회원가입 이메일 중복)
+
+POST /users
+Body: { email: "alice@example.com" }
+→ 409 (이미 존재)
+
+PUT /users/123 + If-Match: "v1"
+→ 409 (서버는 이미 v2)</code></pre>
+
+        <h3>422 Unprocessable Entity — 형식은 맞지만 의미 오류</h3>
+
+        <pre><code>RFC 9110 (이전 RFC 4918에서 WebDAV용으로 정의되었으나 일반 API에서도 사용)
+
+POST /users
+Body: { "email": "not-an-email" }   // 형식은 JSON 정상, 그러나 email 형식 위반
+→ 422
+
+400 vs 422:
+  400: 요청 자체가 깨짐 (JSON 파싱 실패, 헤더 잘못 등)
+  422: 요청은 정상이지만 비즈니스 룰 위반
+
+  실무: 둘 다 400으로 통일하는 곳도 많음 (의미 차이 미묘)
+  Stripe, Spring 일부 라이브러리는 422 적극 사용</code></pre>
+
+        <h3>429 Too Many Requests — 레이트 리밋</h3>
+
+        <pre><code>"너무 많이 보냈음, 잠시 쉬어"
+응답에 Retry-After 헤더로 언제 재시도할지 알려주는 게 관례
+  Retry-After: 60   # 60초 후 다시
+  Retry-After: Wed, 21 Oct 2026 07:28:00 GMT
+
+Rate Limiting 시리즈에서 자세히</code></pre>
+
+        <h2>400 vs 422 vs 409 — 헷갈리는 셋</h2>
+
+        <pre><code>상황 1: 필드 형식 오류 (email이 "abc")
+  엄격한 분류:
+    - JSON 파싱은 됐음 → 400 아님
+    - 필드 의미 위반 → 422
+  실무 현실:
+    - 많은 API가 그냥 400 사용 (구분이 모호하니)
+
+상황 2: 이메일 중복 회원가입
+  → 409 (자원 충돌)
+  또는 422 (의미적으로 만들 수 없는 자원)
+  팀 컨벤션마다 다름
+
+상황 3: JSON 파싱 실패
+  → 400 (요청 자체가 깨짐)
+
+상황 4: 메소드만 잘못
+  → 405 (Method Not Allowed)
+
+권장 우선순위:
+  1. 405 — 메소드 불일치
+  2. 400 — 요청 파싱/형식 실패
+  3. 401 — 인증 없음
+  4. 403 — 인가 없음
+  5. 404 — 자원 없음
+  6. 409 — 자원 상태 충돌
+  7. 422 — 비즈니스 룰 위반
+  8. 429 — 레이트 리밋</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 401과 403의 차이?</h3>
+
+        <p>
+          401은 인증(Authentication) 부재/실패. 토큰이 없거나 만료되었을 때.
+          다시 인증하면 풀릴 수 있다는 의미.
+          403은 인가(Authorization) 거부. 인증은 됐지만 권한이 없는 상황. 재인증해도 풀리지 않음.
+        </p>
+
+        <h3>Q. 400과 422의 차이?</h3>
+
+        <p>
+          400은 요청 자체가 깨진 경우(JSON 파싱 실패, 필수 헤더 누락).
+          422는 요청 형식은 정상이지만 비즈니스 룰 위반(이메일 형식 오류, 필드값 범위 위반).
+          실무에선 둘을 400으로 통합하는 곳도 많음.
+        </p>
+
+        <h3>Q. POST로 자원 생성 시 응답은 200, 201 중?</h3>
+
+        <p>
+          201 Created가 RFC상 정확. Location 헤더로 새 자원 URL을 함께 반환.
+          많은 실무에선 200으로 처리하기도 하나 RESTful 설계에선 201 권장.
+        </p>
+
+        <h3>Q. 동시 수정 충돌은 어떤 코드?</h3>
+
+        <p>
+          409 Conflict. 보통 Optimistic Lock(<code>If-Match</code> 헤더, version 컬럼)으로 검증하다 실패할 때 사용.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>2xx: 성공 — 200 일반, 201 생성, 202 비동기 수락, 204 body 없음
+4xx: 클라이언트 — 400 형식, 401 인증, 403 인가, 404 자원 없음,
+                 405 메소드, 409 충돌, 422 룰 위반, 429 레이트 리밋
+
+헷갈리는 경계:
+  401 vs 403: 인증 vs 인가
+  400 vs 422: 형식 깨짐 vs 룰 위반
+
+다음 편: 3xx 리다이렉트와 5xx 서버 오류의 미묘함.</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

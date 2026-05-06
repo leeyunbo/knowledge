@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실무 함정 — Idempotency Key, PATCH/DELETE (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 2/2</div>
+        <h1>실무 함정 — Idempotency Key, PATCH/DELETE</h1>
+        <p class="subtitle">
+          비멱등 POST를 안전하게 만드는 Idempotency Key 패턴.
+          DELETE의 응답 코드 모호함, PATCH의 멱등성 보장 방식.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP 메소드와 멱등성</div>
+        <ol>
+          <li><a href="./01-멱등성의-정의.html">멱등성의 정의</a></li>
+          <li class="current">실무 함정 — Idempotency Key, PATCH/DELETE</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>POST의 함정 — 중복 결제, 중복 주문</h2>
+
+        <pre><code>시나리오:
+  1. 사용자가 결제 버튼 클릭
+  2. 클라이언트가 POST /payments 요청 전송
+  3. 서버에서 결제 처리 완료
+  4. 응답이 네트워크 도중 유실
+  5. 클라이언트 타임아웃 → 재시도
+  6. 서버가 또 결제 처리 → ★ 결제 두 번 발생
+
+POST는 비멱등이라 서버 입장에서 두 번째 요청이 첫 번째와 같은지 모름
+→ 매번 새 결제로 처리</code></pre>
+
+        <h2>해결책 — Idempotency Key</h2>
+
+        <pre><code>아이디어:
+  클라이언트가 요청에 고유 키를 붙임
+  서버가 그 키 기준으로 "이미 처리한 요청"인지 판별
+
+흐름:
+  1. 클라이언트가 UUID 생성 (예: "req-2026-05-06-abc123")
+  2. 헤더에 담아 요청
+     POST /payments
+     Idempotency-Key: req-2026-05-06-abc123
+     Body: { amount: 10000, ... }
+  3. 서버:
+     - 같은 키로 요청한 적 있는가?
+     - 없음 → 새 결제 처리 + 키와 결과 저장
+     - 있음 → 저장된 결과만 반환 (재처리 X)
+
+결과:
+  같은 키로 N번 보내도 결제는 1번만 발생
+  네트워크 재시도가 안전해짐
+  POST가 "조건부 멱등"이 됨</code></pre>
+
+        <h3>Stripe / Toss의 실제 구현</h3>
+
+        <pre><code>Stripe:
+  POST /v1/charges
+  Idempotency-Key: 임의의 64자 이하 키
+  - 24시간 동안 같은 키 = 같은 결과
+  - 키와 응답을 Redis 등에 캐시
+
+Toss Payments:
+  POST /v1/payments/confirm
+  Idempotency-Key: 가맹점이 정한 고유 키
+  - 결제 confirm은 멱등 보장 필수 (이중 결제 방지)
+
+→ Stripe의 패턴이 사실상 표준
+→ "Idempotency-Key" 헤더 이름이 관행적으로 통일됨</code></pre>
+
+        <h3>서버 측 구현 패턴</h3>
+
+        <pre><code>// 의사코드
+@PostMapping("/payments")
+public PaymentResponse pay(@RequestHeader("Idempotency-Key") String key,
+                            @RequestBody PaymentRequest req) {
+
+    // 1. 같은 키 처리 이력 조회 (Redis SET NX 또는 DB unique index)
+    Optional&lt;PaymentResponse&gt; cached = idempotencyStore.get(key);
+    if (cached.isPresent()) {
+        return cached.get();   // 저장된 결과 반환
+    }
+
+    // 2. 키 선점 (다른 요청이 동시에 같은 키로 들어와도 한 번만 처리)
+    boolean acquired = idempotencyStore.tryReserve(key, ttl);
+    if (!acquired) {
+        // 동시 요청 — 기존 처리가 끝날 때까지 대기 또는 409 반환
+        ...
+    }
+
+    // 3. 실제 결제 처리
+    PaymentResponse result = paymentGateway.charge(req);
+
+    // 4. 결과 저장 (TTL 24시간 등)
+    idempotencyStore.save(key, result, Duration.ofHours(24));
+
+    return result;
+}</code></pre>
+
+        <h3>Idempotency Key의 함정</h3>
+
+        <pre><code>1. 키 충돌:
+   같은 키로 다른 body를 보내면?
+   → 서버가 어떻게 처리할지 정의 필요
+   → Stripe: body 다르면 422 Unprocessable Entity 반환
+
+2. 동시 요청:
+   같은 키로 두 요청이 거의 동시에 도착
+   → 락 또는 atomic insert 필요 (Redis SET NX, DB UNIQUE)
+
+3. TTL 만료 후:
+   24시간 지나 같은 키로 다시 요청 → 새로 처리될 수 있음
+   → 클라이언트가 키 생성 시 TTL 안에서 유효하도록 관리
+
+4. 저장소 다운:
+   Redis 다운 시 idempotency 보장 X
+   → 폴백 정책 필요 (DB에도 저장, fail-safe 모드 등)</code></pre>
+
+        <h2>DELETE의 미묘함 — 응답 코드</h2>
+
+        <pre><code>DELETE /users/123
+  ① 자원이 있어서 삭제됨 → 200 OK 또는 204 No Content
+  ② 자원이 이미 없음 → 404 Not Found 또는 200/204
+  ③ 권한 없음 → 403 Forbidden
+
+선택의 갈림길:
+  "두 번째 DELETE에 200 vs 404, 어떤 게 맞나?"
+
+200/204 옹호:
+  - 멱등성을 응답에서도 일관되게 보이고 싶음
+  - 클라이언트는 "삭제됨"이라는 동일 메시지 받음
+  - 단, "있는지 없었는지" 정보를 잃음
+
+404 옹호:
+  - 정확한 상태 표현 (자원이 정말 없음)
+  - 클라이언트가 이전 상태를 알 수 있음
+  - 멱등성의 정의는 "서버 상태"이지 "응답 코드"가 아니므로 문제없음
+
+실무 합의:
+  RFC상 둘 다 허용 — 정답 없음
+  팀 내에서 한 가지 정해 일관되게
+  REST API 설계 가이드에 명시</code></pre>
+
+        <h3>Soft Delete의 영향</h3>
+
+        <pre><code>Soft Delete 모델 (deleted_at 컬럼):
+  DELETE /users/123 → UPDATE users SET deleted_at = now() WHERE id = 123
+
+  ① 첫 DELETE: deleted_at 갱신 → 200
+  ② 두 번째 DELETE: 이미 deleted_at 있음 → ?
+
+옵션:
+  - 다시 갱신 (deleted_at = now()) → 멱등 깨짐 (시각이 다름)
+  - 변화 없이 200 반환 → 멱등 유지
+  - 첫 번째와 두 번째 처리에서 deleted_at 보존 → 멱등 유지 (권장)</code></pre>
+
+        <h2>PATCH의 멱등성 만들기</h2>
+
+        <pre><code>비멱등 PATCH 예시:
+  PATCH /users/123
+  [{ "op": "increment", "path": "/loginCount", "value": 1 }]
+  → 매번 loginCount가 1씩 증가 → 멱등 X
+
+멱등 PATCH 예시:
+  PATCH /users/123
+  [{ "op": "replace", "path": "/loginCount", "value": 42 }]
+  → 항상 42로 설정 → 여러 번 보내도 같음 → 멱등
+
+JSON Patch (RFC 6902):
+  - test, remove, add, replace, move, copy
+  - replace, remove은 멱등
+  - add는 컬렉션에 추가면 비멱등
+  - test는 조건 검사 (멱등)
+
+JSON Merge Patch (RFC 7396):
+  - 부분 객체를 병합
+  - 일반적으로 멱등 (같은 patch 여러 번 = 같은 상태)
+
+PATCH를 멱등하게 쓰는 패턴:
+  1. replace 위주로 작성 (현재 값을 새 값으로 명시)
+  2. PUT처럼 동작하도록 — 클라이언트가 결과 상태를 명시
+  3. incremental 연산은 피함 (또는 별도 엔드포인트로 분리)</code></pre>
+
+        <h2>POST를 PUT으로 바꿀 수 있나</h2>
+
+        <pre><code>가능한 경우:
+  클라이언트가 식별자 미리 결정 가능
+    예: UUID를 클라이언트가 생성
+    PUT /orders/{client-generated-uuid}
+    → 같은 UUID = 같은 자원 = 멱등
+
+장점:
+  - 자연스러운 멱등성
+  - Idempotency-Key 별도 헤더 불필요
+  - REST 원칙에 부합
+
+단점:
+  - 클라이언트가 UUID 생성 로직 필요
+  - 자원 컬렉션의 의미가 약해짐 (POST /orders가 더 자연스러움)
+  - 인증/인가 분리 어려움 (클라이언트가 ID 정한다는 게 부담)
+
+실무 패턴:
+  결제, 주문 같은 멱등성 critical 작업: POST + Idempotency-Key 표준
+  자원 등록 (계정, 게시글): POST 그대로 (재시도 시 클라이언트 책임)
+  설정값 갱신: PUT (자연 멱등)</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 결제 API에서 중복을 어떻게 막나?</h3>
+
+        <p>
+          Idempotency-Key 헤더 패턴. 클라이언트가 요청마다 고유 키를 붙이고,
+          서버가 같은 키로 처리 이력이 있으면 재처리 없이 저장된 결과를 반환.
+          Stripe, Toss 등 결제 API의 표준 패턴이며 24시간 정도 TTL로 캐시.
+        </p>
+
+        <h3>Q. DELETE의 응답으로 200과 404 중 무엇이 맞나?</h3>
+
+        <p>
+          RFC상 둘 다 허용. 멱등성의 정의는 "서버 상태"이지 "응답 코드"가 아님.
+          팀 컨벤션에 따라 일관되게 쓰면 됨. 보통은 첫 삭제는 200/204, 이후 같은 자원에 대한 DELETE는 404로 명확화하는 패턴.
+        </p>
+
+        <h3>Q. PATCH를 멱등하게 만들려면?</h3>
+
+        <p>
+          incremental 연산(<code>+= 1</code> 등) 대신 <code>replace</code>로 작성.
+          현재 값을 새 값으로 덮어쓰면 같은 patch를 여러 번 보내도 결과 상태 동일.
+          JSON Patch의 op 중 replace, remove, test는 자연 멱등이고 add는 컬렉션에서 비멱등.
+        </p>
+
+        <h3>Q. POST 대신 PUT으로 자원을 만들 수 있나?</h3>
+
+        <p>
+          가능. 클라이언트가 자원 식별자(UUID 등)를 미리 생성해서 <code>PUT /orders/{uuid}</code>로 보내면 자연스러운 멱등성.
+          단, 클라이언트가 ID 생성 책임을 져야 하고 자원 컬렉션 의미가 약해지는 트레이드오프.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>POST 멱등성 보장: Idempotency-Key 헤더 패턴 (Stripe 표준)
+  - 클라이언트 UUID + 서버 측 처리 이력 캐시
+  - 결제, 주문 등 critical 작업의 사실상 표준
+
+DELETE 응답: 200/204 vs 404 둘 다 허용 — 팀 컨벤션
+  - 멱등성은 서버 상태 기준이지 응답 코드 아님
+
+PATCH 멱등성: replace 위주로 작성, incremental 회피
+  - JSON Patch의 op 별로 멱등성 다름
+
+다음: HTTP 상태코드 — 헷갈리는 경계 (각 코드의 정확한 의미와 함정).</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>
