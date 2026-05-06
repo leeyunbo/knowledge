@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>N+1이 무엇이고 왜 발생하는가 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 1/3</div>
+        <h1>N+1이 무엇이고 왜 발생하는가</h1>
+        <p class="subtitle">
+          1번의 쿼리로 끝낼 일을 N+1번의 쿼리로 만드는 함정.
+          ORM이 자동으로 관계를 풀어주는 편의가 도리어 성능을 무너뜨리는 자리.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">N+1과 fetch 전략</div>
+        <ol>
+          <li class="current">N+1이 무엇이고 왜 발생하는가</li>
+          <li><a href="./02-해결-방법-fetch-join-entitygraph-batchsize.html">해결 방법 — Fetch Join / EntityGraph / BatchSize</a></li>
+          <li><a href="./03-실무-함정.html">실무 함정 — MultipleBagFetchException, 페이지네이션</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>이름의 의미</h2>
+
+        <pre><code>N+1 쿼리:
+  부모 N개를 조회하는 1번의 쿼리
+  + 각 부모의 자식을 조회하는 N번의 쿼리
+  = 총 N+1번 쿼리
+
+쿼리가 단순히 많은 게 아니라
+  "예상 1번 → 실제 N+1번"
+  이 갭이 함정의 본체</code></pre>
+
+        <h2>최소 시나리오 — Member와 Order</h2>
+
+        <pre><code>@Entity
+public class Member {
+    @Id Long id;
+    String name;
+
+    @OneToMany(mappedBy = "member", fetch = FetchType.LAZY)
+    List&lt;Order&gt; orders;
+}
+
+@Entity
+public class Order {
+    @Id Long id;
+    @ManyToOne Member member;
+    int amount;
+}
+
+// 회원 100명, 각 회원마다 평균 5개 주문</code></pre>
+
+        <p>
+          간단한 요구: "전체 회원 목록과 각 회원의 주문 합계를 보여달라."
+        </p>
+
+        <pre><code>List&lt;Member&gt; members = memberRepository.findAll();   // ① 1번
+
+for (Member m : members) {
+    int total = m.getOrders().stream()                // ② LAZY 로딩 트리거
+                  .mapToInt(Order::getAmount)
+                  .sum();
+    System.out.println(m.getName() + ": " + total);
+}</code></pre>
+
+        <h3>실제 발생하는 SQL</h3>
+
+        <pre><code>① select * from member;                               -- 1번
+② select * from orders where member_id = 1;          -- 회원 1
+   select * from orders where member_id = 2;          -- 회원 2
+   select * from orders where member_id = 3;          -- 회원 3
+   ...
+   select * from orders where member_id = 100;        -- 회원 100
+
+→ 1 + 100 = 101번 쿼리
+→ 회원이 1만 명이면 1만 1번
+→ 데이터가 늘수록 쿼리가 선형으로 늘어남</code></pre>
+
+        <p>
+          코드만 보면 멀쩡하다. 반복문 안에 SQL이 있는 게 아니라 그냥 객체 메서드 호출.
+          그러나 ORM이 그 호출 시점에 lazy loading 쿼리를 실행한다.
+          결과적으로 N+1번의 라운드트립.
+        </p>
+
+        <h2>왜 발생하나 — Lazy Loading의 메커니즘</h2>
+
+        <pre><code>JPA가 LAZY 관계를 다루는 방법:
+
+1. 엔티티 조회 시 (findAll, find 등):
+   - 부모 엔티티만 SELECT
+   - 자식 컬렉션은 실제 객체 대신 프록시 컬렉션으로 채움
+
+2. 프록시 컬렉션의 정체:
+   - Hibernate의 PersistentBag, PersistentList 등
+   - 진짜 데이터는 안 들어있음
+   - "필요할 때 SQL 쳐서 가져오마" 표시
+
+3. 첫 접근 시점에 SQL 실행:
+   - .size(), .iterator(), .stream() 등 컬렉션 조작 시
+   - 그 시점에 Hibernate가 SELECT 쿼리 실행
+   - "초기화"가 일어남
+
+4. 반복문 안에서 자식 접근 → 매 회마다 SQL
+   - 1번째 회원 .getOrders() → SELECT
+   - 2번째 회원 .getOrders() → SELECT
+   - ...</code></pre>
+
+        <p>
+          핵심은 "지연 로딩(lazy loading)"의 의도와 결과 사이의 간극.
+          의도는 "필요할 때만 가져와서 쓸데없는 쿼리를 피하자"인데,
+          반복문에서 모두에 접근하면 도리어 쿼리 폭발이 일어난다.
+        </p>
+
+        <h2>EAGER로 바꾸면 해결될까 — No, 더 큰 함정</h2>
+
+        <pre><code>@OneToMany(mappedBy = "member", fetch = FetchType.EAGER)
+List&lt;Order&gt; orders;</code></pre>
+
+        <p>
+          "그럼 EAGER로 바꾸자"는 자연스러운 반응이지만 더 나쁜 함정.
+        </p>
+
+        <pre><code>1. findAll()만 해도 N+1 발생
+   - findAll()이 단일 SELECT로 시작 (Member만)
+   - Hibernate가 EAGER 관계니 즉시 채워야 한다고 판단
+   - 회원 100명 각자에 대해 자식 SELECT 추가 실행
+   - → 여전히 1 + 100 = 101번
+
+2. find(id) 같은 단일 조회는 JOIN으로 한 번에:
+   - SELECT m.*, o.* FROM member m LEFT JOIN orders o ON m.id = o.member_id WHERE m.id = ?
+   - 이 경우만 1번 쿼리
+
+3. 컬렉션 조회(findAll, JPQL List 등):
+   - Hibernate는 부모를 먼저 SELECT한 뒤 EAGER 관계를 별도 SELECT로 채움
+   - 부모마다 자식 SELECT → N+1 부활
+
+→ EAGER가 N+1을 막는 게 아니라 오히려 의도치 않은 SELECT를 더 많이 만든다
+→ JPA에서 EAGER는 거의 항상 안티패턴
+→ @ManyToOne의 기본값이 EAGER라 무심코 두면 위험</code></pre>
+
+        <p>
+          그래서 실무에선 "모든 관계를 LAZY로 두고 필요한 곳에서만 명시적으로 fetch한다"가 표준.
+          <code>@ManyToOne(fetch = LAZY)</code>를 항상 명시하는 컨벤션이 그래서 생김.
+        </p>
+
+        <h2>또 다른 발생 경로 — JPQL 결과를 순회</h2>
+
+        <pre><code>// JPQL 작성
+@Query("select m from Member m")
+List&lt;Member&gt; findAllMembers();
+
+// 사용
+List&lt;Member&gt; members = memberRepository.findAllMembers();
+for (Member m : members) {
+    m.getOrders().size();   // ← 매 회 SELECT
+}</code></pre>
+
+        <p>
+          JPQL <code>findAll</code>이 더 직관적. 단일 SELECT로 회원 가져오고,
+          반복문에서 자식 접근하면 N번 추가 SELECT.
+          쿼리 메서드(<code>findAllByXxx</code>)도 동일.
+        </p>
+
+        <h2>왜 ORM의 본질적 함정인가</h2>
+
+        <p>
+          N+1은 단순한 버그가 아니라 ORM이 객체-관계 매핑이라는 추상화를 제공하면서
+          필연적으로 안고 가는 함정이다.
+        </p>
+
+        <pre><code>SQL 직접 작성 시:
+  SELECT m.id, m.name, SUM(o.amount) AS total
+  FROM member m
+  LEFT JOIN orders o ON m.id = o.member_id
+  GROUP BY m.id
+
+  → 1번의 쿼리로 끝
+  → 개발자가 명시적으로 "JOIN해서 가져온다"고 적었음
+
+ORM 사용 시:
+  members.forEach(m -> m.getOrders().sum())
+
+  → 객체 그래프 순회처럼 보이지만 매 접근이 SQL
+  → 개발자는 "메모리에서 객체 다루는 것처럼" 썼지만 결과는 N+1
+  → 추상화가 비용을 숨김 (Joel Spolsky의 "Law of Leaky Abstractions")</code></pre>
+
+        <p>
+          그래서 N+1은 거의 모든 ORM 환경에서 빈번하다. JPA/Hibernate, ActiveRecord(Rails), Django ORM, Sequelize, ...
+          이름과 해결 방법은 다르지만 본질은 같다.
+        </p>
+
+        <h2>탐지 방법</h2>
+
+        <h3>1. SQL 로그 켜기</h3>
+
+        <pre><code>spring:
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE   # 파라미터까지
+
+→ 같은 SELECT가 N번 반복되면 N+1 의심</code></pre>
+
+        <h3>2. p6spy로 보기 좋게</h3>
+
+        <pre><code>// build.gradle
+implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
+
+→ 모든 SQL이 파라미터까지 정리되어 출력
+→ 실행 시간도 함께 볼 수 있음</code></pre>
+
+        <h3>3. Hibernate Statistics</h3>
+
+        <pre><code>spring.jpa.properties.hibernate.generate_statistics=true
+
+→ 요청 후 로그에 "X queries in Y ms" 출력
+→ 페이지 한 번 호출에 100+ 쿼리면 거의 N+1</code></pre>
+
+        <h3>4. 통합 테스트로 쿼리 카운트 검증</h3>
+
+        <pre><code>// AssertJ + Hibernate Statistics
+SessionStatistics stats = sessionFactory.getStatistics();
+long before = stats.getQueryExecutionCount();
+
+memberService.getAllWithOrders();
+
+long after = stats.getQueryExecutionCount();
+assertThat(after - before).isLessThanOrEqualTo(2);   // N+1 방어 테스트
+
+→ 회귀 방지에 유용
+→ 코드 변경으로 N+1이 다시 생기면 테스트가 실패</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. N+1 문제가 무엇인가?</h3>
+
+        <p>
+          부모 엔티티 N개를 조회하는 1번의 쿼리에 대해, 각 부모의 자식 컬렉션을 조회하기 위해
+          N번의 추가 쿼리가 발생하는 현상. 코드는 객체 그래프 순회처럼 보이지만 실제로는 라운드트립이 N+1번.
+        </p>
+
+        <h3>Q. EAGER로 두면 N+1이 사라지나?</h3>
+
+        <p>
+          아니다. <code>findAll</code> 같은 컬렉션 조회에선 EAGER도 N+1을 일으킨다.
+          Hibernate는 부모를 먼저 SELECT한 뒤 EAGER 관계를 별도 SELECT로 채우기 때문.
+          EAGER는 단일 <code>find</code>만 JOIN으로 한 번에 가져온다.
+        </p>
+
+        <h3>Q. 그러면 모든 관계를 LAZY로 두는 게 답인가?</h3>
+
+        <p>
+          기본은 그렇다. 모두 LAZY로 두고 필요한 곳에서만 fetch join이나 EntityGraph로 명시적으로 가져오는 게 표준.
+          <code>@ManyToOne</code>의 기본값이 EAGER라는 점도 주의해서 명시적으로 LAZY 지정.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>N+1: 부모 N개 조회 1번 + 각 부모 자식 조회 N번 = 총 N+1번 쿼리.
+
+원인: ORM의 lazy loading이 "객체 접근"을 SQL 트리거로 변환.
+EAGER는 해결책 아님 — 컬렉션 조회에선 동일 함정.
+
+답: 모두 LAZY + 필요한 곳에서만 명시적 fetch.
+다음 편에서 명시적 fetch 3가지 도구 (Fetch Join / EntityGraph / BatchSize).</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

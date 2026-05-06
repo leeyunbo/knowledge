@@ -60,7 +60,7 @@
 - [x] ★ 트랜잭션 격리 수준 deep dive (5편)
 - [x] ★ 인덱스 — B-Tree부터 Covering까지 (4편)
 - [x] ★ MVCC와 잠금 (3편)
-- [ ] ★ N+1과 fetch 전략 (3편)
+- [x] ★ N+1과 fetch 전략 (3편)
 - [ ] ★ 정규화 vs 반정규화 (2편)
 
 ### Spring 코어 internals

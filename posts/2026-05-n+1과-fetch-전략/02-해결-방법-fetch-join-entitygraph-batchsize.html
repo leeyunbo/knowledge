@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>해결 방법 — Fetch Join / EntityGraph / BatchSize (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 2/3</div>
+        <h1>해결 방법 — Fetch Join / EntityGraph / BatchSize</h1>
+        <p class="subtitle">
+          명시적 fetch 도구 3가지. 각자 다른 메커니즘으로 N+1을 잡고,
+          각자 다른 함정과 적용 범위를 갖는다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">N+1과 fetch 전략</div>
+        <ol>
+          <li><a href="./01-n+1이-무엇이고-왜-발생하는가.html">N+1이 무엇이고 왜 발생하는가</a></li>
+          <li class="current">해결 방법 — Fetch Join / EntityGraph / BatchSize</li>
+          <li><a href="./03-실무-함정.html">실무 함정 — MultipleBagFetchException, 페이지네이션</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>해법 1: Fetch Join (JPQL)</h2>
+
+        <pre><code>@Query("select m from Member m left join fetch m.orders")
+List&lt;Member&gt; findAllWithOrders();</code></pre>
+
+        <h3>실행되는 SQL</h3>
+
+        <pre><code>SELECT m.*, o.*
+FROM member m
+LEFT JOIN orders o ON m.id = o.member_id
+
+→ 단 1번의 쿼리
+→ 회원과 주문이 한 번에 메모리로 들어옴
+→ 이후 m.getOrders() 접근해도 추가 SELECT 없음</code></pre>
+
+        <h3>일반 join과의 차이</h3>
+
+        <pre><code>일반 join:
+  select m from Member m left join m.orders o where o.amount &gt; 100
+
+  → SQL JOIN은 일어남 (where 조건에 자식 사용)
+  → 그러나 Member 객체만 영속화, orders는 여전히 LAZY 프록시
+  → 후에 m.getOrders() 접근하면 N+1 발생
+
+fetch join:
+  select m from Member m left join fetch m.orders
+
+  → JOIN 후 자식 데이터까지 영속 컨텍스트에 채워줌
+  → orders가 즉시 초기화된 컬렉션
+  → 이후 접근해도 추가 SELECT 없음
+
+핵심 차이: "fetch" 키워드가 자식까지 객체로 영속화하라는 지시</code></pre>
+
+        <h3>장점</h3>
+
+        <pre><code>1. 단 1번의 쿼리로 N+1 해결
+2. JPQL이라 표준 (JPA spec에 정의)
+3. 영속성 컨텍스트에 자식까지 들어감</code></pre>
+
+        <h3>단점 / 함정</h3>
+
+        <pre><code>1. 페이지네이션 함정 (3편에서 deep dive)
+   - fetch join + setFirstResult/setMaxResults
+   - Hibernate는 메모리에서 페이지네이션 (HHH000104 경고)
+   - DB가 아닌 자바 힙에서 자르므로 위험
+
+2. 1:N fetch join에서 결과 row 폭증
+   - 회원 100명 × 평균 주문 5개 = 500 row
+   - DISTINCT 안 쓰면 회원이 중복으로 5번씩 등장 (메모리에선 같은 객체 참조)
+
+3. 둘 이상 컬렉션을 한 번에 fetch join 불가
+   - MultipleBagFetchException (3편에서 자세히)
+
+4. 사용처가 JPQL/Criteria로 제한
+   - 메서드 이름 쿼리(findAllByXxx)에선 못 씀</code></pre>
+
+        <h2>해법 2: @EntityGraph</h2>
+
+        <pre><code>// 메서드 이름 쿼리에 EntityGraph 적용
+public interface MemberRepository extends JpaRepository&lt;Member, Long&gt; {
+
+    @EntityGraph(attributePaths = {"orders"})
+    List&lt;Member&gt; findAll();
+}
+
+// JPQL과 결합
+public interface MemberRepository extends JpaRepository&lt;Member, Long&gt; {
+
+    @EntityGraph(attributePaths = {"orders"})
+    @Query("select m from Member m where m.active = true")
+    List&lt;Member&gt; findActiveMembers();
+}</code></pre>
+
+        <h3>실행되는 SQL</h3>
+
+        <pre><code>SELECT m.*, o.*
+FROM member m
+LEFT OUTER JOIN orders o ON m.id = o.member_id
+
+→ Fetch Join과 거의 동일
+→ Hibernate가 LEFT OUTER JOIN 자동 생성</code></pre>
+
+        <h3>Fetch Join과의 차이</h3>
+
+        <pre><code>Fetch Join:
+  - JPQL 쿼리에 직접 작성
+  - "left join fetch" 명시
+  - 쿼리와 fetch 전략이 한 곳
+
+EntityGraph:
+  - 어노테이션으로 fetch 전략만 분리 선언
+  - 쿼리와 무관하게 attributePaths 지정
+  - 메서드 이름 쿼리, JPQL, Native 모두 결합 가능
+
+  Hibernate가 내부적으로 fetch join과 비슷한 방식으로 처리하지만
+  fetch 전략을 쿼리 외부에서 선언적으로 다루는 게 특징</code></pre>
+
+        <h3>두 종류 — Fetch Graph vs Load Graph</h3>
+
+        <pre><code>@EntityGraph(attributePaths = {"orders"}, type = EntityGraphType.FETCH)
+  - attributePaths에 명시된 것만 EAGER, 나머진 LAZY
+  - 기본값
+
+@EntityGraph(attributePaths = {"orders"}, type = EntityGraphType.LOAD)
+  - attributePaths에 명시된 것만 EAGER로 강제
+  - 나머지는 엔티티에 정의된 fetch 전략을 따름
+  - EAGER 관계는 EAGER 그대로</code></pre>
+
+        <h3>장점</h3>
+
+        <pre><code>1. 메서드 이름 쿼리(findAllByXxx)에도 적용 가능
+2. 같은 JPQL 여러 메서드가 다른 fetch 전략을 가질 수 있음
+3. 선언적이고 가독성 좋음
+4. 표준 JPA 2.1 (Hibernate 전용 아님)</code></pre>
+
+        <h3>단점</h3>
+
+        <pre><code>1. Fetch Join과 동일한 함정 (페이지네이션, MultipleBag)
+2. 복잡한 조건의 fetch 전략은 표현 어려움 (Where 절 동적 결합 등)
+3. attributePaths에 오타 시 런타임에 예외</code></pre>
+
+        <p>
+          실무에선 EntityGraph가 가장 깔끔한 경우가 많음.
+          쿼리는 메서드 이름이나 짧은 JPQL로 두고 fetch 전략만 어노테이션으로 분리.
+        </p>
+
+        <h2>해법 3: @BatchSize / default_batch_fetch_size</h2>
+
+        <pre><code>@Entity
+public class Member {
+    ...
+
+    @OneToMany(mappedBy = "member")
+    @BatchSize(size = 100)   // ← 자식 컬렉션을 100개씩 모아서 SELECT
+    List&lt;Order&gt; orders;
+}</code></pre>
+
+        <h3>또는 전역 설정</h3>
+
+        <pre><code>spring:
+  jpa:
+    properties:
+      hibernate:
+        default_batch_fetch_size: 100
+
+→ 모든 LAZY 컬렉션에 자동 적용
+→ Hibernate 5.4+에선 보통 1000까지 권장</code></pre>
+
+        <h3>실행되는 SQL</h3>
+
+        <pre><code>① select * from member;                              -- 1번 (회원 100명)
+
+(첫 회원의 orders 접근 시점)
+② select * from orders where member_id IN (1, 2, 3, ..., 100);
+                                              -- 1번 (IN 절로 한 번에)
+
+→ 총 2번 (1 + 1)
+→ 회원이 1만 명이면 1 + 100 = 101번 (BatchSize 100일 때)
+→ 부모 1번 + (부모 수 / batch size)번</code></pre>
+
+        <h3>메커니즘 — IN 절 묶음 SELECT</h3>
+
+        <pre><code>1. 부모(Member) 100명 조회 후 영속 컨텍스트에 등록
+2. 첫 회원의 .getOrders() 접근 → Hibernate가 lazy 트리거 감지
+3. Hibernate: "이 회원만이 아니라 batch_size 만큼 모아서 가져오자"
+4. 영속 컨텍스트에서 아직 초기화 안 된 같은 종류의 collection 100개를 모음
+5. WHERE member_id IN (?, ?, ?, ..., ?) 으로 한 번에 SELECT
+6. 그 100명의 orders가 모두 초기화됨</code></pre>
+
+        <h3>장점</h3>
+
+        <pre><code>1. 코드/쿼리 변경 없이 N+1 완화
+2. 전역 설정 한 줄로 모든 컬렉션에 적용
+3. fetch join의 데이터 폭증 문제 없음 (별도 쿼리)
+4. 페이지네이션과도 호환됨 (3편에서 비교)
+5. 둘 이상 컬렉션도 각각 batch fetch 됨 (MultipleBag 문제 없음)</code></pre>
+
+        <h3>단점</h3>
+
+        <pre><code>1. 1번 쿼리가 아니라 1+α번 (단, α는 매우 작음)
+2. IN 절 크기 한계 (Oracle 1000개, Postgres/MySQL 사실상 무제한이지만 너무 크면 plan 영향)
+3. fetch join보다는 라운드트립이 약간 더 있음
+4. Hibernate 전용 (JPA 표준 아님, @BatchSize는 org.hibernate)</code></pre>
+
+        <p>
+          실무에선 default_batch_fetch_size를 100~1000 정도로 전역 설정해두고,
+          "기본 안전망"으로 깔아두는 패턴이 흔함.
+          명시적으로 fetch가 필요한 곳만 fetch join이나 EntityGraph로 처리.
+        </p>
+
+        <h2>비교 요약</h2>
+
+        <pre><code>                  Fetch Join         EntityGraph      BatchSize
+─────────────────────────────────────────────────────────────────────
+적용 위치          JPQL 쿼리           어노테이션         엔티티 또는 전역
+적용 단위          쿼리별              메서드별          관계별 또는 전체
+쿼리 횟수          1번                 1번                1+α번 (IN 절)
+페이지네이션 호환    X (메모리에서 자름)  X                  O
+복수 컬렉션        X (MultipleBag)    X (동일 한계)      O (각 IN 절)
+JPA 표준           O (JPQL)           O (JPA 2.1)       X (Hibernate)
+가독성             쿼리에 fetch 명시   선언적             은연중에 작동
+메모리 영향        많음 (JOIN 결과)    많음               분산
+권장 시나리오       단일 컬렉션 한 번에  메서드별 fetch     기본 안전망</code></pre>
+
+        <h2>실무 조합 패턴</h2>
+
+        <pre><code>1. 전역에 default_batch_fetch_size 설정
+   - 안전망. 의도치 않은 N+1을 자동 완화
+   - 100~1000 사이 적절히
+
+2. 핫패스(자주 호출되는 페이지)는 EntityGraph
+   - 명시적으로 한 번에 가져옴
+   - 메서드 이름 쿼리도 가능
+
+3. 복잡한 쿼리(여러 조건, 정렬)는 fetch join
+   - JPQL 작성하면서 fetch까지 명시
+
+4. 페이지네이션 + 자식 fetch는 BatchSize
+   - fetch join은 페이지네이션과 상극
+   - BatchSize는 호환됨
+
+5. 화면용 단순 조회는 DTO 프로젝션
+   - 엔티티 안 쓰고 SELECT new dto(...) 또는 인터페이스 프로젝션
+   - N+1 자체가 안 생김 (3편에서 자세히)</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Fetch Join과 일반 Join의 차이?</h3>
+
+        <p>
+          일반 join은 SQL 수준의 JOIN이지만 ORM은 부모만 영속화하고 자식은 LAZY 프록시 그대로 둔다.
+          Fetch join은 자식 데이터까지 영속 컨텍스트에 채워서 즉시 초기화된 객체로 만든다.
+          이후 자식 접근에 추가 SELECT가 안 나간다.
+        </p>
+
+        <h3>Q. EntityGraph와 Fetch Join의 차이?</h3>
+
+        <p>
+          내부 동작은 거의 같지만 위치가 다르다. Fetch join은 JPQL에 직접 적고, EntityGraph는 어노테이션으로 분리.
+          EntityGraph는 메서드 이름 쿼리(<code>findAll</code>)에도 적용 가능해서 더 유연.
+        </p>
+
+        <h3>Q. BatchSize는 어떻게 N+1을 줄이나?</h3>
+
+        <p>
+          LAZY 컬렉션을 한 개씩 SELECT 하지 않고 batch_size만큼 모아서 <code>WHERE id IN (...)</code>으로 묶음 조회.
+          1+N번이 1+(N/size)번으로 줄어듦. 페이지네이션과 호환되는 것이 큰 장점.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>3가지 도구의 분담:
+
+Fetch Join: 단일 컬렉션 한 번에 가져올 때, 페이지 없이
+EntityGraph: Fetch Join을 쿼리 외부에서 선언적으로
+BatchSize: 페이지네이션과 호환되는 안전망, 전역 기본값
+
+조합:
+  default_batch_fetch_size 전역 설정 + 핫패스는 EntityGraph + 페이지네이션은 BatchSize에 의존
+
+다음 편: 함정 시리즈 — MultipleBagFetchException, fetch join + 페이지네이션, DTO 프로젝션.</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>

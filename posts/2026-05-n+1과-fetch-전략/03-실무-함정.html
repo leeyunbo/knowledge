@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실무 함정 — MultipleBagFetchException, 페이지네이션 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.06 · 시리즈 3/3</div>
+        <h1>실무 함정 — MultipleBagFetchException, 페이지네이션</h1>
+        <p class="subtitle">
+          fetch 도구를 안다고 끝나지 않는다.
+          List 둘 fetch 시 폭발하는 예외, 페이지네이션이 메모리에서 잘리는 함정,
+          그리고 진짜 답인 DTO 프로젝션까지.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">N+1과 fetch 전략</div>
+        <ol>
+          <li><a href="./01-n+1이-무엇이고-왜-발생하는가.html">N+1이 무엇이고 왜 발생하는가</a></li>
+          <li><a href="./02-해결-방법-fetch-join-entitygraph-batchsize.html">해결 방법 — Fetch Join / EntityGraph / BatchSize</a></li>
+          <li class="current">실무 함정 — MultipleBagFetchException, 페이지네이션</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>함정 1: MultipleBagFetchException</h2>
+
+        <pre><code>@Entity
+public class Order {
+    @OneToMany(mappedBy = "order")
+    List&lt;OrderItem&gt; items;          // ★ List
+
+    @OneToMany(mappedBy = "order")
+    List&lt;Coupon&gt; coupons;           // ★ List
+}
+
+// 둘을 한 번에 fetch
+@Query("select o from Order o " +
+       "left join fetch o.items " +
+       "left join fetch o.coupons")
+List&lt;Order&gt; findAllWithItemsAndCoupons();</code></pre>
+
+        <p>
+          실행하면:
+        </p>
+
+        <pre><code>org.hibernate.loader.MultipleBagFetchException:
+  cannot simultaneously fetch multiple bags</code></pre>
+
+        <h3>왜 발생하나</h3>
+
+        <pre><code>여러 List를 한 번에 fetch join하면:
+  Order 1개 × Item 5개 × Coupon 3개 = 15 row
+  → Order는 15번 등장, Item도 중복, Coupon도 중복
+  → Hibernate가 PersistentBag(순서/중복 허용)에 데이터 채울 때
+    어느 row가 어느 컬렉션 소속인지 구분 모호
+  → Cartesian Product 위험으로 자체 방어
+
+핵심: List 둘 이상에 fetch join 동시 적용 불가
+@OneToMany 관계가 List로 매핑되면 Hibernate는 Bag으로 처리</code></pre>
+
+        <h3>해결 방법 1 — Set으로 변경</h3>
+
+        <pre><code>@OneToMany(mappedBy = "order")
+Set&lt;OrderItem&gt; items;
+
+@OneToMany(mappedBy = "order")
+Set&lt;Coupon&gt; coupons;
+
+→ Set은 PersistentSet으로 처리 (Bag 아님)
+→ Cartesian Product가 일어나도 Set 자체가 중복 제거
+→ MultipleBagFetchException 안 남
+
+→ 다만 결과 row 수는 여전히 폭증 (Order 1 × Item 5 × Coupon 3 = 15 row)
+→ DB → 자바 네트워크 트래픽 증가
+→ 작은 데이터에서만 권장</code></pre>
+
+        <h3>해결 방법 2 — 하나만 fetch join, 나머진 BatchSize</h3>
+
+        <pre><code>@OneToMany(mappedBy = "order")
+@BatchSize(size = 100)
+List&lt;OrderItem&gt; items;
+
+@OneToMany(mappedBy = "order")
+@BatchSize(size = 100)
+List&lt;Coupon&gt; coupons;
+
+@Query("select distinct o from Order o left join fetch o.items")
+List&lt;Order&gt; findAll();
+
+→ items만 fetch join, coupons는 접근 시 batch fetch
+→ Cartesian Product 회피
+→ 라운드트립 1+1 = 2번 정도</code></pre>
+
+        <h3>해결 방법 3 — 둘 다 BatchSize, fetch join 안 함</h3>
+
+        <pre><code>@OneToMany(mappedBy = "order")
+@BatchSize(size = 100)
+List&lt;OrderItem&gt; items;
+
+@OneToMany(mappedBy = "order")
+@BatchSize(size = 100)
+List&lt;Coupon&gt; coupons;
+
+// fetch 없이 일반 조회
+List&lt;Order&gt; orders = orderRepo.findAll();
+
+→ 첫 items 접근 시 IN 절로 batch
+→ 첫 coupons 접근 시 IN 절로 batch
+→ 총 1 + 1 + 1 = 3번 쿼리
+→ 가장 안정적</code></pre>
+
+        <h2>함정 2: Fetch Join + 페이지네이션 (HHH000104)</h2>
+
+        <pre><code>@Query("select m from Member m left join fetch m.orders")
+Page&lt;Member&gt; findAllWithOrders(Pageable pageable);
+
+// 호출
+memberRepo.findAllWithOrders(PageRequest.of(0, 10));   // 첫 10명만</code></pre>
+
+        <p>
+          기대: DB에서 10명만 가져오고 싶다.<br>
+          실제: Hibernate가 경고 로그를 출력한다.
+        </p>
+
+        <pre><code>WARN: HHH000104: firstResult/maxResults specified with collection fetch;
+       applying in memory!</code></pre>
+
+        <h3>무슨 일이 벌어지나</h3>
+
+        <pre><code>SQL 단에서:
+  SELECT m.*, o.* FROM member m LEFT JOIN orders o ON ...
+  -- LIMIT 절 없음
+
+→ DB는 모든 회원 + 모든 주문을 통째로 반환 (수만 row 가능)
+→ Hibernate가 자바 메모리에서 Member 객체로 합치고
+  그 다음 첫 10명을 골라서 반환
+→ DB는 풀 스캔, 자바 힙은 폭발
+
+이유:
+  1:N fetch join은 row 수가 부모 수와 일치하지 않음
+  → DB의 LIMIT을 그대로 쓰면 잘못된 결과
+  → "안전을 위해" Hibernate가 메모리에서 자름
+
+문제:
+  데이터가 많으면 OutOfMemoryError
+  쿼리 시간이 폭증 (모든 row를 가져오므로)
+  성능 회귀가 조용히 일어남</code></pre>
+
+        <h3>해결 방법 1 — BatchSize로 전환</h3>
+
+        <pre><code>// fetch join 빼고
+@Query("select m from Member m")
+Page&lt;Member&gt; findAllPage(Pageable pageable);
+
+// 엔티티에 @BatchSize
+@OneToMany(mappedBy = "member")
+@BatchSize(size = 100)
+List&lt;Order&gt; orders;
+
+→ 페이지 쿼리: SELECT * FROM member LIMIT 10 (정상)
+→ orders 접근 시: SELECT * FROM orders WHERE member_id IN (1,2,...,10)
+→ DB에서 페이지네이션, 자식은 batch
+→ 총 2번 쿼리, 메모리 안전</code></pre>
+
+        <h3>해결 방법 2 — 두 단계 쿼리</h3>
+
+        <pre><code>// 1단계: 회원 ID만 페이지네이션으로 가져옴
+@Query("select m.id from Member m")
+Page&lt;Long&gt; findMemberIdsPage(Pageable pageable);
+
+// 2단계: 그 ID들로 fetch join
+@Query("select m from Member m left join fetch m.orders where m.id in :ids")
+List&lt;Member&gt; findWithOrdersByIds(@Param("ids") List&lt;Long&gt; ids);
+
+// 사용
+Page&lt;Long&gt; idPage = repo.findMemberIdsPage(pageable);
+List&lt;Member&gt; members = repo.findWithOrdersByIds(idPage.getContent());
+
+→ 1단계는 단순 SQL → DB가 LIMIT 처리
+→ 2단계는 fetch join → 1번 쿼리로 자식까지
+→ 총 2번 쿼리, 페이지네이션 정확, 메모리 안전</code></pre>
+
+        <h3>해결 방법 3 — @ManyToOne fetch join은 안전</h3>
+
+        <pre><code>@Query("select o from Order o left join fetch o.member")
+Page&lt;Order&gt; findAllWithMember(Pageable pageable);
+
+→ N:1 관계는 fetch join 후 row 수가 변하지 않음
+→ Order 1개당 Member 1개라 1:1 매핑
+→ DB의 LIMIT이 정상 작동
+→ Hibernate가 메모리에서 자르지 않음
+
+핵심: 1:N(컬렉션) fetch join이 함정. N:1(단일 객체) fetch join은 안전.</code></pre>
+
+        <h2>함정 3: distinct 없이 1:N fetch join</h2>
+
+        <pre><code>@Query("select m from Member m left join fetch m.orders")
+List&lt;Member&gt; findAllWithOrders();
+
+// 회원 100명, 각 평균 5개 주문
+List&lt;Member&gt; members = repo.findAllWithOrders();
+System.out.println(members.size());   // ★ 500</code></pre>
+
+        <p>
+          왜 500인가?
+        </p>
+
+        <pre><code>SQL 결과:
+  m.id  m.name  o.id  o.amount
+  1     Alice   101   100
+  1     Alice   102   200
+  1     Alice   103   150
+  ...
+  100   Bob     591   80
+  100   Bob     592   90
+
+→ JOIN 결과 row가 500개 (회원 100 × 평균 주문 5)
+→ Hibernate는 이 500 row를 List&lt;Member&gt;로 매핑
+→ 같은 회원이 5번 등장 (참조는 같은 객체)
+
+해결:
+  @Query("select distinct m from Member m left join fetch m.orders")
+  → JPQL의 distinct는 자바 레벨에서 중복 제거 (Hibernate가 처리)
+  → 회원 100명만 반환
+
+  Hibernate 6+ 변경:
+  - JPQL distinct가 SQL DISTINCT로 자동 변환되지 않게 됨
+  - 자바 레벨 중복 제거가 기본 동작
+  - 6.0부터 hibernate.use_query_distinct_to_sql 설정으로 옵션화</code></pre>
+
+        <h2>함정 4: 컬렉션 size()만 필요한 경우</h2>
+
+        <pre><code>// 단순히 주문 개수만 보여주고 싶음
+for (Member m : members) {
+    System.out.println(m.getName() + ": " + m.getOrders().size());
+}
+
+→ getOrders().size()는 LAZY 트리거
+→ N+1 발생</code></pre>
+
+        <h3>해결 — count 쿼리 또는 @Formula</h3>
+
+        <pre><code>방법 1: 별도 쿼리로 카운트
+  @Query("select m.id, count(o) from Member m left join m.orders o group by m.id")
+  List&lt;Object[]&gt; findOrderCounts();
+
+방법 2: DTO 프로젝션
+  public class MemberOrderCountDto {
+      Long memberId;
+      String name;
+      Long orderCount;
+  }
+
+  @Query("select new com....MemberOrderCountDto(m.id, m.name, count(o)) " +
+         "from Member m left join m.orders o group by m.id, m.name")
+  List&lt;MemberOrderCountDto&gt; findOrderCounts();
+
+→ 엔티티 컬렉션 자체를 안 가져옴 → N+1 자체가 안 생김</code></pre>
+
+        <h2>해법의 끝판왕 — DTO 프로젝션</h2>
+
+        <pre><code>화면용 데이터는 엔티티 그래프가 아니라 DTO로 직접 가져오는 게 답.
+
+@Query("select new com....OrderSummaryDto(o.id, o.amount, m.name) " +
+       "from Order o join o.member m")
+List&lt;OrderSummaryDto&gt; findOrderSummaries();
+
+장점:
+  1. 필요한 컬럼만 SELECT (트래픽 절감)
+  2. 1:N도 GROUP BY로 압축 가능
+  3. 영속성 컨텍스트 부담 없음 (단순 데이터)
+  4. N+1 자체가 발생하지 않음 (엔티티 안 들어감)
+
+단점:
+  1. DTO 클래스 직접 작성
+  2. JPQL에 SELECT new ... 패키지명 길어짐
+  3. 엔티티 변경에 DTO도 같이 따라가야 함
+
+권장 사용처:
+  - 읽기 전용 화면(목록, 상세 조회 등 거의 다)
+  - 복잡한 집계
+  - REST API 응답 본문</code></pre>
+
+        <h2>의사결정 트리</h2>
+
+        <pre><code>"엔티티의 컬렉션을 화면에 띄워야 한다"
+  ↓
+  Q1: 페이지네이션이 필요한가?
+    YES → BatchSize + 일반 페이지 쿼리 OR 두 단계 쿼리
+    NO  → Q2
+
+  Q2: 두 개 이상의 컬렉션을 한 번에 가져와야 하는가?
+    YES → 하나는 fetch join + 나머지는 BatchSize
+          또는 모두 BatchSize
+    NO  → Q3
+
+  Q3: 단순 데이터 조회인가? (수정/저장 안 함)
+    YES → DTO Projection (가장 가벼움)
+    NO  → Q4
+
+  Q4: 단일 컬렉션 + 단순 조회 + 페이지 X
+    YES → Fetch Join 또는 EntityGraph (둘 다 OK)</code></pre>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. fetch join에 페이지네이션을 같이 쓰면?</h3>
+
+        <p>
+          1:N에 적용하면 Hibernate가 모든 row를 메모리에 로드한 뒤 자바에서 자른다.
+          OOM과 성능 회귀의 원인. 해결은 BatchSize로 전환하거나, ID만 페이지네이션 후 두 번째 쿼리로 fetch.
+          단일 객체(N:1) fetch join은 페이지네이션과 안전하게 호환.
+        </p>
+
+        <h3>Q. MultipleBagFetchException을 본 적 있나?</h3>
+
+        <p>
+          List 두 개에 동시에 fetch join을 걸면 발생.
+          Cartesian Product로 어느 row가 어느 컬렉션 소속인지 모호해서 Hibernate가 거부.
+          해결은 Set으로 바꾸거나, 하나만 fetch join 하고 나머지는 BatchSize에 맡기는 것.
+        </p>
+
+        <h3>Q. fetch join에 distinct가 왜 필요한가?</h3>
+
+        <p>
+          1:N JOIN으로 row가 부풀려져서 같은 부모가 자식 수만큼 중복으로 나오기 때문.
+          JPQL의 <code>distinct</code>는 자바 레벨에서 중복을 제거해서 부모 한 명만 남게 한다.
+          (Hibernate 6+에선 SQL DISTINCT로 자동 변환되지 않음)
+        </p>
+
+        <h3>Q. N+1 해결의 끝은?</h3>
+
+        <p>
+          상황별로 도구가 다르다. 페이지네이션 있으면 BatchSize, 단일 컬렉션 단순 조회는 fetch join,
+          화면용 단순 데이터는 DTO 프로젝션. 한 도구로 모든 걸 해결하려 하면 다른 함정에 걸린다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <pre><code>4가지 함정:
+  1. MultipleBagFetchException — List 둘 이상 fetch join 불가
+  2. fetch join + 페이지네이션 → 메모리에서 자름 (HHH000104)
+  3. 1:N fetch join 결과 row 폭증 → distinct 필요
+  4. 컬렉션 size()만 필요할 때도 N+1 → 카운트 쿼리/DTO
+
+권장 조합:
+  default_batch_fetch_size 전역 +
+  핫패스는 EntityGraph +
+  페이지네이션은 BatchSize +
+  단순 조회는 DTO Projection
+
+다음: Spring 코어 마무리 — DI 방식 (생성자/세터/필드).</code></pre>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>
+</content>
