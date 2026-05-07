@@ -45,7 +45,7 @@
           중간에 다른 트랜잭션이 커밋하든 말든 무관하게.
         </p>
 
-        <pre><code class="language-sql">READ COMMITTED 동작:
+        <pre><code>READ COMMITTED 동작:
 
 T1: BEGIN
 T1: SELECT amount WHERE id=1   -- 10000
@@ -213,7 +213,7 @@ MySQL InnoDB REPEATABLE READ:
           하지만 실무에선 또 하나 자주 만나는 부정합이 있다. <strong>Lost Update</strong>.
         </p>
 
-        <pre><code class="language-sql">T1: SELECT amount WHERE id=1     -- 10000 읽음
+        <pre><code>T1: SELECT amount WHERE id=1     -- 10000 읽음
 T2: SELECT amount WHERE id=1     -- 10000 읽음
 T1: amount = 10000 - 1000 = 9000
 T2: amount = 10000 - 2000 = 8000
@@ -229,7 +229,7 @@ T2: UPDATE balance SET amount = 8000 WHERE id=1  -- T1의 변경을 덮어씀
 
         <h3>방어 방법</h3>
 
-        <pre><code class="language-sql">1. SELECT ... FOR UPDATE  (비관적 락)
+        <pre><code>1. SELECT ... FOR UPDATE  (비관적 락)
    T1이 SELECT 시점에 락을 걸어 T2를 막음
 
 2. 낙관적 락 (version 컬럼)

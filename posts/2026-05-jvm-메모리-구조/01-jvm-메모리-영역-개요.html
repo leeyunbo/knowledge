@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JVM 메모리 영역 개요 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 1/4</div>
+        <h1>JVM 메모리 영역 개요</h1>
+        <p class="subtitle">
+          자바 프로세스가 잡고 있는 메모리는 한 덩어리가 아니다.
+          역할이 다른 6개의 영역이 따로 살림을 차린다. 면접 전에 이 그림이 머리에 박혀야 한다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">JVM 메모리 구조</div>
+        <ol>
+          <li class="current">JVM 메모리 영역 개요</li>
+          <li><a href="./02-heap-deep-dive.html">Heap deep dive — Young/Old, TLAB</a></li>
+          <li><a href="./03-stack-pc-native.html">Stack / PC / Native — 스레드별 메모리</a></li>
+          <li><a href="./04-off-heap-direct-memory.html">Off-heap — Direct Memory와 NIO</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>전체 그림</h2>
+
+        <p>
+          JVM이 실행될 때 운영체제로부터 받는 메모리는 크게 세 종류로 나뉜다.
+          모든 스레드가 공유하는 영역, 스레드마다 따로 가지는 영역, 그리고 JVM 바깥의 native 메모리.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="JVM 메모리 영역 개요">
+            <defs>
+              <style>
+                .area { fill: #f9fafb; stroke: #d8dce0; stroke-width: 1; }
+                .area-shared { fill: #f2f6ff; stroke: #c0d6f8; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 14px; fill: #19181a; font-weight: 600; }
+                .sublabel { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">SHARED · 모든 스레드 공유</text>
+            <rect x="20" y="32" width="270" height="78" rx="8" class="area-shared"/>
+            <text x="155" y="60" text-anchor="middle" class="label">Heap</text>
+            <text x="155" y="80" text-anchor="middle" class="sublabel">객체 인스턴스, 배열</text>
+            <text x="155" y="96" text-anchor="middle" class="sublabel">GC 대상 영역</text>
+
+            <rect x="310" y="32" width="270" height="78" rx="8" class="area-shared"/>
+            <text x="445" y="60" text-anchor="middle" class="label">Metaspace</text>
+            <text x="445" y="80" text-anchor="middle" class="sublabel">클래스 메타데이터</text>
+            <text x="445" y="96" text-anchor="middle" class="sublabel">Native 메모리에 위치</text>
+
+            <text x="20" y="148" class="header">PER-THREAD · 스레드마다 별도</text>
+            <rect x="20" y="158" width="180" height="78" rx="8" class="area"/>
+            <text x="110" y="186" text-anchor="middle" class="label">JVM Stack</text>
+            <text x="110" y="206" text-anchor="middle" class="sublabel">메서드 호출 프레임</text>
+            <text x="110" y="222" text-anchor="middle" class="sublabel">로컬 변수, 피연산자</text>
+
+            <rect x="220" y="158" width="160" height="78" rx="8" class="area"/>
+            <text x="300" y="186" text-anchor="middle" class="label">PC Register</text>
+            <text x="300" y="206" text-anchor="middle" class="sublabel">현재 명령어 주소</text>
+            <text x="300" y="222" text-anchor="middle" class="sublabel">스레드당 1개</text>
+
+            <rect x="400" y="158" width="180" height="78" rx="8" class="area"/>
+            <text x="490" y="186" text-anchor="middle" class="label">Native Method Stack</text>
+            <text x="490" y="206" text-anchor="middle" class="sublabel">JNI 호출용 스택</text>
+            <text x="490" y="222" text-anchor="middle" class="sublabel">C/C++ 코드</text>
+
+            <text x="20" y="274" class="header">OFF-HEAP · JVM 바깥 (Native)</text>
+            <rect x="20" y="284" width="560" height="78" rx="8" class="area"/>
+            <text x="300" y="312" text-anchor="middle" class="label">Direct Memory</text>
+            <text x="300" y="332" text-anchor="middle" class="sublabel">DirectByteBuffer, NIO 채널 버퍼</text>
+            <text x="300" y="348" text-anchor="middle" class="sublabel">JVM 힙 밖이지만 Java가 관리</text>
+          </svg>
+          <figcaption>JVM 실행 중 메모리 영역 — 공유 / 스레드별 / off-heap</figcaption>
+        </figure>
+
+        <h2>JVM Spec이 정의하는 5개 영역</h2>
+
+        <p>
+          Java Virtual Machine Specification (JVMS §2.5) 은 JVM 실행 시점에 존재하는 런타임 데이터 영역을
+          5개로 정의한다. Direct Memory는 spec에 없고 NIO 등이 사용하는 native 영역이다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>영역</th>
+              <th>스코프</th>
+              <th>용도</th>
+              <th>OOM 시 메시지</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Heap</strong></td>
+              <td>공유</td>
+              <td>객체와 배열</td>
+              <td>Java heap space</td>
+            </tr>
+            <tr>
+              <td><strong>Method Area</strong></td>
+              <td>공유</td>
+              <td>클래스 메타데이터, 상수 풀</td>
+              <td>Metaspace</td>
+            </tr>
+            <tr>
+              <td><strong>JVM Stack</strong></td>
+              <td>스레드별</td>
+              <td>메서드 호출 프레임</td>
+              <td>StackOverflowError</td>
+            </tr>
+            <tr>
+              <td><strong>PC Register</strong></td>
+              <td>스레드별</td>
+              <td>현재 실행 중인 JVM 명령어 주소</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td><strong>Native Method Stack</strong></td>
+              <td>스레드별</td>
+              <td>JNI를 통한 native 코드 호출</td>
+              <td>StackOverflowError</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Heap — 객체가 사는 곳</h2>
+
+        <p>
+          <code>new</code>로 만든 모든 객체와 배열이 들어가는 자리.
+          모든 스레드가 공유하기 때문에 동시성 이슈도 여기서 시작된다.
+          GC가 도는 영역도 Heap이다.
+        </p>
+
+        <pre><code class="language-java">User user = new User("Alice");
+int[] arr = new int[100];
+String s = "hello";</code></pre>
+
+        <p>
+          위 세 줄에서 만들어진 <code>User</code> 인스턴스, <code>int[]</code> 배열,
+          <code>String</code> 객체 모두 Heap에 자리 잡는다.
+          참조 변수(<code>user</code>, <code>arr</code>, <code>s</code>) 자체는 Stack에 살지만
+          가리키는 대상은 모두 Heap에 있다.
+        </p>
+
+        <p>
+          HotSpot JVM의 Heap은 다시 Young Generation과 Old Generation으로 나뉘고,
+          Young은 Eden + Survivor 둘로 또 나뉜다. 이 세부 구조는 GC 동작과 직결되며 다음 편의 주제다.
+        </p>
+
+        <h2>Method Area / Metaspace — 클래스의 청사진</h2>
+
+        <p>
+          JVMS는 "Method Area"라는 이름으로 정의하지만 HotSpot의 구현체 이름은 Java 8부터 Metaspace다.
+          저장되는 것:
+        </p>
+
+        <ul>
+          <li>클래스의 구조 정보 (필드, 메서드, 상속 관계)</li>
+          <li>메서드의 바이트코드</li>
+          <li>런타임 상수 풀 (Runtime Constant Pool)</li>
+          <li>인터페이스, 어노테이션 정보</li>
+        </ul>
+
+        <p>
+          JIT가 컴파일한 native 코드는 Metaspace가 아닌 별도의 <strong>Code Cache</strong> 영역에 저장된다.
+          기본 크기는 240MB 정도이고 가득 차면 JIT 최적화가 멈춰 성능이 점진적으로 떨어진다.
+          <code>-XX:ReservedCodeCacheSize</code>로 조정.
+        </p>
+
+        <p>
+          Java 7까지는 PermGen(Permanent Generation)이라는 이름으로 Heap 안에 있었지만
+          Java 8에서 Heap 밖 native 메모리로 옮겨가며 Metaspace로 개명됐다.
+          크기가 동적으로 늘어날 수 있어 PermGen 시절 자주 보던 <code>OutOfMemoryError: PermGen space</code>가
+          기본적으로 사라졌다.
+        </p>
+
+        <h2>JVM Stack — 메서드 호출의 자리</h2>
+
+        <p>
+          스레드가 만들어질 때 함께 만들어지는 자기만의 스택.
+          메서드 하나가 호출될 때마다 스택 프레임(frame)이 push되고, 메서드가 끝나면 pop된다.
+          한 프레임에는 다음이 들어간다.
+        </p>
+
+        <ul>
+          <li>로컬 변수 배열 (Local Variables)</li>
+          <li>피연산자 스택 (Operand Stack)</li>
+          <li>메서드를 가진 클래스의 런타임 상수 풀 참조</li>
+        </ul>
+
+        <pre><code class="language-java">void outer() {
+    int x = 10;
+    inner(x);
+}
+
+void inner(int n) {
+    int y = n * 2;
+}</code></pre>
+
+        <p>
+          <code>outer()</code>가 호출되면 outer의 프레임이 push되고 로컬 변수 <code>x</code>가 그 안에 자리 잡는다.
+          그 안에서 <code>inner(x)</code>를 호출하면 inner의 프레임이 또 push되고 <code>n</code>, <code>y</code>가 들어간다.
+          inner가 리턴하면 inner 프레임이 pop되어 사라진다.
+        </p>
+
+        <p>
+          깊은 재귀나 무한 재귀로 프레임이 너무 많이 쌓이면 <code>StackOverflowError</code>가 발생한다.
+          스택 크기는 <code>-Xss</code> 옵션으로 조정할 수 있다 (기본 512KB ~ 1MB, 플랫폼별).
+        </p>
+
+        <h2>PC Register — 현재 어디 줄을 읽고 있는지</h2>
+
+        <p>
+          각 스레드가 "지금 실행 중인 JVM 명령어"의 주소를 보관하는 작은 레지스터.
+          스레드가 자바 메서드를 실행 중이면 그 메서드의 바이트코드 주소를 가리키고,
+          native 메서드를 실행 중이면 정의되지 않은(undefined) 값이다.
+        </p>
+
+        <p>
+          OS의 컨텍스트 스위칭이 일어나도 각 스레드가 자기 PC Register를 가지고 있어
+          중단된 위치를 정확히 복원할 수 있다.
+          크기는 매우 작아 OOM 같은 문제가 발생하지 않는 영역.
+        </p>
+
+        <h2>Native Method Stack — JNI를 위한 별도 스택</h2>
+
+        <p>
+          C나 C++로 작성된 native 메서드를 호출할 때 사용되는 스택.
+          JVM Stack과 별개로 존재해서 Java 코드와 native 코드의 호출 경로가 섞이지 않는다.
+          HotSpot은 실제로는 둘을 통합 관리하지만 JVMS 모델상으로는 분리되어 있다.
+        </p>
+
+        <p>
+          JNI를 직접 쓸 일은 적지만 JDK 내부의 많은 부분(File I/O, Socket, 암호화 등)이
+          native 메서드를 호출하므로 모든 자바 프로그램에서 이 영역이 사용되고 있다.
+        </p>
+
+        <h2>Direct Memory — JVM Spec 바깥의 손님</h2>
+
+        <p>
+          JVM Spec이 정의하지 않는 영역이지만 NIO가 도입된 이후 실무에서 매우 중요해졌다.
+          <code>ByteBuffer.allocateDirect()</code>로 할당하면 JVM 힙이 아닌 native 메모리에 버퍼가 만들어진다.
+        </p>
+
+        <pre><code class="language-java">ByteBuffer heapBuffer = ByteBuffer.allocate(1024);          // Heap
+ByteBuffer directBuffer = ByteBuffer.allocateDirect(1024);  // Off-heap</code></pre>
+
+        <p>
+          왜 Heap 밖에 두는가? OS의 I/O 함수가 Java 힙의 객체를 직접 읽고 쓸 수 없기 때문.
+          Heap 안의 ByteBuffer로 read/write하면 JVM이 native 버퍼로 한 번 복사한 뒤 OS에 전달한다.
+          Direct Memory를 쓰면 그 복사가 사라져 I/O 성능이 좋아진다.
+        </p>
+
+        <p>
+          단점은 GC 대상이 아니라 <code>-Xmx</code>의 한도와 무관하게 메모리를 잡아먹는다는 점.
+          <code>-XX:MaxDirectMemorySize</code>로 한도를 두지 않으면 OS 메모리 전체를 잠식할 수 있다.
+          4편에서 자세히 다룬다.
+        </p>
+
+        <h2>OOM 메시지로 영역 식별</h2>
+
+        <p>
+          운영 중 OOM이 떴을 때 어떤 영역이 부족한지는 메시지로 구분한다.
+          어느 영역인지 알아야 처방이 다르다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>OOM 메시지</th>
+              <th>영역</th>
+              <th>주요 원인</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Java heap space</code></td>
+              <td>Heap</td>
+              <td>객체 누수, 너무 큰 컬렉션</td>
+            </tr>
+            <tr>
+              <td><code>GC overhead limit exceeded</code></td>
+              <td>Heap</td>
+              <td>GC가 시간만 쓰고 메모리 회수 거의 못함</td>
+            </tr>
+            <tr>
+              <td><code>Metaspace</code></td>
+              <td>Metaspace</td>
+              <td>클래스 로더 누수, 동적 클래스 생성 폭주</td>
+            </tr>
+            <tr>
+              <td><code>Direct buffer memory</code></td>
+              <td>Direct Memory</td>
+              <td>NIO 버퍼 누수, MaxDirectMemorySize 부족</td>
+            </tr>
+            <tr>
+              <td><code>unable to create new native thread</code></td>
+              <td>Native</td>
+              <td>스레드 너무 많이 생성, ulimit 도달</td>
+            </tr>
+            <tr>
+              <td><code>StackOverflowError</code></td>
+              <td>JVM Stack</td>
+              <td>깊은 재귀, 무한 재귀</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. JVM 메모리 영역을 설명하라</h3>
+
+        <p>
+          Heap, Method Area(Metaspace), JVM Stack, PC Register, Native Method Stack 5개가 JVMS 정의 영역.
+          실무에서는 Direct Memory도 함께 본다. Heap과 Metaspace는 모든 스레드 공유,
+          나머지 셋은 스레드별로 따로 가진다.
+        </p>
+
+        <h3>Q. PermGen이 Metaspace로 바뀐 이유?</h3>
+
+        <p>
+          PermGen은 Heap 안의 고정 크기 영역이라 동적 클래스 로딩이 많은 환경에서
+          <code>OutOfMemoryError: PermGen space</code>가 흔했다.
+          Java 8에서 Heap 밖 native 메모리로 옮겨 동적으로 늘어날 수 있게 만들고 Metaspace로 개명했다.
+          한도는 <code>-XX:MaxMetaspaceSize</code>로 명시 가능, 명시 안 하면 가용 native 메모리만큼.
+        </p>
+
+        <h3>Q. 객체와 참조 변수는 어디에 저장되나?</h3>
+
+        <p>
+          객체 자체는 Heap에. 그 객체를 가리키는 참조 변수가 메서드 안의 로컬 변수면 JVM Stack의 프레임에,
+          다른 객체의 필드면 그 객체와 함께 Heap에, static 필드면 클래스 객체와 함께 Metaspace에 위치한다.
+        </p>
+
+        <h3>Q. Direct Memory는 GC 대상인가?</h3>
+
+        <p>
+          GC 대상이 아니다. Heap이 아닌 native 메모리에 있기 때문에 <code>-Xmx</code>와 무관하게 잡아먹는다.
+          <code>DirectByteBuffer</code>를 가리키는 Java 참조가 GC되면 그제서야 Cleaner 매커니즘으로 native 메모리가 해제된다.
+          참조가 살아있는 동안은 계속 점유되므로 누수 위험이 크다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          JVM은 자바 프로세스가 잡은 메모리를 Heap, Metaspace, JVM Stack, PC Register, Native Method Stack 5개로 나누고
+          NIO 등이 쓰는 Direct Memory를 native 메모리에서 별도로 사용한다.
+          공유되는 영역(Heap, Metaspace)에서는 동시성과 GC가 중요하고, 스레드별 영역(Stack 등)은 호출/실행 흐름을 추적한다.
+        </p>
+
+        <p>
+          가장 많은 질문이 쏟아지는 곳은 Heap이다. 다음 편은 Heap 안으로 들어가서
+          Young Generation의 Eden과 Survivor, Old Generation, TLAB 같은 디테일을 본다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

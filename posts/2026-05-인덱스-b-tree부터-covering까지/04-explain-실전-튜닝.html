@@ -241,7 +241,7 @@ ON orders (user_id, status, created_at);</code></pre>
           여기까지도 충분히 빠른데, 더 짜내려면 커버링 인덱스로 갈 수 있다.
         </p>
 
-        <pre><code class="language-sql">현재 쿼리: SELECT * FROM orders WHERE ...
+        <pre><code>현재 쿼리: SELECT * FROM orders WHERE ...
 → 모든 컬럼 필요. 보조 인덱스로 부족.
 → Back to Table 발생 (45행만 가져오니 비용은 작음)
 
@@ -283,7 +283,7 @@ ON orders (user_id, status, created_at);</code></pre>
 
         <h3>EXPLAIN ANALYZE (MySQL 8.0+)</h3>
 
-        <pre><code class="language-sql">EXPLAIN ANALYZE SELECT ...
+        <pre><code>EXPLAIN ANALYZE SELECT ...
 
 → EXPLAIN의 추정치가 아니라 실제 쿼리를 실행하면서
   각 단계의 실행 시간, 처리한 행 수를 측정해서 보여줌
@@ -291,7 +291,7 @@ ON orders (user_id, status, created_at);</code></pre>
 
         <h3>SHOW PROFILE (deprecated, 그래도 유용)</h3>
 
-        <pre><code class="language-sql">SET profiling = 1;
+        <pre><code>SET profiling = 1;
 SELECT ... ;
 SHOW PROFILE;
 
@@ -319,7 +319,7 @@ LIMIT 10;</code></pre>
 
         <h3>Slow Query Log</h3>
 
-        <pre><code># my.cnf
+        <pre><code class="language-bash"># my.cnf
 slow_query_log = 1
 slow_query_log_file = /var/log/mysql/slow.log
 long_query_time = 1   # 1초 이상 걸린 쿼리 기록</code></pre>

@@ -43,7 +43,7 @@
           핵심: <strong>같은 SELECT라도 어느 모드냐에 따라 동작이 완전히 다르다</strong>.
         </p>
 
-        <pre><code class="language-sql">Snapshot Read (Consistent Read):
+        <pre><code>Snapshot Read (Consistent Read):
   일반 SELECT
   MVCC 사용. ReadView 시점의 옛 버전을 봄.
   락 안 걸음. 동시성에 영향 없음.
@@ -276,7 +276,7 @@ FOR UPDATE SKIP LOCKED:
 
         <h3>함정 2: FOR UPDATE의 광범위 락</h3>
 
-        <pre><code class="language-sql">SELECT * FROM users WHERE name LIKE 'Kim%' FOR UPDATE
+        <pre><code>SELECT * FROM users WHERE name LIKE 'Kim%' FOR UPDATE
   name에 인덱스 없으면:
     → 풀스캔하면서 모든 행에 next-key lock
     → 사실상 테이블 전체 락
@@ -288,7 +288,7 @@ FOR UPDATE SKIP LOCKED:
 
         <h3>함정 3: Locking Read 후 Snapshot Read</h3>
 
-        <pre><code class="language-sql">T1: SELECT ... FOR UPDATE   -- 현재 값 봄, 락 잡음
+        <pre><code>T1: SELECT ... FOR UPDATE   -- 현재 값 봄, 락 잡음
 T1: UPDATE ...
 T1: SELECT ...               -- ★ 일반 SELECT (Snapshot)
 
@@ -301,7 +301,7 @@ T1: SELECT ...               -- ★ 일반 SELECT (Snapshot)
 
         <h2>한 줄 정리</h2>
 
-        <pre><code class="language-sql">MVCC와 잠금은 직교한 두 메커니즘.
+        <pre><code>MVCC와 잠금은 직교한 두 메커니즘.
 
   Snapshot Read = MVCC 사용, 락 안 걸음
                    → 동시성 좋음, 옛 버전 봄

@@ -71,7 +71,7 @@ POST는 비멱등이라 서버 입장에서 두 번째 요청이 첫 번째와 �
 
         <h3>Stripe / Toss의 실제 구현</h3>
 
-        <pre><code class="language-yaml">Stripe:
+        <pre><code>Stripe:
   POST /v1/charges
   Idempotency-Key: 임의의 64자 이하 키
   - 24시간 동안 같은 키 = 같은 결과

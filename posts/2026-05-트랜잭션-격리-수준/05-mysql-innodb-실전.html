@@ -80,7 +80,7 @@
           갭 락이 걸린 영역엔 INSERT가 못 들어간다.
         </p>
 
-        <pre><code class="language-sql">인덱스 (id 컬럼):
+        <pre><code>인덱스 (id 컬럼):
   ... 3 ─ 5 ─ 8 ─ 12 ...
 
 3과 5 사이의 갭에 락:
@@ -95,7 +95,7 @@
           <strong>Record Lock + Gap Lock</strong>의 조합. InnoDB의 RR에서 기본 락.
         </p>
 
-        <pre><code class="language-sql">인덱스 (id 컬럼):
+        <pre><code>인덱스 (id 컬럼):
   ... 3 ─ 5 ─ 8 ─ 12 ...
 
 id=5에 next-key lock:
@@ -202,7 +202,7 @@ SELECT * FROM coupons WHERE user_id = 1 LOCK IN SHARE MODE  -- 갭 락 걸림</c
 
         <h3>큐 패턴 예시</h3>
 
-        <pre><code class="language-sql">여러 워커가 jobs 테이블에서 순차적으로 작업 가져가야 함.
+        <pre><code>여러 워커가 jobs 테이블에서 순차적으로 작업 가져가야 함.
 
 기존 (FOR UPDATE만):
   Worker 1: SELECT ... LIMIT 1 FOR UPDATE   -- 첫 행 락
@@ -225,7 +225,7 @@ SKIP LOCKED:
 
         <h2>NOWAIT — 락 걸려있으면 즉시 실패</h2>
 
-        <pre><code class="language-sql">SELECT * FROM users WHERE id=5 FOR UPDATE NOWAIT
+        <pre><code>SELECT * FROM users WHERE id=5 FOR UPDATE NOWAIT
   → id=5에 락 있으면 대기하지 말고 바로 에러 반환
 
 쓰임새:
@@ -307,7 +307,7 @@ SELECT * FROM information_schema.innodb_trx;</code></pre>
           "트랜잭션 격리 수준에 대해 설명해주세요"
         </p>
 
-        <pre><code class="language-sql">1. ANSI SQL이 4단계로 정의 (READ UNCOMMITTED ~ SERIALIZABLE)
+        <pre><code>1. ANSI SQL이 4단계로 정의 (READ UNCOMMITTED ~ SERIALIZABLE)
 2. 3가지 부정합으로 격리 수준 구분 (Dirty / Non-Repeatable / Phantom)
 3. 위로 갈수록 동시성 좋고 정확성 약함, trade-off
 

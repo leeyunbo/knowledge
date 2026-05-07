@@ -133,7 +133,7 @@ DB 관점:     외부 tx는 여전히 active, 락도 그대로</code></pre>
           같은 row를 건드리는 상황이다.
         </p>
 
-        <pre><code class="language-sql">@Transactional
+        <pre><code class="language-java">@Transactional
 public void poll() {
     // SELECT ... FOR UPDATE → row 1, 2, 3에 락
     List&lt;Notification&gt; rows = repo.findReadyToSendForUpdate();

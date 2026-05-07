@@ -62,7 +62,7 @@
           가장 기본. 거의 모든 RDBMS에 있는 개념.
         </p>
 
-        <pre><code class="language-sql">S (Shared / 공유 락):
+        <pre><code>S (Shared / 공유 락):
   SELECT ... LOCK IN SHARE MODE 같은 명시적 잠금 읽기에 걸림
   여러 트랜잭션이 같은 행에 동시에 S락 가질 수 있음
   X락과는 충돌
@@ -104,7 +104,7 @@ X (Exclusive / 전용 락):
 
         <h3>IS / IX 의미</h3>
 
-        <pre><code class="language-sql">IS (Intention Shared):
+        <pre><code>IS (Intention Shared):
   "이 테이블의 어떤 행에 S락을 걸 예정"
   SELECT ... LOCK IN SHARE MODE 시 자동 부여
 
@@ -141,7 +141,7 @@ IX (Intention Exclusive):
 
         <h3>Record Lock — 인덱스 레코드 락</h3>
 
-        <pre><code class="language-sql">UPDATE users SET name='Bob' WHERE id = 5
+        <pre><code>UPDATE users SET name='Bob' WHERE id = 5
   → id=5인 인덱스 레코드 한 개에 X락
 
 다른 트랜잭션이 id=5 행을 수정/삭제하려 하면 대기.
@@ -158,7 +158,7 @@ IX (Intention Exclusive):
           이 갭 안에는 어떤 새 행도 INSERT 못 한다.
         </p>
 
-        <pre><code class="language-sql">인덱스 (id 컬럼):
+        <pre><code>인덱스 (id 컬럼):
   ... 3 ─ 5 ─ 8 ─ 12 ...
 
 3과 5 사이에 갭 락:
@@ -174,7 +174,7 @@ IX (Intention Exclusive):
           InnoDB의 RR에서 기본으로 잡히는 락 형태.
         </p>
 
-        <pre><code class="language-sql">인덱스 (id 컬럼):
+        <pre><code>인덱스 (id 컬럼):
   ... 3 ─ 5 ─ 8 ─ 12 ...
 
 id=5에 next-key lock:
@@ -200,7 +200,7 @@ id=5에 next-key lock:
 
         <h3>READ COMMITTED — Record Lock만</h3>
 
-        <pre><code class="language-sql">UPDATE users SET name='Bob' WHERE id BETWEEN 5 AND 10
+        <pre><code>UPDATE users SET name='Bob' WHERE id BETWEEN 5 AND 10
   → 매칭되는 행 (id=5, 7, 10)에만 Record Lock
   → 갭 락 없음
 
@@ -209,7 +209,7 @@ id=5에 next-key lock:
 
         <h3>REPEATABLE READ — Next-Key Lock</h3>
 
-        <pre><code class="language-sql">UPDATE users SET name='Bob' WHERE id BETWEEN 5 AND 10
+        <pre><code>UPDATE users SET name='Bob' WHERE id BETWEEN 5 AND 10
   → 매칭되는 행 (id=5, 7, 10)에 X락
   → 그 행들 앞의 갭에도 락
   → 결과적으로 [5, 10] 범위 전체 잠금 (대략)
@@ -235,7 +235,7 @@ id=5에 next-key lock:
 
         <h3>인덱스 안 타는 WHERE의 위험</h3>
 
-        <pre><code class="language-sql">UPDATE users SET name='Bob' WHERE phone = '010-1234-5678'
+        <pre><code>UPDATE users SET name='Bob' WHERE phone = '010-1234-5678'
 
 phone에 인덱스가 없다면:
   → InnoDB는 모든 행을 풀스캔하면서 phone 비교
@@ -251,7 +251,7 @@ phone에 인덱스가 없다면:
 
         <h3>유니크 인덱스 + 정확한 매칭의 특별 동작</h3>
 
-        <pre><code class="language-sql">UPDATE users SET name='Bob' WHERE id = 5    -- id는 PK
+        <pre><code>UPDATE users SET name='Bob' WHERE id = 5    -- id는 PK
 
 InnoDB는 이 케이스를 알아채고 갭 락 안 걸음.
 정확히 id=5 Record Lock만.
@@ -270,7 +270,7 @@ InnoDB는 이 케이스를 알아채고 갭 락 안 걸음.
           이름과 다르게 "갭 락의 한 종류"인데 동작이 약함.
         </p>
 
-        <pre><code class="language-sql">INSERT INTO users (id, name) VALUES (10, 'Charlie')
+        <pre><code>INSERT INTO users (id, name) VALUES (10, 'Charlie')
   → id=10 자리에 Insert Intention Lock
 
 이 락은 다른 Insert Intention Lock과는 호환됨
@@ -284,7 +284,7 @@ InnoDB는 이 케이스를 알아채고 갭 락 안 걸음.
 
         <h2>락 디버깅 — 어떻게 확인하나</h2>
 
-        <pre><code>-- 현재 데이터 락 (MySQL 8.0+)
+        <pre><code class="language-sql">-- 현재 데이터 락 (MySQL 8.0+)
 SELECT * FROM performance_schema.data_locks
 WHERE OBJECT_SCHEMA='your_db';
 

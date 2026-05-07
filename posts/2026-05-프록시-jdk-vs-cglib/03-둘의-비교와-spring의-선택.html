@@ -103,7 +103,7 @@ private 메서드 가로채기    X (인터페이스에 없음)         X (가�
 
         <h2>왜 Spring이 CGLIB을 기본으로 바꿨나</h2>
 
-        <pre><code class="language-java">1. 일관성
+        <pre><code>1. 일관성
    - 빈에 인터페이스가 있냐 없냐로 프록시 종류가 갈리면 디버깅이 헷갈림
    - "내 빈은 어떤 프록시지?"를 매번 따져야 함
    - CGLIB으로 통일하면 항상 같은 동작
@@ -312,7 +312,7 @@ Library/Framework 작성 시:
 
         <h2>한 줄 정리</h2>
 
-        <pre><code class="language-yaml">JDK 동적 프록시:
+        <pre><code>JDK 동적 프록시:
   인터페이스 기반, JDK 표준, Reflection 호출, 인터페이스 캐스팅만
 
 CGLIB:

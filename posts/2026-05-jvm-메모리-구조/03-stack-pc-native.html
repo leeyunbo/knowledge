@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stack / PC / Native — 스레드별 메모리 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 3/4</div>
+        <h1>Stack / PC / Native — 스레드별 메모리</h1>
+        <p class="subtitle">
+          스레드마다 따로 가지는 세 영역. 메서드 호출의 자리, 다음에 읽을 명령어 주소,
+          그리고 native 코드 호출용 별도 스택.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">JVM 메모리 구조</div>
+        <ol>
+          <li><a href="./01-jvm-메모리-영역-개요.html">JVM 메모리 영역 개요</a></li>
+          <li><a href="./02-heap-deep-dive.html">Heap deep dive — Young/Old, TLAB</a></li>
+          <li class="current">Stack / PC / Native — 스레드별 메모리</li>
+          <li><a href="./04-off-heap-direct-memory.html">Off-heap — Direct Memory와 NIO</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>스레드별로 따로인 이유</h2>
+
+        <p>
+          스레드 하나가 메서드 A를 실행하다가 컨텍스트 스위칭으로 멈추고,
+          다른 스레드가 메서드 B를 실행한다고 하자.
+          B가 끝난 뒤 다시 A가 재개되려면 A가 멈춘 지점, 그 시점의 로컬 변수, 호출 스택이 모두 보존되어 있어야 한다.
+        </p>
+
+        <p>
+          이 세 가지 정보가 스레드마다 별도로 보관되어야 하는 이유.
+          공유 영역(Heap, Metaspace)은 동시 접근 보호가 필요하지만,
+          스레드별 영역은 본인만 쓰니 동기화가 필요 없다.
+        </p>
+
+        <h2>JVM Stack — 메서드 호출의 자리</h2>
+
+        <p>
+          스레드가 만들어질 때 함께 생성되는 자기만의 스택.
+          메서드가 호출될 때마다 스택 프레임(frame)이 push되고, 메서드가 종료되면 pop된다.
+          마지막 메서드의 프레임만 active이며, 그 위에 새 프레임이 쌓이거나 끝나서 사라지는 구조.
+        </p>
+
+        <h3>스택 프레임의 구성</h3>
+
+        <p>
+          한 프레임에는 다음 세 가지가 들어간다 (JVMS §2.6).
+        </p>
+
+        <ul>
+          <li><strong>Local Variables</strong> — 로컬 변수와 매개변수가 저장되는 배열</li>
+          <li><strong>Operand Stack</strong> — JVM 명령어가 사용하는 연산용 스택</li>
+          <li><strong>Frame Data</strong> — 메서드를 가진 클래스의 런타임 상수 풀 참조 등</li>
+        </ul>
+
+        <h3>예제로 보는 프레임 흐름</h3>
+
+        <pre><code class="language-java">int outer() {
+    int x = 10;
+    int y = inner(x);
+    return x + y;
+}
+
+int inner(int n) {
+    int z = n * 2;
+    return z;
+}</code></pre>
+
+        <figure>
+          <svg viewBox="0 0 600 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="JVM 스택 프레임 호출 흐름">
+            <defs>
+              <style>
+                .frame { fill: #f9fafb; stroke: #d8dce0; stroke-width: 1; }
+                .frame-active { fill: #f2f6ff; stroke: #c0d6f8; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .var { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #4e5968; }
+                .step { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
+
+            <text x="40" y="20" class="step">① outer 호출 직후</text>
+            <rect x="20" y="30" width="160" height="60" rx="4" class="frame-active"/>
+            <text x="100" y="50" text-anchor="middle" class="label">outer frame</text>
+            <text x="100" y="70" text-anchor="middle" class="var">x = 10</text>
+            <text x="100" y="84" text-anchor="middle" class="var">y = ?</text>
+
+            <text x="240" y="20" class="step">② inner 호출 진입</text>
+            <rect x="220" y="100" width="160" height="60" rx="4" class="frame"/>
+            <text x="300" y="120" text-anchor="middle" class="label">outer frame</text>
+            <text x="300" y="140" text-anchor="middle" class="var">x = 10</text>
+            <text x="300" y="154" text-anchor="middle" class="var">y = ?</text>
+            <rect x="220" y="30" width="160" height="60" rx="4" class="frame-active"/>
+            <text x="300" y="50" text-anchor="middle" class="label">inner frame</text>
+            <text x="300" y="70" text-anchor="middle" class="var">n = 10</text>
+            <text x="300" y="84" text-anchor="middle" class="var">z = 20</text>
+
+            <text x="440" y="20" class="step">③ inner 리턴 후</text>
+            <rect x="420" y="30" width="160" height="60" rx="4" class="frame-active"/>
+            <text x="500" y="50" text-anchor="middle" class="label">outer frame</text>
+            <text x="500" y="70" text-anchor="middle" class="var">x = 10</text>
+            <text x="500" y="84" text-anchor="middle" class="var">y = 20</text>
+
+            <text x="40" y="200" class="step">스택 성장 방향 ↓</text>
+            <line x1="40" y1="220" x2="40" y2="280" stroke="#6b7684" stroke-width="1" stroke-dasharray="3,3"/>
+            <text x="60" y="240" class="var">윗쪽이 새 프레임</text>
+            <text x="60" y="260" class="var">아래쪽이 호출자(caller) 프레임</text>
+          </svg>
+          <figcaption>메서드 호출에 따른 스택 프레임의 push/pop</figcaption>
+        </figure>
+
+        <p>
+          ① outer가 호출되면 outer 프레임이 만들어지고 <code>x = 10</code>이 기록된다.<br>
+          ② <code>inner(x)</code> 호출 시 inner 프레임이 push되고 <code>n = 10</code>으로 매개변수가 복사된다.
+          inner 안의 로컬 변수 <code>z</code>도 그 프레임에 자리 잡는다.<br>
+          ③ inner가 리턴하면 inner 프레임은 pop되어 사라지고, 리턴값이 outer의 <code>y</code>에 들어간다.
+        </p>
+
+        <h3>참조 변수와 객체의 자리</h3>
+
+        <pre><code class="language-java">void method() {
+    User user = new User("Alice");
+}</code></pre>
+
+        <p>
+          <code>User</code> 객체는 Heap에 만들어진다. 그 객체를 가리키는 참조 변수 <code>user</code>는
+          method의 스택 프레임 안 Local Variables 배열에 저장된다.
+          메서드가 끝나면 user 변수는 사라지고, 그 객체를 가리키는 다른 참조가 없으면 Heap의 객체는 GC 대상이 된다.
+        </p>
+
+        <h2>StackOverflowError</h2>
+
+        <p>
+          스택 크기가 한정되어 있으니 프레임이 너무 많이 쌓이면 터진다.
+        </p>
+
+        <pre><code class="language-java">void recursive() {
+    recursive();
+}
+
+recursive();   // StackOverflowError</code></pre>
+
+        <p>
+          호출 깊이가 수만 정도까지 가면 발생. 정확한 한계는 스택 크기와 프레임당 메모리 사용량(로컬 변수 수 등)에 따라 다르다.
+          기본 스택 크기는 플랫폼마다 다르며 보통 512KB~1MB.
+          <code>-Xss</code> 옵션으로 조정한다 (예: <code>-Xss2m</code>).
+        </p>
+
+        <p>
+          꼬리 재귀 최적화(TCO)는 자바에 없으므로 깊은 재귀는 항상 위험.
+          깊이가 클 수 있는 알고리즘은 명시적 스택(Deque)으로 변환하는 게 안전.
+        </p>
+
+        <h2>PC Register — 다음에 읽을 명령어 주소</h2>
+
+        <p>
+          각 스레드가 가지는 작은 레지스터로, 현재 실행 중인 JVM 명령어의 주소를 보관한다.
+          OS 수준의 PC(Program Counter)와 비슷한 개념의 JVM 버전.
+        </p>
+
+        <ul>
+          <li>스레드가 자바 메서드를 실행 중이면 그 메서드의 바이트코드 주소를 가리킨다</li>
+          <li>스레드가 native 메서드를 실행 중이면 정의되지 않은(undefined) 값이다</li>
+          <li>스레드 컨텍스트 스위칭이 일어나도 각자 자기 PC Register를 가지고 있어 정확히 재개 가능</li>
+        </ul>
+
+        <p>
+          크기가 매우 작아 OOM 같은 문제가 발생하지 않는 영역.
+          개발자가 직접 다룰 일도 거의 없지만 "스레드가 어떻게 실행 위치를 기억하는가"의 답이 여기 있다.
+        </p>
+
+        <h2>Native Method Stack — JNI 호출용 별도 스택</h2>
+
+        <p>
+          C나 C++로 작성된 native 메서드를 호출할 때 사용되는 스택.
+          JVM Stack과 별개로 존재해 자바 호출 흐름과 native 호출 흐름이 모델상 분리된다.
+        </p>
+
+        <pre><code class="language-java">public class FileInputStream {
+    private native int read0() throws IOException;
+}</code></pre>
+
+        <p>
+          <code>native</code> 키워드가 붙은 메서드를 호출하면 JVM Stack에서 Native Method Stack으로 흐름이 넘어간다.
+          OS의 read 시스템 콜, 암호화 라이브러리, 그래픽 라이브러리 등 자바가 아닌 코드가 거의 모두 이 경로를 탄다.
+        </p>
+
+        <p>
+          HotSpot은 실제로는 JVM Stack과 Native Method Stack을 통합 관리하지만 JVMS 모델상으로는 분리되어 있다.
+          여기서도 깊은 호출은 <code>StackOverflowError</code>를 일으킬 수 있다.
+        </p>
+
+        <h2>스레드 생성 비용 — 잊기 쉬운 부분</h2>
+
+        <p>
+          새 스레드 하나를 만들 때 JVM Stack과 Native Method Stack이 함께 만들어진다.
+          기본 1MB짜리 스택을 두 종류 잡으니 스레드 하나당 수 MB가 native 메모리에서 잡힌다.
+        </p>
+
+        <p>
+          그래서 스레드를 무제한으로 만들려고 하면 OS의 가상 메모리 한계 또는 ulimit에 부딪쳐
+          <code>OutOfMemoryError: unable to create new native thread</code>가 발생한다.
+          이는 Heap 부족이 아니라 OS 수준 제약. <code>-Xmx</code>를 늘려도 해결되지 않는다.
+        </p>
+
+        <h3>해결 방향</h3>
+
+        <ul>
+          <li>스레드를 무제한으로 만들지 않고 ThreadPool로 재사용</li>
+          <li>I/O 위주의 워크로드는 Reactive 또는 Virtual Thread (Java 21+)로 전환</li>
+          <li>OS의 ulimit, <code>/proc/sys/kernel/threads-max</code> 확인</li>
+        </ul>
+
+        <h2>Virtual Thread (Java 21+)</h2>
+
+        <p>
+          기존의 OS 스레드가 가진 두꺼운 스택의 부담을 줄이기 위해 Java 21에서 정식화된 가상 스레드.
+          자바 레벨의 가벼운 스레드가 OS 스레드 위에 multiplex되며, 스택은 동적으로 늘어나는 segment 형태로 Heap에 저장된다.
+        </p>
+
+        <p>
+          Virtual Thread는 수만 개를 만들어도 OS 스레드를 그만큼 잡지 않는다.
+          전통적인 Thread는 OS 스레드 1:1 매핑이라 1만 개를 만들면 1만 개의 OS 스레드가 만들어지는 것과 대조적.
+          별도 시리즈에서 깊게 다룰 주제.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 스택은 왜 스레드마다 따로 가지나?</h3>
+
+        <p>
+          스레드 각자가 독립적인 호출 흐름을 가지기 때문. 메서드 호출 시점의 로컬 변수와 매개변수,
+          돌아갈 위치 등을 자기만의 공간에 보관해야 다른 스레드와 섞이지 않는다.
+          공유 영역과 달리 동기화가 필요 없다는 부수 효과도 있다.
+        </p>
+
+        <h3>Q. 객체와 참조 변수는 각각 어디에?</h3>
+
+        <p>
+          객체(인스턴스, 배열)는 항상 Heap에. 그 객체를 가리키는 참조 변수가 메서드의 로컬 변수면 JVM Stack의 프레임에,
+          다른 객체의 필드면 그 객체와 함께 Heap에, static 필드면 클래스 객체와 함께 Metaspace에 위치한다.
+        </p>
+
+        <h3>Q. StackOverflowError와 OutOfMemoryError의 차이?</h3>
+
+        <p>
+          StackOverflowError는 한 스레드의 JVM Stack이 너무 깊어졌을 때 (보통 무한 재귀).
+          OutOfMemoryError는 Heap, Metaspace, Direct Memory, Native Thread 등 영역의 메모리가 부족할 때.
+          전자는 알고리즘 문제, 후자는 메모리 또는 누수 문제로 접근하면 된다.
+        </p>
+
+        <h3>Q. <code>unable to create new native thread</code>는 왜 뜨나?</h3>
+
+        <p>
+          새 스레드를 만들 때 native 메모리에서 스택을 잡지 못해 발생.
+          Heap 부족과 무관하다. 원인은 보통 스레드 폭주(ThreadPool 미사용),
+          OS의 ulimit 한계, 너무 큰 <code>-Xss</code>로 스택 하나당 비용이 높을 때.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          스레드별 영역은 셋. JVM Stack은 메서드 호출 프레임, PC Register는 다음 실행 명령어 주소,
+          Native Method Stack은 JNI 경로의 호출 스택. 모두 스레드 생성 시 함께 만들어지고 종료 시 함께 사라진다.
+        </p>
+
+        <p>
+          스레드 수가 많아지면 이 영역들이 native 메모리를 점점 잡아먹어 OS 한계에 부딪친다.
+          ThreadPool, Reactive, Virtual Thread 같은 패턴이 이 문제를 풀려는 시도.
+          마지막 편은 Off-heap — NIO와 Direct Memory가 만드는 또 다른 메모리 영역.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

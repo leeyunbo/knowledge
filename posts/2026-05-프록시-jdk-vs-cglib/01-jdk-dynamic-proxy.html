@@ -68,7 +68,7 @@
           런타임에 그 인터페이스의 구현체를 동적으로 만들어낸다."</strong>
         </p>
 
-        <pre><code class="language-java">전제:
+        <pre><code>전제:
   대상 객체가 어떤 인터페이스를 구현해야 함
 
 UserService 인터페이스:
@@ -120,7 +120,7 @@ JDK 동적 프록시가 만드는 것:
 
         <h2>InvocationHandler — 가로채기의 본체</h2>
 
-        <pre><code class="language-java">public interface InvocationHandler {
+        <pre><code>public interface InvocationHandler {
     Object invoke(Object proxy, Method method, Object[] args) throws Throwable;
 }
 
@@ -369,7 +369,7 @@ proxy.getClass().getName()        // "com.sun.proxy.$Proxy0" 같은 이름</code
           Spring AOP가 JDK 동적 프록시를 쓸 때:
         </p>
 
-        <pre><code class="language-java">@Service
+        <pre><code>@Service
 public class UserServiceImpl implements UserService {
     @Transactional
     public User createUser(String name) { ... }
@@ -393,7 +393,7 @@ Spring이 동작:
           다른 빈이 <code>@Autowired UserService</code>가 아니라 <code>@Autowired UserServiceImpl</code>로 받으면?
         </p>
 
-        <pre><code class="language-java">@Autowired
+        <pre><code>@Autowired
 private UserServiceImpl userServiceImpl;   // ★ 구체 클래스로 주입 시도
 
 → 컨테이너가 들고 있는 건 $Proxy0 (UserService 구현)

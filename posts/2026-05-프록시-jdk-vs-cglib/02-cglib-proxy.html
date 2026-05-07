@@ -259,7 +259,7 @@ proxy.createUser("Alice");
 
         <h3>제약 1: final 클래스에 적용 불가</h3>
 
-        <pre><code class="language-java">public final class UserService { ... }
+        <pre><code>public final class UserService { ... }
 
 → Enhancer.setSuperclass(UserService.class) 시도
 → final 클래스는 상속 불가 → 클래스 생성 실패
@@ -304,7 +304,7 @@ proxy.createUser("Alice");
 
         <h3>제약 4: 부모 생성자가 필수로 호출됨</h3>
 
-        <pre><code class="language-java">public class UserService {
+        <pre><code>public class UserService {
     public UserService() {
         connectDatabase();   // 무거운 작업
     }

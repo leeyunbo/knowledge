@@ -290,7 +290,7 @@ Spring 동작 (Spring Boot 2.5 이하):
 
         <h3>패턴 1: 공통 의존성 추출</h3>
 
-        <pre><code class="language-yaml">Before:
+        <pre><code>Before:
   A → B
   B → A    (순환)
 
@@ -318,7 +318,7 @@ A와 B가 직접 의존 안 함. 이벤트로 느슨하게 결합.</code></pre>
 
         <h3>패턴 3: @Lazy로 프록시 주입</h3>
 
-        <pre><code class="language-java">@Service
+        <pre><code>@Service
 public class A {
     private final B b;
     public A(@Lazy B b) { this.b = b; }   // ★ @Lazy

@@ -12,7 +12,7 @@
 - [ ] ★ Collection 비교 — ArrayList vs LinkedList, HashMap vs TreeMap (3편)
 
 ### JVM 내부
-- [ ] ★ JVM 메모리 구조 — Heap / Metaspace / Stack / Direct Memory (4편)
+- [x] ★ JVM 메모리 구조 — Heap / Metaspace / Stack / Direct Memory (4편)
 - [ ] ★ GC 진화사 — Serial → ZGC, Shenandoah (5편)
 - [ ] ★ ClassLoader 동작 — 부모 위임 모델 (3편)
 

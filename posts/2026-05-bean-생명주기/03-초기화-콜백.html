@@ -43,7 +43,7 @@
           Spring 공식 문서가 정의하는 정확한 순서:
         </p>
 
-        <pre><code>1. Aware 인터페이스 콜백
+        <pre><code class="language-java">1. Aware 인터페이스 콜백
 2. BeanPostProcessor.postProcessBeforeInitialization()
 3. @PostConstruct 메서드 실행
 4. InitializingBean.afterPropertiesSet() 실행
@@ -86,7 +86,7 @@
           원본은 사라진다. 이게 <strong>AOP 프록시가 만들어지는 정확한 메커니즘</strong>이다.
         </p>
 
-        <pre><code class="language-java">1. 원본 빈 인스턴스화: UserService 객체 만듦
+        <pre><code>1. 원본 빈 인스턴스화: UserService 객체 만듦
 2. 의존성 주입 끝
 3. AOP 관련 BeanPostProcessor가 동작:
    - 이 빈에 @Transactional이 붙어있나? 그렇다면 프록시 필요.
@@ -326,7 +326,7 @@ public void init() {
           AOP 프록시는 <strong>BeanPostProcessor.postProcessAfterInitialization</strong>에서 만들어진다.
         </p>
 
-        <pre><code class="language-java">1. 원본 UserService 인스턴스화 (가짜 의존성 또는 final 의존성)
+        <pre><code>1. 원본 UserService 인스턴스화 (가짜 의존성 또는 final 의존성)
 2. 의존성 주입 끝
 3. Aware 콜백
 4. BeanPostProcessor.before (다른 처리들)
@@ -345,7 +345,7 @@ public void init() {
 
         <h2>운영 디버깅 팁</h2>
 
-        <pre><code>1. 빈이 진짜 만들어졌는지 확인
+        <pre><code class="language-java">1. 빈이 진짜 만들어졌는지 확인
    ApplicationContext.getBeanDefinitionNames()
    ApplicationContext.containsBean("userService")
 

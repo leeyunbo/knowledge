@@ -201,7 +201,7 @@ ReentrantLock도 같은 이유로 "재진입 가능" 강조</code></pre>
 
         <h3>락 단위의 함정</h3>
 
-        <pre><code>// 잘못된 패턴: 다른 락 객체로 보호하면 동시성 보장 안 됨
+        <pre><code class="language-java">// 잘못된 패턴: 다른 락 객체로 보호하면 동시성 보장 안 됨
 private Object lockA = new Object();
 private Object lockB = new Object();
 private int count = 0;
@@ -318,6 +318,6 @@ ReentrantLock:
   <footer class="site-footer">
     bok · 2026
   </footer>
+  <script src="../../assets/toc.js"></script>
 </body>
 </html>
-</content>

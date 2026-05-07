@@ -60,7 +60,7 @@
 
         <h2>코드로 보는 putVal 핵심</h2>
 
-        <pre><code>// java.util.HashMap.putVal (요약)
+        <pre><code class="language-java">// java.util.HashMap.putVal (요약)
 final V putVal(int hash, K key, V value, ...) {
     Node&lt;K,V&gt;[] tab; Node&lt;K,V&gt; p; int n, i;
 
@@ -242,7 +242,7 @@ map.compute("a", (k, v) -&gt; v == null ? 1 : v + 1);
 
         <h2>null key — 특별 케이스</h2>
 
-        <pre><code>HashMap.hash:
+        <pre><code class="language-java">HashMap.hash:
   static final int hash(Object key) {
       int h;
       return (key == null) ? 0 : (h = key.hashCode()) ^ (h &gt;&gt;&gt; 16);

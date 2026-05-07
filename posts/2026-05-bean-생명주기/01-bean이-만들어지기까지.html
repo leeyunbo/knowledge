@@ -44,7 +44,7 @@
           전체 흐름을 먼저 그려보자.
         </p>
 
-        <pre><code class="language-java">1. BeanDefinition 등록
+        <pre><code>1. BeanDefinition 등록
    - @Component, @Bean 등을 스캔해서 메타데이터로 등록
 
 2. 인스턴스화 (Instantiation)
@@ -322,7 +322,7 @@ public class CommandHandler { ... }</code></pre>
           Singleton이라도 즉시 안 만들고 처음 필요할 때 만들 수 있다.
         </p>
 
-        <pre><code class="language-java">@Component
+        <pre><code>@Component
 @Lazy
 public class HeavyService { ... }
 
@@ -337,7 +337,7 @@ public class HeavyService { ... }
 
         <h2>한 줄 정리</h2>
 
-        <pre><code class="language-java">1. @Component / @Bean 어노테이션을 보고 BeanDefinition을 등록 (메타데이터)
+        <pre><code>1. @Component / @Bean 어노테이션을 보고 BeanDefinition을 등록 (메타데이터)
 2. BeanFactoryPostProcessor가 BeanDefinition을 수정할 기회를 가짐
 3. 그 다음에 인스턴스화 (생성자 호출)
 4. 인스턴스화 직후엔 아직 빈이 사용 가능하지 않음 — 의존성 주입과 초기화 콜백이 남음

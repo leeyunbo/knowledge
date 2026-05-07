@@ -103,7 +103,7 @@
           1편에서 본 잘못된 패턴.
         </p>
 
-        <pre><code>// 매 호출마다 새 RestClient
+        <pre><code class="language-java">// 매 호출마다 새 RestClient
 public ResponseDto callKakao(Request req) {
     RestClient client = RestClient.create();   // ❌
     return client.post()...
@@ -218,7 +218,7 @@ TCP:   34521 (estab 230, closed 32102, orphaned 0, timewait 32099)
           ephemeral 풀 28K에 근접해서 곧 새 연결을 못 만들기 시작한다.
         </p>
 
-        <pre><code># 어느 destination으로 TIME_WAIT가 쌓이는지 확인
+        <pre><code class="language-bash"># 어느 destination으로 TIME_WAIT가 쌓이는지 확인
 $ ss -tan state time-wait | awk '{print $4}' | sort | uniq -c | sort -rn | head
   31845 1.2.3.4:443    ← 카카오 IP에 모두 쌓임
     154 5.6.7.8:443

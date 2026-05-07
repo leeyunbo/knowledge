@@ -37,7 +37,7 @@
 
         <h2>해법 1: Fetch Join (JPQL)</h2>
 
-        <pre><code>@Query("select m from Member m left join fetch m.orders")
+        <pre><code class="language-java">@Query("select m from Member m left join fetch m.orders")
 List&lt;Member&gt; findAllWithOrders();</code></pre>
 
         <h3>실행되는 SQL</h3>
@@ -119,7 +119,7 @@ LEFT OUTER JOIN orders o ON m.id = o.member_id
 
         <h3>Fetch Join과의 차이</h3>
 
-        <pre><code class="language-yaml">Fetch Join:
+        <pre><code>Fetch Join:
   - JPQL 쿼리에 직접 작성
   - "left join fetch" 명시
   - 쿼리와 fetch 전략이 한 곳
@@ -174,7 +174,7 @@ public class Member {
 
         <h3>또는 전역 설정</h3>
 
-        <pre><code class="language-yaml">spring:
+        <pre><code>spring:
   jpa:
     properties:
       hibernate:
@@ -241,7 +241,7 @@ JPA 표준           O (JPQL)           O (JPA 2.1)       X (Hibernate)
 
         <h2>실무 조합 패턴</h2>
 
-        <pre><code class="language-sql">1. 전역에 default_batch_fetch_size 설정
+        <pre><code>1. 전역에 default_batch_fetch_size 설정
    - 안전망. 의도치 않은 N+1을 자동 완화
    - 100~1000 사이 적절히
 

@@ -141,7 +141,7 @@ Spring이 만드는 프록시:
 
         <h3>CGLIB Proxy</h3>
 
-        <pre><code class="language-java">대상 빈이 인터페이스를 구현 안 했을 때 (또는 강제로 클래스 기반 프록시 설정).
+        <pre><code>대상 빈이 인터페이스를 구현 안 했을 때 (또는 강제로 클래스 기반 프록시 설정).
 
 UserService 클래스 (인터페이스 없음):
   @Service
@@ -166,7 +166,7 @@ Spring이 만드는 프록시:
           Spring Boot 2.0부터 기본은 CGLIB이다. 인터페이스가 있어도 CGLIB을 쓴다.
         </p>
 
-        <pre><code class="language-yaml"># application.yml
+        <pre><code class="language-bash"># application.yml
 spring:
   aop:
     proxy-target-class: true   # Spring Boot 기본
@@ -315,7 +315,7 @@ public class OrderService {
 
         <h3>한계 3: final 클래스에 적용 불가 (CGLIB)</h3>
 
-        <pre><code class="language-java">@Service
+        <pre><code>@Service
 public final class UserService {   // final 클래스
     @Transactional
     public void doSomething() { ... }

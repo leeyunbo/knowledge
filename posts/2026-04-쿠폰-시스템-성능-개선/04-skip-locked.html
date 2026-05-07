@@ -110,7 +110,7 @@ stock.taken();  // dirty checking으로 UPDATE가 커밋 시점에 반영됨</co
           CouponStock 엔티티에 상태 전이 메서드만 추가.
         </p>
 
-        <pre><code class="language-java">public void taken() {
+        <pre><code>public void taken() {
     this.status = StockStatus.TAKEN;
 }</code></pre>
 

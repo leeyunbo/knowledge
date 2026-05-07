@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Off-heap — Direct Memory와 NIO (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 4/4</div>
+        <h1>Off-heap — Direct Memory와 NIO</h1>
+        <p class="subtitle">
+          JVM Spec 바깥의 메모리 영역. NIO 도입 후 실무에서 매우 중요해졌고
+          GC가 닿지 않아 누수 위험이 가장 큰 자리.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">JVM 메모리 구조</div>
+        <ol>
+          <li><a href="./01-jvm-메모리-영역-개요.html">JVM 메모리 영역 개요</a></li>
+          <li><a href="./02-heap-deep-dive.html">Heap deep dive — Young/Old, TLAB</a></li>
+          <li><a href="./03-stack-pc-native.html">Stack / PC / Native — 스레드별 메모리</a></li>
+          <li class="current">Off-heap — Direct Memory와 NIO</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Off-heap이란</h2>
+
+        <p>
+          Heap, Metaspace, Stack 같은 JVM이 관리하는 영역과 별개로,
+          자바 코드가 사용하지만 JVM 힙 밖의 native 메모리에 존재하는 영역을 통틀어 off-heap이라 한다.
+          대표적인 것이 NIO의 Direct Memory.
+        </p>
+
+        <p>
+          off-heap은 JVMS가 정의하지 않는다. 따라서 <code>-Xmx</code>가 정한 최대 Heap 크기와 무관하게 잡히고,
+          GC가 자동으로 회수해주지 않는다.
+          개발자가 라이프사이클을 명확히 이해해야 누수 없이 사용 가능.
+        </p>
+
+        <h2>왜 off-heap이 필요한가 — I/O 복사 비용</h2>
+
+        <p>
+          OS의 read/write 같은 native 함수는 자기가 관리하는 메모리 주소만 인자로 받을 수 있다.
+          자바 Heap의 객체는 GC가 위치를 마음대로 옮길 수 있어 안정된 주소를 보장 못 한다.
+          그래서 Heap의 ByteBuffer로 I/O를 하려면 다음 과정을 거친다.
+        </p>
+
+        <ol>
+          <li>JVM이 Heap 안의 ByteBuffer 데이터를 native 메모리(임시 버퍼)로 복사한다</li>
+          <li>그 native 버퍼 주소를 OS 함수에 넘긴다</li>
+          <li>OS가 read/write를 실제 수행한다</li>
+          <li>read의 경우 native 버퍼 → Heap 버퍼로 다시 복사한다</li>
+        </ol>
+
+        <p>
+          매번 한 번의 추가 복사가 발생. 큰 데이터(파일 전송, 네트워크 버퍼 등)에서는 무시할 수 없는 비용이다.
+          Direct ByteBuffer를 쓰면 처음부터 native 메모리에 버퍼를 두므로 이 복사가 사라진다.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Heap ByteBuffer vs Direct ByteBuffer I/O 흐름">
+            <defs>
+              <style>
+                .box { fill: #f9fafb; stroke: #d8dce0; stroke-width: 1; }
+                .heap-box { fill: #f2f6ff; stroke: #c0d6f8; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .sub { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .arrow { stroke: #c4302b; stroke-width: 1.5; fill: none; marker-end: url(#a-red); }
+                .arrow-good { stroke: #1b64da; stroke-width: 1.5; fill: none; marker-end: url(#a-blue); }
+              </style>
+              <marker id="a-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#c4302b"/>
+              </marker>
+              <marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#1b64da"/>
+              </marker>
+            </defs>
+
+            <text x="20" y="20" class="header">HEAP BYTEBUFFER · 복사 1회 발생</text>
+            <rect x="20" y="32" width="100" height="44" rx="4" class="heap-box"/>
+            <text x="70" y="50" text-anchor="middle" class="label">Heap Buffer</text>
+            <text x="70" y="65" text-anchor="middle" class="sub">JVM 관리</text>
+
+            <line x1="120" y1="54" x2="200" y2="54" class="arrow"/>
+            <text x="160" y="46" text-anchor="middle" class="sub" fill="#c4302b">copy</text>
+
+            <rect x="200" y="32" width="120" height="44" rx="4" class="box"/>
+            <text x="260" y="50" text-anchor="middle" class="label">Native 임시 버퍼</text>
+            <text x="260" y="65" text-anchor="middle" class="sub">OS와 통신용</text>
+
+            <line x1="320" y1="54" x2="400" y2="54" class="arrow-good"/>
+
+            <rect x="400" y="32" width="100" height="44" rx="4" class="box"/>
+            <text x="450" y="50" text-anchor="middle" class="label">OS read/write</text>
+            <text x="450" y="65" text-anchor="middle" class="sub">syscall</text>
+
+            <text x="20" y="130" class="header">DIRECT BYTEBUFFER · 복사 없음</text>
+            <rect x="20" y="142" width="220" height="44" rx="4" class="box"/>
+            <text x="130" y="160" text-anchor="middle" class="label">Direct Buffer (off-heap)</text>
+            <text x="130" y="175" text-anchor="middle" class="sub">native 메모리, JVM 참조 보유</text>
+
+            <line x1="240" y1="164" x2="320" y2="164" class="arrow-good"/>
+
+            <rect x="320" y="142" width="100" height="44" rx="4" class="box"/>
+            <text x="370" y="160" text-anchor="middle" class="label">OS read/write</text>
+            <text x="370" y="175" text-anchor="middle" class="sub">syscall</text>
+          </svg>
+          <figcaption>Heap ByteBuffer는 native 임시 버퍼로의 복사가 필요. Direct ByteBuffer는 곧장 OS와 통신.</figcaption>
+        </figure>
+
+        <h2>DirectByteBuffer의 동작</h2>
+
+        <pre><code class="language-java">ByteBuffer heap = ByteBuffer.allocate(1024);          // Heap
+ByteBuffer direct = ByteBuffer.allocateDirect(1024);  // Off-heap
+
+direct.putInt(0xCAFEBABE);
+direct.flip();
+fileChannel.write(direct);   // 복사 없이 바로 OS로</code></pre>
+
+        <p>
+          <code>allocateDirect</code>는 native 메모리를 <code>malloc</code>으로 잡고
+          그 주소를 <code>DirectByteBuffer</code>라는 작은 자바 객체가 들고 있는 형태.
+          자바 객체 자체는 Heap에 살지만 데이터는 off-heap에 있다.
+        </p>
+
+        <h3>DirectByteBuffer는 어떻게 native 메모리를 해제하나</h3>
+
+        <p>
+          Java 객체가 GC되면 native 메모리도 함께 해제되어야 한다. 메커니즘은:
+        </p>
+
+        <ul>
+          <li><code>DirectByteBuffer</code>는 생성 시 <code>Cleaner</code>(또는 <code>PhantomReference</code>)를 함께 등록</li>
+          <li>객체가 GC 대상이 되면 Cleaner의 <code>clean()</code>이 호출되어 native 메모리를 free</li>
+          <li>즉, native 메모리 해제는 <strong>참조하는 자바 객체가 GC되어야</strong> 일어남</li>
+        </ul>
+
+        <p>
+          핵심 함정: 자바 객체에 GC 압박이 약하면 native 메모리가 오래 잡혀 있을 수 있다.
+          Heap은 여유있는데 native 메모리는 부족한 상황이 발생 가능.
+          명시적으로 비우려면 Java 9+에서 <code>cleaner.clean()</code>을 호출할 수 있다.
+          <code>Unsafe</code>를 통한 수동 해제도 가능하지만 권장되지 않음
+          (Java 8까지 <code>sun.misc.Unsafe</code>, Java 9+에선 <code>jdk.internal.misc.Unsafe</code>로 모듈 캡슐화).
+        </p>
+
+        <h2>MaxDirectMemorySize</h2>
+
+        <p>
+          Direct Memory의 한도를 명시하는 옵션.
+          미지정 시 OpenJDK는 내부적으로 <code>Runtime.maxMemory()</code> 근사치를 사용 — 실질적으로 <code>-Xmx</code> 수준.
+          한도를 넘으면 <code>OutOfMemoryError: Direct buffer memory</code>가 발생한다.
+        </p>
+
+        <pre><code class="language-bash">java -Xmx2g -XX:MaxDirectMemorySize=512m MyApp</code></pre>
+
+        <p>
+          한도 설정 없이 두면 <code>-Xmx</code>만큼 잡을 수 있어 OS 메모리의 두 배까지 잡아먹는 셈이 된다.
+          명시적으로 한도를 두는 게 안전.
+        </p>
+
+        <h2>Memory-Mapped File — 파일을 메모리처럼</h2>
+
+        <p>
+          NIO의 또 다른 off-heap 사용처. <code>FileChannel.map</code>으로 파일을 메모리 주소에 매핑한다.
+          OS의 <code>mmap</code> 시스템 콜을 활용.
+        </p>
+
+        <pre><code class="language-java">FileChannel ch = FileChannel.open(path, READ, WRITE);
+MappedByteBuffer mb = ch.map(FileChannel.MapMode.READ_WRITE, 0, ch.size());
+
+mb.putLong(0, 12345L);   // 파일 첫 8바이트에 직접 기록</code></pre>
+
+        <p>
+          OS는 매핑된 영역을 페이지 단위로 lazy하게 메모리에 올리고, 다른 페이지가 필요할 때 디스크와 swap한다.
+          GB 단위 큰 파일도 일부만 메모리에 두고 처리할 수 있어 DB, 검색엔진, 메시지 큐 등이 활용.
+        </p>
+
+        <h3>장점과 함정</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 큰 파일을 read/write 시스템 콜 없이 메모리 접근 속도로 다룸</li>
+          <li><strong>함정 1</strong>: GC와 무관하게 OS 페이지 캐시 사용. <code>top</code>에서 RES가 크게 보임</li>
+          <li><strong>함정 2</strong>: <code>MappedByteBuffer</code>도 Cleaner 기반 해제. 명시적 unmap이 어려움</li>
+          <li><strong>함정 3</strong>: 파일이 작으면 mmap 오버헤드가 일반 read보다 클 수 있음 (보통 수 MB 이상에서 이득)</li>
+        </ul>
+
+        <h2>Native Memory Tracking (NMT)</h2>
+
+        <p>
+          off-heap을 비롯한 JVM 외부 메모리를 추적하는 도구.
+          기본 비활성화이며 옵션을 켜야 동작.
+        </p>
+
+        <pre><code class="language-bash">java -XX:NativeMemoryTracking=summary MyApp
+jcmd &lt;pid&gt; VM.native_memory summary</code></pre>
+
+        <p>
+          출력에 Heap, Class(Metaspace), Thread, Code, GC 등 영역별 reserved/committed 값이 나온다.
+          Direct Memory는 별도로 보이지 않고 "Other" 영역에 합산되거나 NIO 사용량을 코드 수준에서 추적해야 한다.
+          <code>BufferPoolMXBean</code>으로 자바 레벨 모니터링도 가능.
+        </p>
+
+        <pre><code class="language-java">import java.lang.management.ManagementFactory;
+import java.lang.management.BufferPoolMXBean;
+
+for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
+    System.out.println(pool.getName() + " count=" + pool.getCount()
+        + " mem=" + pool.getMemoryUsed());
+}
+// direct count=12 mem=131072
+// mapped count=2 mem=4194304</code></pre>
+
+        <h2>off-heap 누수의 흔한 시나리오</h2>
+
+        <h3>시나리오 1 — DirectByteBuffer를 캐시에 쌓음</h3>
+
+        <p>
+          요청마다 큰 Direct ByteBuffer를 만들고 캐시에 넣어두면 자바 객체 참조가 살아있어 GC 못 함.
+          Heap은 여유 있어 보이지만 native 메모리는 계속 차오름.
+          결국 <code>OutOfMemoryError: Direct buffer memory</code>.
+        </p>
+
+        <h3>시나리오 2 — JNI 라이브러리의 native 누수</h3>
+
+        <p>
+          JNI를 통해 호출한 C 라이브러리가 자체적으로 native 메모리를 잡고 free하지 않으면
+          JVM은 그 사실을 알지 못한다. 자바 코드는 멀쩡한데 OS에서 보면 RSS가 끝없이 늘어남.
+          NMT, valgrind, jemalloc heap profile 등으로 추적해야 한다.
+        </p>
+
+        <h3>시나리오 3 — Netty의 PooledByteBufAllocator</h3>
+
+        <p>
+          고성능 네트워크 라이브러리는 ByteBuffer를 풀에 모아둠. 풀의 한도와 누수 감지 옵션을 모르면
+          off-heap을 무한히 점유. <code>-Dio.netty.leakDetection.level=PARANOID</code> 같은 옵션이 도움.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Direct Memory와 Heap의 차이?</h3>
+
+        <p>
+          Heap은 JVM이 관리하는 메모리 영역으로 GC 대상이고 <code>-Xmx</code> 한도 안에 있다.
+          Direct Memory는 JVM 힙 밖의 native 메모리로 GC가 자동 회수하지 않으며,
+          OS와의 I/O 시 복사 없이 직접 사용 가능해 NIO에서 활용한다.
+        </p>
+
+        <h3>Q. DirectByteBuffer의 native 메모리는 언제 해제되나?</h3>
+
+        <p>
+          참조하는 자바 객체(<code>DirectByteBuffer</code>)가 GC될 때 Cleaner 메커니즘으로 해제.
+          즉 GC 압박이 약하면 native 메모리가 오래 잡혀 있을 수 있다.
+          명시적 해제는 Java 9+의 <code>cleaner.clean()</code> 또는 Unsafe 사용으로 가능하나 권장되지 않음.
+        </p>
+
+        <h3>Q. <code>-Xmx</code>를 충분히 줬는데 왜 OOM이 나나?</h3>
+
+        <p>
+          OOM의 종류를 봐야 한다. <code>Direct buffer memory</code> 메시지면 Direct Memory 부족으로
+          <code>-XX:MaxDirectMemorySize</code>를 늘려야 한다. <code>Metaspace</code>면 클래스 누수 의심.
+          <code>unable to create new native thread</code>면 OS 한계.
+          <code>-Xmx</code>는 Heap 한도일 뿐이라 다른 영역 OOM은 별도 처방이 필요.
+        </p>
+
+        <h3>Q. Memory-Mapped File을 언제 쓰나?</h3>
+
+        <p>
+          GB 단위 큰 파일을 일부만 효율적으로 다루어야 할 때.
+          OS의 페이지 캐시를 활용하므로 random access가 많은 워크로드(DB 인덱스, 로그 파일 검색)에 적합.
+          작은 파일에는 일반 read/write가 더 빠를 수 있다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          off-heap = JVM 힙 밖의 native 메모리. Direct ByteBuffer와 MappedByteBuffer가 대표 사용처.
+          GC가 자동 회수하지 않아 누수 위험이 가장 크고, <code>-Xmx</code>와 별개로 OS 메모리를 잡아먹는다.
+          NIO 기반 라이브러리(Netty, Kafka 클라이언트 등)를 쓰면 무의식적으로 사용하게 되므로 한도와 모니터링이 필수.
+        </p>
+
+        <p>
+          JVM 메모리 시리즈는 여기까지. 다음은 동시성으로 돌아가서 volatile과 JMM의 happens-before 규칙으로 들어간다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

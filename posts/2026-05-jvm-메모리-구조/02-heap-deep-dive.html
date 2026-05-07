@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Heap deep dive — Young/Old, TLAB (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 2/4</div>
+        <h1>Heap deep dive — Young/Old, TLAB</h1>
+        <p class="subtitle">
+          모든 객체가 자리 잡는 영역은 단일하지 않다.
+          세대별 가설로 설계된 Young과 Old, 그리고 동시 할당 비용을 줄이는 TLAB까지.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">JVM 메모리 구조</div>
+        <ol>
+          <li><a href="./01-jvm-메모리-영역-개요.html">JVM 메모리 영역 개요</a></li>
+          <li class="current">Heap deep dive — Young/Old, TLAB</li>
+          <li><a href="./03-stack-pc-native.html">Stack / PC / Native — 스레드별 메모리</a></li>
+          <li><a href="./04-off-heap-direct-memory.html">Off-heap — Direct Memory와 NIO</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 Heap을 나누나 — 세대별 가설</h2>
+
+        <p>
+          힙을 한 덩어리로 두지 않고 영역을 분리한 출발점은 <strong>Weak Generational Hypothesis</strong>다.
+          관찰된 두 가지 사실:
+        </p>
+
+        <ul>
+          <li>대부분의 객체는 만들어진 직후 짧게 쓰이고 죽는다 (예: 메서드 안에서 잠깐 쓰는 임시 객체)</li>
+          <li>오래 살아남은 객체는 앞으로도 오래 살 가능성이 높다 (예: 캐시, 싱글턴)</li>
+        </ul>
+
+        <p>
+          따라서 새 객체와 늙은 객체를 분리하면 GC 효율이 올라간다.
+          새 객체가 모인 영역은 자주, 빠르게 청소하고, 늙은 객체가 모인 영역은 가끔만 깊게 청소한다.
+          Heap을 Young과 Old로 가르는 근거가 이것.
+        </p>
+
+        <h2>Heap의 구조</h2>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Heap 영역 구조">
+            <defs>
+              <style>
+                .area { fill: #f9fafb; stroke: #d8dce0; stroke-width: 1; }
+                .young { fill: #f2f6ff; stroke: #c0d6f8; }
+                .old { fill: #fdf3f3; stroke: #f5d2cf; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 13px; fill: #19181a; font-weight: 600; }
+                .sublabel { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">HEAP · Young : Old = 1 : 2 (기본)</text>
+            <rect x="20" y="32" width="560" height="220" rx="10" fill="none" stroke="#d8dce0" stroke-width="1"/>
+
+            <text x="40" y="58" class="header" fill="#1b64da">YOUNG GENERATION (1/3)</text>
+            <rect x="40" y="68" width="220" height="60" rx="6" class="young"/>
+            <text x="150" y="92" text-anchor="middle" class="label">Eden</text>
+            <text x="150" y="110" text-anchor="middle" class="sublabel">새 객체 할당</text>
+
+            <rect x="280" y="68" width="120" height="60" rx="6" class="young"/>
+            <text x="340" y="92" text-anchor="middle" class="label">Survivor 0</text>
+            <text x="340" y="110" text-anchor="middle" class="sublabel">살아남은 객체</text>
+
+            <rect x="420" y="68" width="120" height="60" rx="6" class="young"/>
+            <text x="480" y="92" text-anchor="middle" class="label">Survivor 1</text>
+            <text x="480" y="110" text-anchor="middle" class="sublabel">교차로 사용</text>
+
+            <text x="40" y="160" class="header" fill="#c4302b">OLD GENERATION (2/3)</text>
+            <rect x="40" y="170" width="500" height="68" rx="6" class="old"/>
+            <text x="290" y="200" text-anchor="middle" class="label">Old (Tenured)</text>
+            <text x="290" y="220" text-anchor="middle" class="sublabel">오래 살아남은 객체. Major/Full GC 대상.</text>
+          </svg>
+          <figcaption>Heap = Young Generation (Eden + S0 + S1) + Old Generation. 기본 크기 비율 1:2.</figcaption>
+        </figure>
+
+        <p>
+          HotSpot의 Heap은 위와 같이 나뉜다. Young은 다시 셋으로 갈리고, Old는 단일 영역.
+          크기 비율은 기본적으로 Young : Old = 1 : 2이며 Young 안에서 Eden : S0 : S1 = 8 : 1 : 1.
+          옵션 <code>-XX:NewRatio</code>, <code>-XX:SurvivorRatio</code>로 조정 가능.
+        </p>
+
+        <h2>객체의 일생 — 할당부터 승격까지</h2>
+
+        <h3>1. 할당 — Eden에서 시작</h3>
+
+        <pre><code class="language-java">User user = new User("Alice");</code></pre>
+
+        <p>
+          새 객체는 거의 항상 Eden에 할당된다 (예외: TLAB 부족 시, 거대 객체 — 뒤에서).
+          할당은 단순히 Eden의 빈 공간에 바이트를 잡고 포인터를 옮기는 작업으로,
+          C의 <code>malloc</code>보다 훨씬 빠른 bump-the-pointer 방식이다.
+        </p>
+
+        <h3>2. Minor GC — Eden이 가득 찼을 때</h3>
+
+        <p>
+          Eden이 꽉 차면 Minor GC(Young 영역만 청소)가 발동한다. 절차:
+        </p>
+
+        <ol>
+          <li>Eden과 사용 중인 Survivor (예: S0)에서 살아있는 객체를 식별</li>
+          <li>살아있는 객체를 비어있는 다른 Survivor (S1)로 복사</li>
+          <li>각 객체의 age 카운터 +1</li>
+          <li>Eden과 S0를 통째로 비움 (live 객체는 이미 S1에 복사됨)</li>
+          <li>다음 GC 때는 S1과 S0의 역할이 바뀜</li>
+        </ol>
+
+        <p>
+          이 알고리즘을 <strong>Copying Collection</strong>이라 한다. 죽은 객체를 탐색하지 않고
+          살아있는 객체만 복사하므로, "대부분의 객체가 죽는다"는 가설이 성립할 때 매우 빠르다.
+          죽은 객체가 많을수록 한 번의 GC에서 옮길 양이 적기 때문.
+        </p>
+
+        <h3>3. 승격 (Promotion) — Old로 이동</h3>
+
+        <p>
+          age 카운터가 임계값(<code>-XX:MaxTenuringThreshold</code>, 기본 15)에 도달한 객체는
+          다음 Minor GC 때 Old로 이동한다. 이를 promotion 또는 tenuring이라 한다.
+        </p>
+
+        <p>
+          또한 Survivor 공간이 부족해 살아남은 객체를 다 받지 못할 경우에도 일부 객체가 Old로 직접 승격된다.
+          이를 <strong>premature promotion</strong>이라 부르며, Survivor 크기가 너무 작으면 자주 발생한다.
+        </p>
+
+        <h3>4. Major GC / Full GC — Old가 가득 찼을 때</h3>
+
+        <p>
+          Old가 차오르면 Major GC가 일어난다. Old만 청소하는 것이 Major GC,
+          전체 Heap (Young + Old + Metaspace까지)을 청소하는 것이 Full GC.
+          용어는 GC 알고리즘마다 약간씩 다르게 쓰인다.
+        </p>
+
+        <p>
+          Old GC는 보통 mark-sweep-compact 알고리즘을 쓰며 Minor GC보다 훨씬 비싸다.
+          전체 객체를 훑어 마킹하고, 죽은 객체를 제거한 뒤 살아있는 객체를 한쪽으로 모아 단편화를 푼다.
+        </p>
+
+        <h2>TLAB — 동시 할당 비용 줄이기</h2>
+
+        <p>
+          여러 스레드가 동시에 Eden에 객체를 할당하면 bump-the-pointer 연산에 락이 필요하다.
+          이걸 피하려고 도입된 것이 <strong>Thread Local Allocation Buffer (TLAB)</strong>.
+        </p>
+
+        <ul>
+          <li>각 스레드가 Eden 안에 자기 전용 작은 버퍼를 미리 할당받는다 (기본 ~1% of Eden)</li>
+          <li>스레드의 모든 객체는 그 버퍼 안에서 락 없이 할당된다</li>
+          <li>버퍼가 차면 새 TLAB을 다시 할당받음 (이때만 락)</li>
+        </ul>
+
+        <p>
+          그래서 일반적으로 객체 할당은 매우 빠르다.
+          벤치마크에서 객체 생성 비용이 거의 측정 불가능 수준으로 작은 이유가 이것.
+          <code>-XX:+PrintTLAB</code>로 동작을 관찰할 수 있다.
+        </p>
+
+        <h2>거대 객체 (Humongous Object)와 직접 Old 할당</h2>
+
+        <p>
+          Eden보다 큰 객체는 처음부터 Old에 할당된다. 큰 배열을 만들 때 자주 발생.
+          G1 GC에서는 region 크기의 절반 이상을 차지하는 객체를 Humongous Object로 분류해
+          연속된 region을 통째로 잡아 할당한다.
+        </p>
+
+        <pre><code class="language-java">byte[] buffer = new byte[10_000_000];   // 10MB</code></pre>
+
+        <p>
+          Eden보다 큰 배열이라면 위 객체는 직접 Old(또는 G1의 Humongous region)에 자리 잡는다.
+          큰 객체를 자주 만들고 버리면 Old가 빨리 차오르고 Full GC가 잦아져 GC 튜닝의 함정이 된다.
+        </p>
+
+        <h2>주요 Heap 옵션</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>옵션</th>
+              <th>의미</th>
+              <th>기본값 (참고)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>-Xms</code></td>
+              <td>Heap 초기 크기</td>
+              <td>물리 메모리의 1/64</td>
+            </tr>
+            <tr>
+              <td><code>-Xmx</code></td>
+              <td>Heap 최대 크기</td>
+              <td>물리 메모리의 1/4</td>
+            </tr>
+            <tr>
+              <td><code>-Xmn</code></td>
+              <td>Young 영역 크기</td>
+              <td>NewRatio로 계산</td>
+            </tr>
+            <tr>
+              <td><code>-XX:NewRatio</code></td>
+              <td>Old : Young 비율</td>
+              <td>2 (= Old가 Young의 2배)</td>
+            </tr>
+            <tr>
+              <td><code>-XX:SurvivorRatio</code></td>
+              <td>Eden : Survivor 비율</td>
+              <td>8 (= Eden이 S 하나의 8배)</td>
+            </tr>
+            <tr>
+              <td><code>-XX:MaxTenuringThreshold</code></td>
+              <td>Old로 승격되는 age 임계값</td>
+              <td>15</td>
+            </tr>
+            <tr>
+              <td><code>-XX:+UseTLAB</code></td>
+              <td>TLAB 사용 여부</td>
+              <td>활성</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실무 관찰 — 메모리 그래프 모양</h2>
+
+        <p>
+          정상적인 자바 애플리케이션의 Heap 사용량 그래프는 톱니 모양(sawtooth)을 그린다.
+          객체가 쌓이며 사용량이 올라가다가 GC가 돌면 뚝 떨어지고 다시 올라가는 패턴.
+        </p>
+
+        <p>
+          톱니가 아니라 계속 우상향한다면 메모리 누수 징후. 톱니의 골(GC 후 사용량)이 점점 올라가면
+          Old가 차오르고 있다는 뜻이고, 결국 Full GC 후에도 회수 안 되는 객체가 누적되고 있다는 신호다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Heap을 Young과 Old로 나눈 이유?</h3>
+
+        <p>
+          세대별 가설(Weak Generational Hypothesis) 때문. 대부분 객체는 짧게 살고 죽는다는 관찰을 활용해서
+          새 객체는 작고 자주 청소되는 Young에, 살아남은 객체는 깊게 가끔 청소되는 Old에 둔다.
+          Young의 Copying GC는 죽은 객체를 무시하고 살아있는 것만 옮기므로 빠르다.
+        </p>
+
+        <h3>Q. Survivor가 두 개인 이유?</h3>
+
+        <p>
+          Copying Collection이 동작하려면 빈 공간이 필요하다. S0과 S1을 번갈아 쓰면서
+          한쪽은 항상 비어있게 유지한다. Eden + 사용 중인 Survivor의 live 객체를 다른 빈 Survivor로 복사하는 방식.
+          이렇게 하면 단편화 없이 깔끔하게 청소된다.
+        </p>
+
+        <h3>Q. TLAB이 무엇이고 왜 있나?</h3>
+
+        <p>
+          Thread Local Allocation Buffer. 각 스레드가 Eden 안에 자기 전용 작은 버퍼를 가져
+          락 없이 객체를 할당할 수 있게 한다. 멀티스레드 환경에서 할당 경합이 사라지므로 객체 생성이 매우 빠르다.
+        </p>
+
+        <h3>Q. Promotion이 무엇인가?</h3>
+
+        <p>
+          Young에서 GC를 여러 번 살아남은 객체가 Old로 옮겨지는 것.
+          age 카운터가 <code>MaxTenuringThreshold</code>(기본 15)를 넘으면 발생.
+          Survivor 공간이 부족해도 일부가 Old로 직접 옮겨가는데 이를 premature promotion이라 한다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Heap = Young (Eden + S0 + S1) + Old. 새 객체는 Eden에서 시작하고 살아남으면 Survivor를 거쳐
+          Old로 승격된다. Minor GC는 Young만 빠르게, Major/Full GC는 Old를 비롯한 더 넓은 범위를 청소한다.
+          TLAB이 멀티스레드 할당의 락을 제거해 객체 생성을 거의 무료로 만든다.
+        </p>
+
+        <p>
+          여기까지가 메모리 영역 측면. GC 알고리즘 자체(Serial, Parallel, CMS, G1, ZGC)는
+          별도 시리즈에서 깊게 다룬다. 다음 편은 스레드별 영역 — Stack, PC Register, Native Method Stack.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

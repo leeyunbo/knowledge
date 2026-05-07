@@ -129,7 +129,7 @@ equals/hashCode 시리즈에서 짚은 그것 — key의 hashCode가 분포 좋�
 
         <h3>2단계: HashMap 내부의 hash() — 보정</h3>
 
-        <pre><code>// java.util.HashMap.hash (OpenJDK 17)
+        <pre><code class="language-java">// java.util.HashMap.hash (OpenJDK 17)
 static final int hash(Object key) {
     int h;
     return (key == null) ? 0 : (h = key.hashCode()) ^ (h &gt;&gt;&gt; 16);

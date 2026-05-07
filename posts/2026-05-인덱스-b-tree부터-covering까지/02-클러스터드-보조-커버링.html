@@ -256,7 +256,7 @@ Random I/O (랜덤 읽기):
 
         <h3>풀스캔은 Sequential I/O</h3>
 
-        <pre><code class="language-sql">SELECT * FROM users
+        <pre><code>SELECT * FROM users
   → 클러스터드 인덱스 리프를 처음부터 끝까지 순차 읽기
   → Sequential I/O
   → 1억 행 읽어도 단순 데이터 throughput에 가까움</code></pre>

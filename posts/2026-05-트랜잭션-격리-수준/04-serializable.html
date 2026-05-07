@@ -158,7 +158,7 @@ T1 (REPEATABLE READ):
           이걸 SERIALIZABLE에서 실행하면:
         </p>
 
-        <pre><code class="language-sql">MySQL InnoDB SERIALIZABLE:
+        <pre><code>MySQL InnoDB SERIALIZABLE:
   T1의 SELECT가 자동으로 락을 걸어 T2의 INSERT를 막음
   T2는 T1 끝날 때까지 대기
   T1이 INSERT 후 COMMIT → 5건
@@ -215,7 +215,7 @@ PostgreSQL SSI:
           SERIALIZABLE보다 더 효율적이다. 락이 필요한 곳에만 정확히 걸면 되니까.
         </p>
 
-        <pre><code class="language-sql">대안 패턴:
+        <pre><code>대안 패턴:
   기본 격리: READ COMMITTED 또는 RR
   중요 검증: SELECT ... FOR UPDATE로 명시적 락
   → SERIALIZABLE보다 락 범위가 작음

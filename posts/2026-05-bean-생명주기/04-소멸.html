@@ -138,7 +138,7 @@ public DataSource dataSource() {
 
         <h2>실행 순서 — 셋이 다 있다면</h2>
 
-        <pre><code>1. @PreDestroy   ← 가장 먼저
+        <pre><code class="language-java">1. @PreDestroy   ← 가장 먼저
 2. DisposableBean.destroy()
 3. @Bean(destroyMethod = "...")</code></pre>
 
@@ -221,7 +221,7 @@ public DataSource dataSource() {
 
         <h3>Spring Boot Graceful Shutdown 설정</h3>
 
-        <pre><code class="language-yaml"># application.yml
+        <pre><code class="language-bash"># application.yml
 server:
   shutdown: graceful   # 기본은 immediate
 
@@ -258,7 +258,7 @@ spring:
 
         <h3>Prototype</h3>
 
-        <pre><code class="language-java">- 컨테이너가 인스턴스를 안 들고 있음 (만들어 주고 손 뗌)
+        <pre><code>- 컨테이너가 인스턴스를 안 들고 있음 (만들어 주고 손 뗌)
 - 컨테이너 종료 시에도 @PreDestroy 자동 호출 X
 - 사용자가 직접 정리 책임 (또는 GC만 의지)
 

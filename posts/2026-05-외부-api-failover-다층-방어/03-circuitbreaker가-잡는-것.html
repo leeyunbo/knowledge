@@ -213,7 +213,7 @@ LB가 잡는 장애:                       CircuitBreaker가 잡는 장애:
           backend별로 실제 트래픽 응답을 추적해서, 통계가 나쁜 backend를 풀에서 자동 제거한다.
         </p>
 
-        <pre><code class="language-yaml">clusters:
+        <pre><code>clusters:
 - name: kakao_cluster
   outlier_detection:
     consecutive_5xx: 5                       # 5번 연속 5xx면 빼기
@@ -455,7 +455,7 @@ CircuitBreaker의 책임:
 
         <h3>Sidecar nginx 설정</h3>
 
-        <pre><code># 각 호스트의 nginx.conf
+        <pre><code class="language-bash"># 각 호스트의 nginx.conf
 upstream kakao_backend {
     server kakao-1.example.com:443 max_fails=3 fail_timeout=10s;
     server kakao-2.example.com:443 max_fails=3 fail_timeout=10s;

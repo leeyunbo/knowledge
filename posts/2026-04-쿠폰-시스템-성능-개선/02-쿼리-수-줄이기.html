@@ -181,7 +181,7 @@ public class CouponCache {
           JPA의 <code>getReferenceById</code>를 쓰면 DB 조회 없이 <strong>id만 가진 프록시 객체</strong>를 만들어준다.
         </p>
 
-        <pre><code class="language-sql">// 기존: findById → SELECT 1번
+        <pre><code>// 기존: findById → SELECT 1번
 Coupon coupon = couponRepository.findById(couponId).orElseThrow(...);
 
 // 개선: getReferenceById → 쿼리 0번

@@ -70,7 +70,7 @@ public class Order {
           간단한 요구: "전체 회원 목록과 각 회원의 주문 합계를 보여달라."
         </p>
 
-        <pre><code>List&lt;Member&gt; members = memberRepository.findAll();   // ① 1번
+        <pre><code class="language-java">List&lt;Member&gt; members = memberRepository.findAll();   // ① 1번
 
 for (Member m : members) {
     int total = m.getOrders().stream()                // ② LAZY 로딩 트리거
@@ -129,7 +129,7 @@ for (Member m : members) {
 
         <h2>EAGER로 바꾸면 해결될까 — No, 더 큰 함정</h2>
 
-        <pre><code>@OneToMany(mappedBy = "member", fetch = FetchType.EAGER)
+        <pre><code class="language-java">@OneToMany(mappedBy = "member", fetch = FetchType.EAGER)
 List&lt;Order&gt; orders;</code></pre>
 
         <p>
@@ -161,7 +161,7 @@ List&lt;Order&gt; orders;</code></pre>
 
         <h2>또 다른 발생 경로 — JPQL 결과를 순회</h2>
 
-        <pre><code>// JPQL 작성
+        <pre><code class="language-java">// JPQL 작성
 @Query("select m from Member m")
 List&lt;Member&gt; findAllMembers();
 
@@ -209,7 +209,7 @@ ORM 사용 시:
 
         <h3>1. SQL 로그 켜기</h3>
 
-        <pre><code class="language-yaml">spring:
+        <pre><code>spring:
   jpa:
     show-sql: true
     properties:

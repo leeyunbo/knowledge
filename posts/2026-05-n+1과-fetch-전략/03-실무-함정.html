@@ -90,7 +90,7 @@ Set&lt;Coupon&gt; coupons;
 
         <h3>해결 방법 2 — 하나만 fetch join, 나머진 BatchSize</h3>
 
-        <pre><code>@OneToMany(mappedBy = "order")
+        <pre><code class="language-java">@OneToMany(mappedBy = "order")
 @BatchSize(size = 100)
 List&lt;OrderItem&gt; items;
 
@@ -107,7 +107,7 @@ List&lt;Order&gt; findAll();
 
         <h3>해결 방법 3 — 둘 다 BatchSize, fetch join 안 함</h3>
 
-        <pre><code>@OneToMany(mappedBy = "order")
+        <pre><code class="language-java">@OneToMany(mappedBy = "order")
 @BatchSize(size = 100)
 List&lt;OrderItem&gt; items;
 
@@ -125,7 +125,7 @@ List&lt;Order&gt; orders = orderRepo.findAll();
 
         <h2>함정 2: Fetch Join + 페이지네이션 (HHH000104)</h2>
 
-        <pre><code>@Query("select m from Member m left join fetch m.orders")
+        <pre><code class="language-java">@Query("select m from Member m left join fetch m.orders")
 Page&lt;Member&gt; findAllWithOrders(Pageable pageable);
 
 // 호출
@@ -208,7 +208,7 @@ Page&lt;Order&gt; findAllWithMember(Pageable pageable);
 
         <h2>함정 3: distinct 없이 1:N fetch join</h2>
 
-        <pre><code>@Query("select m from Member m left join fetch m.orders")
+        <pre><code class="language-java">@Query("select m from Member m left join fetch m.orders")
 List&lt;Member&gt; findAllWithOrders();
 
 // 회원 100명, 각 평균 5개 주문
@@ -273,7 +273,7 @@ for (Member m : members) {
 
         <h2>해법의 끝판왕 — DTO 프로젝션</h2>
 
-        <pre><code class="language-sql">화면용 데이터는 엔티티 그래프가 아니라 DTO로 직접 가져오는 게 답.
+        <pre><code>화면용 데이터는 엔티티 그래프가 아니라 DTO로 직접 가져오는 게 답.
 
 @Query("select new com....OrderSummaryDto(o.id, o.amount, m.name) " +
        "from Order o join o.member m")
