@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JWT의 구조 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 3/5</div>
+        <h1>JWT의 구조</h1>
+        <p class="subtitle">
+          세 부분으로 분할된 토큰. Base64로 인코딩된 메타데이터와 클레임,
+          그리고 그것이 위조되지 않았음을 증명하는 서명. 그 안을 정확히 들여다본다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인증 — Session vs JWT</div>
+        <ol>
+          <li><a href="./01-http-stateless와-인증.html">HTTP stateless와 인증</a></li>
+          <li><a href="./02-session-인증.html">Session 인증 — 동작과 scale-out</a></li>
+          <li class="current">JWT의 구조</li>
+          <li><a href="./04-jwt-함정.html">JWT의 함정</a></li>
+          <li><a href="./05-session-vs-jwt-refresh-token.html">Session vs JWT + Refresh Token</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>JWT는 무엇인가</h2>
+
+        <p>
+          JSON Web Token. RFC 7519에 명세된 토큰 형식.
+          서버가 클라이언트에 발급한 정보를 클라이언트가 보관하고 매 요청에 보내며,
+          서버는 그 토큰의 서명만 검증해 내용을 신뢰할 수 있는 구조.
+        </p>
+
+        <p>
+          핵심 성질은 <strong>self-contained</strong>. 토큰 자체에 사용자 정보가 들어 있고
+          서명으로 위조 방지가 보장되므로, 서버가 별도의 저장소를 두지 않아도 된다.
+          이게 Session과의 가장 큰 차이.
+        </p>
+
+        <h2>세 부분으로 나뉜 토큰</h2>
+
+        <p>
+          JWT는 점(<code>.</code>)으로 구분된 세 부분으로 구성된다.
+        </p>
+
+        <pre><code class="language-text">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0IiwibmFtZSI6IkFsaWNlIiwiZXhwIjoxNzM5OTk5OTk5fQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c</code></pre>
+
+        <p>
+          이걸 점으로 자르면 세 토막이 나온다.
+        </p>
+
+        <ol>
+          <li><strong>Header</strong> — 토큰의 메타데이터 (서명 알고리즘 등)</li>
+          <li><strong>Payload</strong> — 실제 데이터 (claims)</li>
+          <li><strong>Signature</strong> — 위조 방지를 위한 서명</li>
+        </ol>
+
+        <p>
+          앞 두 부분은 Base64URL로 인코딩된 JSON. 누구나 디코딩해 내용을 볼 수 있다.
+          마지막 서명만 비밀 키로 만들어진 서명이라 위조가 어렵다.
+        </p>
+
+        <h2>Header</h2>
+
+        <pre><code class="language-json">{
+  "alg": "HS256",
+  "typ": "JWT"
+}</code></pre>
+
+        <p>
+          서명에 사용된 알고리즘(<code>alg</code>)과 토큰 타입(<code>typ</code>)을 명시.
+          <code>HS256</code>은 HMAC-SHA256, <code>RS256</code>은 RSA-SHA256, <code>ES256</code>은 ECDSA.
+          JSON을 그대로 Base64URL로 인코딩한 것이 첫 번째 토막.
+        </p>
+
+        <h2>Payload — 클레임의 모음</h2>
+
+        <p>
+          토큰이 담고 있는 정보의 본체. JSON 객체이며 각 필드를 "claim"이라고 부른다.
+          RFC 7519는 표준 클레임을 정의하지만, 사용자 정의 클레임도 자유롭게 추가할 수 있다.
+        </p>
+
+        <pre><code class="language-json">{
+  "sub": "1234567890",
+  "name": "Alice",
+  "role": "admin",
+  "iat": 1739900000,
+  "exp": 1739999999,
+  "iss": "auth.example.com"
+}</code></pre>
+
+        <h3>표준 클레임 (RFC 7519)</h3>
+
+        <p>
+          자주 쓰이는 표준 클레임들. 모두 3글자로 짧게 정의된 것이 특징 (토큰 크기 절약).
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>클레임</th><th>이름</th><th>의미</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>iss</code></td><td>Issuer</td><td>토큰 발급자 (예: 인증 서버 URL)</td></tr>
+            <tr><td><code>sub</code></td><td>Subject</td><td>토큰의 주체 (보통 사용자 ID)</td></tr>
+            <tr><td><code>aud</code></td><td>Audience</td><td>토큰의 대상 (어떤 서비스에서 쓸 토큰인지)</td></tr>
+            <tr><td><code>exp</code></td><td>Expiration</td><td>만료 시각 (Unix timestamp)</td></tr>
+            <tr><td><code>nbf</code></td><td>Not Before</td><td>이 시각 이전엔 무효 (지연 활성화)</td></tr>
+            <tr><td><code>iat</code></td><td>Issued At</td><td>발급 시각</td></tr>
+            <tr><td><code>jti</code></td><td>JWT ID</td><td>토큰 고유 식별자 (재사용 방지에 사용)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>사용자 정의 클레임</h3>
+
+        <p>
+          표준 클레임 외에 자유롭게 추가 가능. 일반적으로 사용자 ID, 역할, 권한, 이메일 등을 넣는다.
+        </p>
+
+        <pre><code class="language-json">{
+  "sub": "1234",
+  "email": "alice@example.com",
+  "role": "admin",
+  "permissions": ["read:orders", "write:orders"],
+  "exp": 1739999999
+}</code></pre>
+
+        <p>
+          단, 클레임이 많아질수록 토큰 크기가 커진다.
+          매 요청마다 토큰이 함께 전송되므로 너무 크면 네트워크 부담.
+          또한 Payload는 누구나 디코딩할 수 있으니 비밀번호 같은 민감 정보는 절대 넣지 않는다.
+        </p>
+
+        <h2>Signature — 위조 방지의 핵심</h2>
+
+        <p>
+          JWT의 진짜 핵심. Header와 Payload가 위조되지 않았음을 보장하는 부분.
+          서명 계산 방법은 <code>alg</code>에 따라 다르지만 기본 형태는 다음과 같다.
+        </p>
+
+        <pre><code class="language-text">signature = HMAC-SHA256(
+  base64url(header) + "." + base64url(payload),
+  secret
+)</code></pre>
+
+        <p>
+          서버는 비밀 키를 알고 있어야 같은 서명을 다시 만들 수 있다.
+          누군가 Header나 Payload를 수정하면 서명이 달라지므로 서버가 즉시 위조를 감지할 수 있다.
+          비밀 키 없이는 정상 서명을 만들 수 없는 게 보안의 토대.
+        </p>
+
+        <h3>대칭 키 vs 비대칭 키</h3>
+
+        <table>
+          <thead>
+            <tr><th>구분</th><th>HS256 (HMAC)</th><th>RS256 (RSA)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>키 종류</td><td>대칭 (비밀 키 1개)</td><td>비대칭 (비밀 키 + 공개 키)</td></tr>
+            <tr><td>서명 가능자</td><td>비밀 키 가진 모두</td><td>비밀 키 가진 사람만</td></tr>
+            <tr><td>검증 가능자</td><td>비밀 키 가진 모두</td><td>공개 키 가진 모두 (제한 없음)</td></tr>
+            <tr><td>키 배포</td><td>비밀이라 어려움</td><td>공개 키 자유롭게 배포</td></tr>
+            <tr><td>속도</td><td>빠름</td><td>느림 (RSA 연산)</td></tr>
+            <tr><td>적합 케이스</td><td>단일 서비스 내부</td><td>인증 서버 + 여러 자원 서버</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          단일 서비스가 자기 토큰을 발급하고 검증하면 HS256이 단순하고 빠르다.
+          OAuth/OIDC처럼 인증 서버와 자원 서버가 분리된 환경에서는 RS256이 적합 — 자원 서버는 공개 키만 가지고 검증할 수 있다.
+        </p>
+
+        <h2>전체 구조 그림</h2>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="JWT 구조">
+            <defs>
+              <style>
+                .header-box { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .payload-box { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .sig-box { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.5; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #4e5968; }
+                .header-text { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header-text">JWT — 점(.)으로 구분된 세 부분</text>
+
+            <rect x="20" y="40" width="170" height="60" rx="6" class="header-box"/>
+            <text x="105" y="60" text-anchor="middle" class="label">Header</text>
+            <text x="105" y="78" text-anchor="middle" class="small">alg, typ</text>
+            <text x="105" y="92" text-anchor="middle" class="small">Base64URL(JSON)</text>
+
+            <text x="195" y="74" class="label" fill="#6b7684">.</text>
+
+            <rect x="210" y="40" width="170" height="60" rx="6" class="payload-box"/>
+            <text x="295" y="60" text-anchor="middle" class="label">Payload</text>
+            <text x="295" y="78" text-anchor="middle" class="small">claims (sub, exp, ...)</text>
+            <text x="295" y="92" text-anchor="middle" class="small">Base64URL(JSON)</text>
+
+            <text x="385" y="74" class="label" fill="#6b7684">.</text>
+
+            <rect x="400" y="40" width="180" height="60" rx="6" class="sig-box"/>
+            <text x="490" y="60" text-anchor="middle" class="label">Signature</text>
+            <text x="490" y="78" text-anchor="middle" class="small">HMAC/RSA/ECDSA</text>
+            <text x="490" y="92" text-anchor="middle" class="small">위조 방지</text>
+
+            <text x="20" y="138" class="header-text">서명 만들기</text>
+            <rect x="20" y="148" width="560" height="32" rx="4" fill="#f9fafb" stroke="#d8dce0"/>
+            <text x="300" y="168" text-anchor="middle" class="small">Signature = SIGN_alg( base64url(Header) + "." + base64url(Payload), secret )</text>
+
+            <text x="20" y="210" class="header-text">검증</text>
+            <text x="20" y="230" class="small" fill="#19181a">서버: 같은 비밀 키로 다시 서명을 만들어 받은 서명과 비교 → 같으면 위조 X</text>
+            <text x="20" y="250" class="small" fill="#19181a">Header/Payload는 누구나 디코딩 가능 (Base64URL일 뿐, 암호화 아님)</text>
+            <text x="20" y="270" class="small" fill="#c4302b">→ 비밀 정보를 Payload에 절대 넣지 말 것</text>
+          </svg>
+          <figcaption>JWT 구조 — Header.Payload.Signature 형태</figcaption>
+        </figure>
+
+        <h2>JWT는 암호화가 아니다</h2>
+
+        <p>
+          가장 자주 오해되는 부분. <strong>JWT는 암호화가 아니라 서명이다</strong>.
+          Header와 Payload는 단순히 Base64URL로 인코딩된 JSON일 뿐, 누구나 디코딩해 볼 수 있다.
+          서명이 보장하는 것은 "위조되지 않았음"이지 "비밀임"이 아니다.
+        </p>
+
+        <p>
+          따라서 비밀번호, 신용카드 번호, 주민번호 같은 민감 정보를 Payload에 넣으면 안 된다.
+          이런 정보가 필요하면 별도로 암호화된 채널로 다루거나, JWE(JSON Web Encryption)를 사용 (이건 흔하지 않음).
+          평범한 JWT는 인증/인가 정보 정도만 담는 게 맞다.
+        </p>
+
+        <h2>Spring Security에서 JWT 발급</h2>
+
+        <pre><code class="language-java">@Service
+public class JwtService {
+
+    private final SecretKey key;
+
+    public JwtService(@Value("${jwt.secret}") String secret) {
+        this.key = Keys.hmacShaKeyFor(secret.getBytes());
+    }
+
+    public String issue(User user) {
+        return Jwts.builder()
+            .subject(String.valueOf(user.getId()))
+            .claim("role", user.getRole())
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + 3600_000))
+            .signWith(key)
+            .compact();
+    }
+
+    public Claims parse(String token) {
+        return Jwts.parser()
+            .verifyWith(key)
+            .build()
+            .parseSignedClaims(token)
+            .getPayload();
+    }
+}</code></pre>
+
+        <p>
+          jjwt 라이브러리 기준 코드. 발급은 builder 패턴으로 클레임을 채우고 서명.
+          검증은 같은 키로 parser를 만들어 서명 일치를 확인하고 클레임을 추출.
+          서명이 일치하지 않거나 만료(<code>exp</code>)가 지났으면 예외가 발생한다.
+        </p>
+
+        <h2>JWT 검증의 흐름</h2>
+
+        <p>
+          서버가 토큰을 받았을 때 무엇을 해야 하는가. 정확한 검증 순서는 다음과 같다.
+        </p>
+
+        <ol>
+          <li>토큰 형식 확인 — 점으로 구분된 세 부분이 맞는지</li>
+          <li>Header 디코딩 — alg 확인 (지원하는 알고리즘인지, none 등 위험한 값 거부)</li>
+          <li>Signature 검증 — 같은 키로 다시 만든 서명과 일치하는지</li>
+          <li>Expiration 확인 — exp가 현재 시각보다 큰지 (만료 안 됐는지)</li>
+          <li>iss, aud 등 다른 클레임 정책 확인 (선택)</li>
+          <li>모두 통과하면 클레임을 신뢰하고 사용자 식별</li>
+        </ol>
+
+        <p>
+          Spring Security나 jjwt 같은 라이브러리는 이 검증을 모두 자동으로 처리한다.
+          개발자는 적절히 설정만 하면 된다.
+          단, 라이브러리 버전이 옛날이거나 잘못된 옵션을 쓰면 4편에서 볼 함정에 걸릴 수 있다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. JWT의 세 부분은?</h3>
+
+        <p>
+          Header, Payload, Signature. 점(.)으로 구분되며 모두 Base64URL 인코딩.
+          Header는 알고리즘 등 메타데이터, Payload는 클레임(사용자 정보), Signature는 위조 방지를 위한 서명.
+          앞 두 부분은 누구나 디코딩 가능하고, 서명만 비밀 키로 검증된다.
+        </p>
+
+        <h3>Q. JWT는 암호화되어 있나?</h3>
+
+        <p>
+          아니다. 서명만 되어 있고 내용은 Base64URL로 단순 인코딩된 JSON.
+          누구나 디코딩해 클레임을 볼 수 있다. 서명이 보장하는 건 "위조되지 않았음"이지 "비밀임"이 아니다.
+          민감 정보를 Payload에 넣으면 안 되는 이유.
+        </p>
+
+        <h3>Q. HS256과 RS256의 차이?</h3>
+
+        <p>
+          HS256은 대칭 키 HMAC. 단일 비밀 키로 서명/검증 모두 가능. 단일 서비스 내부에 적합.
+          RS256은 비대칭 키 RSA. 비밀 키로 서명, 공개 키로 검증. 인증 서버가 발급하고 여러 자원 서버가 공개 키로 검증하는 구조에 적합 — OAuth/OIDC 표준.
+        </p>
+
+        <h3>Q. exp 클레임이 없으면?</h3>
+
+        <p>
+          토큰이 영원히 유효해진다. 한 번 발급된 토큰을 무효화할 방법이 없으므로 보안상 매우 위험.
+          반드시 exp를 설정하고, 추가로 짧은 만료 + Refresh Token 패턴을 쓰는 게 표준 (5편 주제).
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          JWT는 Header.Payload.Signature 세 부분으로 된 self-contained 토큰.
+          앞 두 부분은 Base64URL 인코딩된 JSON이고 누구나 볼 수 있다. 서명만 비밀 키로 위조 방지를 보장.
+          비밀번호 같은 민감 정보는 Payload에 넣지 않는다 — 암호화가 아닌 서명이기 때문.
+          단일 서비스엔 HS256, OAuth 같은 분산 환경엔 RS256이 적합.
+        </p>
+
+        <p>
+          다음 편은 JWT의 함정들 — 토큰 무효화의 어려움, alg=none 같은 보안 공격, 그리고 토큰 크기 문제.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

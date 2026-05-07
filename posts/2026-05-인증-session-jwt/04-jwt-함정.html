@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JWT의 함정 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 4/5</div>
+        <h1>JWT의 함정</h1>
+        <p class="subtitle">
+          토큰 무효화의 어려움, alg=none 공격, 알고리즘 혼동, 토큰 크기 폭증.
+          잘 알려진 보안 사고와 운영 함정들을 정리한다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인증 — Session vs JWT</div>
+        <ol>
+          <li><a href="./01-http-stateless와-인증.html">HTTP stateless와 인증</a></li>
+          <li><a href="./02-session-인증.html">Session 인증 — 동작과 scale-out</a></li>
+          <li><a href="./03-jwt-구조.html">JWT의 구조</a></li>
+          <li class="current">JWT의 함정</li>
+          <li><a href="./05-session-vs-jwt-refresh-token.html">Session vs JWT + Refresh Token</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>함정 1 — 토큰 무효화가 어렵다</h2>
+
+        <p>
+          JWT의 stateless 성질이 만드는 가장 큰 트레이드오프.
+          서버는 토큰의 서명만 검증하면 신뢰하므로, 한 번 발급된 토큰은 만료(<code>exp</code>) 전까지 살아있다.
+          중간에 즉시 무효화하기 어렵다.
+        </p>
+
+        <p>
+          시나리오를 그려보면 명확하다. 사용자가 로그아웃을 눌렀는데도 그 토큰이 만료되기 전까지 누군가 손에 들어가면 정상 동작.
+          비밀번호 변경, 권한 박탈, 계정 삭제 같은 상황에서도 같은 문제가 생긴다.
+          Session 방식이라면 서버 저장소에서 세션을 지우면 즉시 무효화되지만, JWT는 그게 안 된다.
+        </p>
+
+        <h3>현실적 대응 방법</h3>
+
+        <p>
+          JWT의 stateless를 일부 포기하고 서버 측 상태를 도입하는 방향이 일반적.
+        </p>
+
+        <ul>
+          <li><strong>짧은 만료 + Refresh Token</strong> — Access Token은 5~15분 정도로 짧게 두고 Refresh Token으로 재발급. 노출 영향이 짧은 시간으로 제한됨. 5편의 주제.</li>
+          <li><strong>블랙리스트</strong> — 무효화된 토큰의 jti(JWT ID)를 Redis 등에 저장하고 검증 시 조회. 이 시점에서 stateless 매력이 줄어든다.</li>
+          <li><strong>토큰 버전 필드</strong> — 사용자 DB에 token_version 필드를 두고, 토큰에 그 버전을 포함. 비밀번호 변경 시 버전 증가 → 옛 토큰의 버전과 불일치하면 무효.</li>
+        </ul>
+
+        <p>
+          어떤 방식이든 결국 서버가 "이 토큰이 무효하다"는 정보를 어디선가 알고 있어야 한다.
+          완전한 stateless 보장은 포기하는 셈.
+          Session vs JWT의 본질적 차이가 여기서 다시 드러난다.
+        </p>
+
+        <h2>함정 2 — alg=none 공격</h2>
+
+        <p>
+          JWT의 가장 유명한 보안 사고. RFC 7519는 알고리즘 <code>none</code>을 지원한다 — 서명 없는 토큰.
+          원래 의도는 토큰을 다른 단계에서 보호하는 경우에 쓰라는 것이었지만,
+          잘못 구현된 라이브러리들이 검증 단계에서 <code>alg=none</code>을 그냥 통과시키는 버그가 있었다.
+        </p>
+
+        <pre><code class="language-text">// 공격자가 만드는 위조 토큰
+Header:  { "alg": "none", "typ": "JWT" }
+Payload: { "sub": "admin", "role": "admin" }
+Signature: (없음, 빈 문자열)</code></pre>
+
+        <p>
+          공격자가 위와 같이 Header를 <code>alg=none</code>으로 바꾸고 Payload를 admin으로 조작한 토큰을 보낸다.
+          서명 검증을 제대로 안 하는 라이브러리는 alg을 보고 "서명 검증 안 해도 됨"으로 판단해 통과.
+          공격자가 admin 권한을 손에 넣는다.
+        </p>
+
+        <h3>방어</h3>
+
+        <ul>
+          <li>서버에서 명시적으로 허용할 알고리즘 화이트리스트 지정</li>
+          <li><code>alg=none</code> 토큰을 거부</li>
+          <li>최신 라이브러리 사용 (이 취약점은 대부분 패치됨)</li>
+        </ul>
+
+        <pre><code class="language-java">// 명시적으로 허용 알고리즘 지정
+Jwts.parser()
+    .verifyWith(key)              // HS256 키 명시
+    .build()
+    .parseSignedClaims(token);    // alg=none 토큰은 거부</code></pre>
+
+        <p>
+          jjwt 같은 모던 라이브러리는 기본적으로 안전하게 동작하지만,
+          오래된 라이브러리나 직접 구현한 코드라면 위험할 수 있다.
+        </p>
+
+        <h2>함정 3 — 알고리즘 혼동 공격</h2>
+
+        <p>
+          alg=none과 비슷한 계열의 공격. 서버가 RS256(비대칭) 토큰을 발급하지만
+          검증 코드가 알고리즘을 자동으로 추론하면, 공격자가 alg를 HS256으로 바꿔 위조할 수 있다.
+        </p>
+
+        <h3>공격 시나리오</h3>
+
+        <ol>
+          <li>서버는 RS256으로 토큰 발급. 공개 키 P, 비밀 키 S 사용.</li>
+          <li>공개 키 P는 보통 노출되어 있다 (.well-known 등에서 공개).</li>
+          <li>공격자가 P를 손에 넣고 토큰의 Header를 alg=HS256으로 바꿈.</li>
+          <li>공격자는 P를 HMAC 키로 사용해 새 서명 생성.</li>
+          <li>서버 검증 코드가 alg을 보고 HS256 검증 시도 → 자기 RSA 공개 키 P를 HMAC 키로 사용 → 검증 통과.</li>
+        </ol>
+
+        <p>
+          핵심은 "서명에 사용된 키 종류를 토큰의 alg에 맡기는" 잘못된 구현.
+          서버는 "내가 발급한 토큰은 RS256이다"를 미리 알고 있어야 하고, 검증 시 그 알고리즘만 허용해야 한다.
+        </p>
+
+        <h3>방어</h3>
+
+        <p>
+          명시적으로 허용 알고리즘을 화이트리스트로 지정. 토큰의 alg 값을 그대로 신뢰하지 말 것.
+          모던 라이브러리는 검증 시점에 키 타입에 따라 적절한 알고리즘을 강제한다.
+        </p>
+
+        <h2>함정 4 — 토큰 크기 폭증</h2>
+
+        <p>
+          Payload에 너무 많은 클레임을 넣으면 토큰이 커진다. 매 요청마다 토큰이 함께 전송되므로
+          네트워크 부담이 증가한다. 특히 권한 정보를 모두 토큰에 담는 패턴에서 자주 발생.
+        </p>
+
+        <pre><code class="language-json">{
+  "sub": "1234",
+  "permissions": [
+    "read:users", "write:users", "delete:users",
+    "read:orders", "write:orders", "delete:orders",
+    "read:products", "write:products",
+    ...
+  ]
+}</code></pre>
+
+        <p>
+          권한이 수십 개 되면 토큰이 수 KB를 넘기도 한다. HTTP 헤더 크기 제한(보통 8KB)에 걸릴 수도 있고,
+          매 요청마다 그 크기를 전송하는 비용이 누적된다.
+          모바일 환경에서는 더 큰 부담.
+        </p>
+
+        <h3>대응 방향</h3>
+
+        <ul>
+          <li>토큰엔 사용자 ID와 역할(role) 정도만 담고, 세부 권한은 서버가 그때그때 조회</li>
+          <li>permissions를 비트마스크 같은 콤팩트 형식으로 인코딩</li>
+          <li>권한이 많은 사용자는 별도 처리 (세션으로 회귀 또는 토큰 outsource)</li>
+        </ul>
+
+        <p>
+          "토큰에 모든 정보를 넣어 stateless 만든다"가 항상 맞는 건 아니라는 사례.
+          최소한의 정보만 토큰에 두고 나머지는 서버 조회로 가져오는 게 균형이 좋다.
+        </p>
+
+        <h2>함정 5 — 비밀 키 노출</h2>
+
+        <p>
+          HS256을 쓰는 서비스에서 비밀 키가 유출되면 누구나 임의 토큰을 만들 수 있다.
+          모든 사용자의 신분을 위조할 수 있는 셈이라 사고의 규모가 매우 크다.
+        </p>
+
+        <h3>흔한 노출 경로</h3>
+
+        <ul>
+          <li>코드 저장소(Git)에 하드코딩 후 푸시 — public repo면 즉시 위험</li>
+          <li>설정 파일을 컨테이너 이미지에 포함시킨 채 배포 → 누구나 이미지 분석</li>
+          <li>환경 변수가 로그에 출력</li>
+          <li>약한 키 사용 — "secret" 같은 단순한 문자열을 키로 쓰면 brute-force로 추측 가능</li>
+        </ul>
+
+        <h3>방어</h3>
+
+        <p>
+          비밀 키는 충분히 긴 무작위 값으로 설정하고 (HS256은 최소 256bit 권장), 외부 비밀 관리 도구로 다룬다.
+          AWS Secrets Manager, HashiCorp Vault, Kubernetes Secret 등.
+          코드에 절대 하드코딩하지 않고 환경 변수로도 평범하게 두지 않는 게 안전.
+        </p>
+
+        <p>
+          유출이 의심되면 즉시 키를 회전(rotate)해야 한다.
+          단, 키를 바꾸면 기존에 발급된 모든 토큰이 무효가 되어 모든 사용자가 재로그인해야 한다는 점도 인지.
+        </p>
+
+        <h2>함정 6 — Refresh Token도 토큰이다</h2>
+
+        <p>
+          짧은 Access Token + 긴 Refresh Token 패턴이 표준이 되면서,
+          Refresh Token 자체가 보안 자산이 된다는 사실이 종종 잊힌다.
+        </p>
+
+        <p>
+          Refresh Token이 탈취되면 공격자가 새 Access Token을 계속 발급받을 수 있다.
+          Access Token이 짧다는 보호가 무력화되는 셈.
+          그래서 Refresh Token은 더 강하게 보호한다 — HttpOnly + Secure 쿠키, 한 번 쓰면 회전(rotation), 사용 패턴 모니터링.
+          5편에서 자세히.
+        </p>
+
+        <h2>함정 7 — clock skew와 토큰 시각</h2>
+
+        <p>
+          여러 서버가 분산되어 있으면 시계가 정확히 일치하지 않을 수 있다 (NTP 사용해도 ms 단위 차이).
+          토큰 발급 서버와 검증 서버의 시계가 다르면 미묘한 문제가 생긴다.
+        </p>
+
+        <p>
+          예를 들어 발급 서버의 시계가 100ms 빠르면, 발급 직후 토큰의 <code>iat</code>가 검증 서버의 현재 시각보다 미래.
+          엄격한 검증 라이브러리는 이걸 거부할 수 있다.
+          만료 시각 검증에서도 비슷한 문제 — 발급 서버에서 막 만료된 토큰이 검증 서버에선 아직 유효할 수도.
+        </p>
+
+        <p>
+          대부분 라이브러리는 작은 clock skew(수 초)를 허용하는 옵션을 제공한다.
+          jjwt의 <code>JwtParserBuilder.clockSkewSeconds(60)</code> 같은 식.
+          모든 인프라의 시계를 NTP로 정확히 동기화하는 것도 함께.
+        </p>
+
+        <h2>함정 8 — 만료 정책 부재</h2>
+
+        <p>
+          가장 단순한데 가장 자주 일어나는 실수. 토큰에 <code>exp</code>를 안 넣고 발급.
+          이러면 토큰이 영원히 유효하다. 한 번 발급된 토큰을 무효화할 방법이 없으니
+          탈취 시 영구적 피해.
+        </p>
+
+        <p>
+          모든 토큰엔 반드시 만료 시각을 둔다. Access Token은 짧게(5~15분 권장),
+          Refresh Token은 더 길게(보통 7일~30일).
+          이게 5편의 표준 패턴.
+        </p>
+
+        <h2>운영 체크리스트</h2>
+
+        <p>
+          JWT를 도입할 때 반드시 확인할 항목들.
+        </p>
+
+        <ol>
+          <li>비밀 키가 충분히 무작위인가 (HS256은 256bit 이상)</li>
+          <li>비밀 키가 코드 저장소에 노출되지 않았는가</li>
+          <li>알고리즘 화이트리스트가 명시적으로 설정되어 있는가</li>
+          <li>모든 토큰에 exp가 있는가</li>
+          <li>Access Token 만료 시간이 짧은가 (15분 이하 권장)</li>
+          <li>Refresh Token이 있는가, 있다면 회전 정책이 있는가</li>
+          <li>토큰 무효화가 필요한 시나리오에 대한 정책이 있는가 (블랙리스트, 토큰 버전 등)</li>
+          <li>Payload에 민감 정보가 들어가지 않았는가</li>
+          <li>Refresh Token이 적절히 보호되는가 (HttpOnly 쿠키 등)</li>
+          <li>서버 간 시각이 NTP로 동기화되어 있는가</li>
+        </ol>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. JWT 토큰을 즉시 무효화하려면?</h3>
+
+        <p>
+          순수 stateless로는 어렵다. 짧은 Access Token + Refresh Token 패턴, 블랙리스트(Redis), token_version 필드 같은 방법으로
+          일부 stateless를 포기하고 서버 측 상태를 도입한다.
+          Session 대비 가지는 stateless 장점이 일부 사라지는 트레이드오프가 있다.
+        </p>
+
+        <h3>Q. alg=none 공격은?</h3>
+
+        <p>
+          공격자가 토큰의 Header를 alg=none으로 바꾸고 Payload를 조작한 위조 토큰을 보내는 공격.
+          제대로 검증하지 않는 라이브러리는 서명 없는 토큰을 통과시켜 위조가 성공한다.
+          방어는 명시적으로 허용 알고리즘 화이트리스트를 지정하고 alg=none을 거부하는 것.
+        </p>
+
+        <h3>Q. 알고리즘 혼동 공격은?</h3>
+
+        <p>
+          서버가 RS256으로 발급한 토큰을, 공격자가 alg을 HS256으로 바꾸고 공개 키로 서명한 위조 토큰을 보낸다.
+          서버 검증이 alg에 따라 키 타입을 결정하면 RSA 공개 키를 HMAC 키로 사용하게 되어 위조가 통과.
+          방어는 검증 시 토큰의 alg을 신뢰하지 말고 서버가 정한 알고리즘만 허용하는 것.
+        </p>
+
+        <h3>Q. JWT의 Payload에 비밀번호를 넣어도 되나?</h3>
+
+        <p>
+          절대 안 된다. JWT는 암호화가 아니라 서명이라 Payload는 누구나 Base64URL로 디코딩해 볼 수 있다.
+          비밀번호, 신용카드, 주민번호 같은 민감 정보는 절대 Payload에 넣지 않는다.
+          인증/인가에 필요한 식별 정보(사용자 ID, 역할)만 담는다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          JWT의 함정들은 대부분 stateless라는 강점의 그림자.
+          무효화 어려움, alg 공격, 토큰 크기 폭증, 비밀 키 노출, Refresh Token 보호, 만료 정책.
+          모던 라이브러리와 표준 패턴을 따르면 대부분 피할 수 있지만, 의식하지 않으면 흔히 빠지는 자리들.
+        </p>
+
+        <p>
+          마지막 편은 두 방식의 의사결정 — Session과 JWT 중 언제 무엇을 쓰고, Refresh Token 패턴이 그 사이에서 어떻게 균형을 잡는가.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

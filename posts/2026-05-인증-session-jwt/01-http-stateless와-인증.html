@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP stateless와 인증 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 1/5</div>
+        <h1>HTTP stateless와 인증</h1>
+        <p class="subtitle">
+          매 요청이 독립적인 HTTP 위에서 "이 사용자는 누구인가"를 어떻게 알아내는가.
+          모든 인증 메커니즘이 풀려는 같은 문제의 출발점.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인증 — Session vs JWT</div>
+        <ol>
+          <li class="current">HTTP stateless와 인증</li>
+          <li><a href="./02-session-인증.html">Session 인증 — 동작과 scale-out</a></li>
+          <li><a href="./03-jwt-구조.html">JWT의 구조</a></li>
+          <li><a href="./04-jwt-함정.html">JWT의 함정</a></li>
+          <li><a href="./05-session-vs-jwt-refresh-token.html">Session vs JWT + Refresh Token</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>HTTP는 stateless다</h2>
+
+        <p>
+          HTTP의 가장 근본적인 설계 결정은 stateless. 매 요청이 독립적이며,
+          서버는 이전 요청을 기억해두지 않는다.
+          RFC 9110 §3.4에서 "HTTP is a stateless protocol"이라고 명시되어 있다.
+        </p>
+
+        <p>
+          이 설계가 가지는 장점은 분명하다. 서버가 클라이언트의 상태를 들고 있지 않으니
+          어느 서버 인스턴스가 요청을 처리해도 같은 결과가 나온다.
+          이게 HTTP가 인터넷 규모로 확장 가능하게 만든 결정적 요인.
+        </p>
+
+        <h2>그런데 인증은 상태를 요구한다</h2>
+
+        <p>
+          현실 서비스는 stateless하지 않다. 사용자가 한 번 로그인했으면 그 다음 요청부터는
+          매번 ID/비밀번호를 다시 입력하지 않아도 본인임을 증명할 수 있어야 한다.
+          이건 명백히 "이 사용자가 누구인지"를 어딘가가 기억해야 한다는 요구.
+        </p>
+
+        <p>
+          stateless 프로토콜 위에서 stateful한 요구를 어떻게 풀 것인가.
+          이게 모든 웹 인증 메커니즘이 답하려는 같은 질문이다.
+        </p>
+
+        <h2>매 요청마다 신원 증명</h2>
+
+        <p>
+          답은 단순하다. 매 요청마다 클라이언트가 자기 신원을 증명하면 된다.
+          한 번 로그인 후 발급받은 무언가를 매 요청에 같이 보내고, 서버가 그걸 검증해 사용자를 식별.
+          이 "무언가"가 무엇인가에 따라 인증 방식이 갈린다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>방식</th>
+              <th>요청에 담는 것</th>
+              <th>서버가 하는 일</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Basic 인증</td>
+              <td>매번 ID/비밀번호 (Base64)</td>
+              <td>매번 비밀번호 검증</td>
+            </tr>
+            <tr>
+              <td>Session 쿠키</td>
+              <td>Session ID</td>
+              <td>저장소에서 ID 조회 → 사용자 매핑</td>
+            </tr>
+            <tr>
+              <td>JWT (Bearer)</td>
+              <td>서명된 토큰</td>
+              <td>서명 검증 → 토큰 안의 클레임 사용</td>
+            </tr>
+            <tr>
+              <td>API Key</td>
+              <td>발급받은 키</td>
+              <td>키 검증 + 권한 매핑</td>
+            </tr>
+            <tr>
+              <td>OAuth 2.0 / OIDC</td>
+              <td>Access Token</td>
+              <td>토큰 검증 (자체 서명 또는 인증 서버 조회)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          가장 원시적인 게 Basic 인증 — 매 요청에 비밀번호 자체를 보낸다.
+          비밀번호가 자주 노출될 위험이 큰 만큼 보안적으로 약하고, 현대 웹에서 거의 쓰이지 않는다.
+          현실에서는 Session과 JWT가 가장 많이 쓰이는 두 패러다임. 이 시리즈의 주제.
+        </p>
+
+        <h2>두 가지 패러다임 — 어디에 상태를 둘 것인가</h2>
+
+        <p>
+          Session과 JWT는 결국 "stateful 정보를 어디에 둘 것인가"의 답이 다른 두 방식.
+        </p>
+
+        <h3>서버에 둔다 — Session</h3>
+
+        <p>
+          서버 측 저장소에 사용자 정보를 보관하고, 클라이언트에는 그 위치를 가리키는 짧은 키(Session ID)만 준다.
+          매 요청마다 클라이언트가 키를 보내고, 서버는 키로 저장소를 조회해 사용자를 알아낸다.
+        </p>
+
+        <p>
+          서버 측 상태가 권위적인 진실. 로그아웃이나 권한 변경이 즉각 반영되고,
+          클라이언트는 가벼운 키만 들고 있으면 된다.
+          단점은 서버가 상태를 들고 있어야 한다는 것 — 분산 환경에서 추가 작업이 필요.
+        </p>
+
+        <h3>토큰 자체에 둔다 — JWT</h3>
+
+        <p>
+          모든 사용자 정보를 토큰 안에 인코딩하고 서명을 붙여 발급한다.
+          매 요청마다 클라이언트가 그 토큰을 보내고, 서버는 서명만 검증하면 토큰 안의 정보를 그대로 신뢰할 수 있다.
+        </p>
+
+        <p>
+          서버는 어떤 상태도 저장할 필요가 없다 — stateless 그 자체.
+          단점은 토큰이 발급된 후엔 서버가 그 내용을 즉시 무효화하기 어렵다는 것.
+          이 미묘함이 4편의 주제.
+        </p>
+
+        <h2>인증과 인가의 구분</h2>
+
+        <p>
+          용어 혼동이 자주 일어나는 부분. 두 단어가 영어로도 비슷하다 (Authentication vs Authorization).
+        </p>
+
+        <ul>
+          <li><strong>인증 (Authentication)</strong> — 사용자가 "누구인가"를 확인. 로그인, 신원 증명.</li>
+          <li><strong>인가 (Authorization)</strong> — 그 사용자가 "무엇을 할 수 있는가"를 결정. 권한 부여.</li>
+        </ul>
+
+        <p>
+          Session과 JWT는 1차적으로 인증의 도구지만 토큰/세션에 권한 정보를 함께 담아 인가까지 처리하는 게 일반적.
+          예를 들어 JWT의 클레임에 "role: admin"을 넣으면 그 토큰을 가진 사용자가 admin임을 같이 알 수 있다.
+        </p>
+
+        <h2>HTTP의 어디에 담아 보내나</h2>
+
+        <p>
+          신원을 매 요청마다 보낸다고 했는데, HTTP의 어디에 담는가.
+          기본적으로 두 자리가 표준이다.
+        </p>
+
+        <h3>Cookie 헤더 (Session 위주)</h3>
+
+        <pre><code class="language-http">GET /api/orders HTTP/1.1
+Host: example.com
+Cookie: JSESSIONID=abc123def456; theme=dark</code></pre>
+
+        <p>
+          쿠키는 브라우저가 자동으로 같은 도메인 요청에 첨부해주는 헤더.
+          Session ID를 쿠키에 두면 브라우저가 자동으로 보내고, JavaScript에서 따로 신경 쓸 필요 없다.
+          <code>HttpOnly</code> 플래그로 JavaScript 접근을 막을 수 있어 XSS 공격에서 토큰 탈취를 줄일 수 있다.
+        </p>
+
+        <h3>Authorization 헤더 (Bearer 토큰)</h3>
+
+        <pre><code class="language-http">GET /api/orders HTTP/1.1
+Host: example.com
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...</code></pre>
+
+        <p>
+          모바일 앱이나 SPA에서 자주 쓰이는 방식. <code>Authorization: Bearer &lt;token&gt;</code> 형식이 표준.
+          쿠키와 달리 클라이언트 코드가 명시적으로 헤더를 붙여야 한다.
+          JavaScript가 토큰을 다룰 수 있어야 하므로 보통 localStorage 또는 메모리에 저장 (XSS 노출 위험 존재).
+        </p>
+
+        <h3>두 자리의 차이</h3>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>Cookie</th><th>Authorization Bearer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>전송</td><td>브라우저 자동</td><td>클라이언트 명시적</td></tr>
+            <tr><td>저장</td><td>브라우저 쿠키 저장소</td><td>localStorage / 메모리 / 보안 storage</td></tr>
+            <tr><td>JavaScript 접근</td><td>HttpOnly로 차단 가능</td><td>늘 가능 (XSS 위험)</td></tr>
+            <tr><td>CSRF 위험</td><td>높음 (자동 첨부)</td><td>낮음 (명시적)</td></tr>
+            <tr><td>CORS 처리</td><td>credentials: include 필요</td><td>일반 헤더로 가능</td></tr>
+            <tr><td>주 사용처</td><td>전통 웹, Session</td><td>SPA, 모바일, JWT</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          어느 자리가 더 안전한지는 단순하지 않다. Cookie + HttpOnly + SameSite는 XSS에 강하고 CSRF 방어 추가 필요.
+          Bearer 토큰은 CSRF엔 무관하지만 XSS로 토큰이 탈취되기 쉽다. 트레이드오프 관계.
+        </p>
+
+        <h2>이 시리즈가 풀어갈 질문들</h2>
+
+        <p>
+          전체 그림을 그렸으니 다음 편들에서 디테일을 채운다.
+        </p>
+
+        <ul>
+          <li>2편 — Session은 어떻게 동작하고 분산 환경에서 어떻게 살아남는가</li>
+          <li>3편 — JWT의 정확한 구조와 검증 메커니즘</li>
+          <li>4편 — JWT의 잘 알려진 함정들 (무효화, alg 공격, 토큰 크기)</li>
+          <li>5편 — 어느 쪽을 언제 쓰는가, Refresh Token 패턴, 실무 결정</li>
+        </ul>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HTTP가 stateless인데 왜 로그인이 유지되나?</h3>
+
+        <p>
+          HTTP 자체는 stateless이지만 매 요청마다 클라이언트가 자기 신원을 증명할 수 있는 무언가를 보낸다.
+          Session ID 쿠키, JWT, API Key 등이 그 역할.
+          서버는 매 요청을 독립적으로 처리하지만, 클라이언트가 들고 다니는 토큰으로 사용자를 식별.
+        </p>
+
+        <h3>Q. 인증과 인가의 차이?</h3>
+
+        <p>
+          인증(Authentication)은 사용자가 누구인지 확인하는 과정 — 로그인, 신원 증명.
+          인가(Authorization)는 인증된 사용자가 무엇을 할 수 있는지 결정 — 권한 부여, 접근 제어.
+          영어로도 비슷해 헷갈리기 쉽지만 별개의 단계.
+        </p>
+
+        <h3>Q. Cookie와 Authorization 헤더 중 무엇이 더 안전?</h3>
+
+        <p>
+          단순 비교는 어렵다. Cookie + HttpOnly + Secure + SameSite는 XSS에 강하지만 CSRF 방어 별도 필요.
+          Authorization Bearer는 CSRF엔 무관하지만 JavaScript에서 접근 가능하므로 XSS로 탈취되기 쉽다.
+          어떤 위협이 더 큰지에 따라 선택. 일반적으로 전통 웹은 Cookie + Session, SPA/모바일은 Bearer + JWT.
+        </p>
+
+        <h3>Q. 분산 환경에서 인증의 어려움은?</h3>
+
+        <p>
+          Session 방식은 서버가 상태를 들고 있어 여러 인스턴스 간 공유 또는 sticky session이 필요.
+          JWT 방식은 토큰 자체에 정보가 담겨 stateless라 분산이 쉽지만, 즉시 무효화가 어렵다.
+          이 트레이드오프가 다음 편들의 핵심 주제.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          HTTP는 stateless이지만 인증은 상태를 요구한다. 그 상태를 어디에 둘지가 인증 방식의 분기점.
+          서버에 두면 Session, 토큰 자체에 두면 JWT. 매 요청마다 클라이언트가 신원을 증명하는 것이 공통 패턴이고,
+          Cookie와 Authorization Bearer가 그 통로의 두 표준.
+        </p>
+
+        <p>
+          다음 편은 Session 방식의 동작과 분산 환경에서의 도전들.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

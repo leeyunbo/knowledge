@@ -80,7 +80,7 @@
 
     <section class="graph-canvas">
       <div class="graph-meta">
-        <span><span id="progressText">0 / 5</span> · <span id="progressPct">0%</span></span>
+        <span><span id="progressText">2 / 5</span> · <span id="progressPct">40%</span></span>
       </div>
 
       <svg class="graph-svg" viewBox="0 0 600 380" xmlns="http://www.w3.org/2000/svg" aria-label="보안 토픽 그래프">
@@ -95,11 +95,11 @@
         <a class="node group-A" data-state="locked" data-id="1" data-title="OAuth 2.0 / OIDC" data-desc="Authorization Code, PKCE, ID Token, refresh flow" href="#">
           <g transform="translate(180,120)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">OAuth · OIDC</text></g>
         </a>
-        <a class="node group-A" data-state="locked" data-id="2" data-title="JWT 구조와 함정" data-desc="header.payload.signature, 무효화 어떻게, 키 회전" href="#">
-          <g transform="translate(280,220)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">JWT</text></g>
+        <a class="node group-A" data-state="done" data-id="2" data-title="JWT 구조와 함정" data-desc="header.payload.signature, 무효화 어떻게, 키 회전" href="./posts/2026-05-인증-session-jwt/03-jwt-구조.html">
+          <g transform="translate(280,220)" style="--ring-delay: 0.5s;"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">JWT</text></g>
         </a>
-        <a class="node group-A" data-state="locked" data-id="3" data-title="Session vs JWT" data-desc="언제 어느 것을 쓰는가, 트레이드오프 정리" href="#">
-          <g transform="translate(80,220)"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">Session vs JWT</text></g>
+        <a class="node group-A" data-state="done" data-id="3" data-title="Session vs JWT" data-desc="언제 어느 것을 쓰는가, 트레이드오프 정리" href="./posts/2026-05-인증-session-jwt/01-http-stateless와-인증.html">
+          <g transform="translate(80,220)" style="--ring-delay: 1.0s;"><circle class="node-ring" /><circle class="node-circle" r="10" /><text class="node-label" y="26">Session vs JWT</text></g>
         </a>
 
         <a class="node group-B" data-state="locked" data-id="4" data-title="CSRF / XSS / SQL Injection 방어" data-desc="OWASP Top 10 핵심 셋, 방어 패턴" href="#">
@@ -117,8 +117,12 @@
         <p class="group-desc">로그인부터 토큰까지, 사용자를 식별하는 방법</p>
         <div class="topic-list">
           <div class="topic-item locked"><span class="topic-num">01</span><span class="topic-title">OAuth 2.0 / OIDC</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">02</span><span class="topic-title">JWT 구조와 함정</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">03</span><span class="topic-title">Session vs JWT</span><span class="topic-meta">예정</span></div>
+          <a class="topic-item done" href="./posts/2026-05-인증-session-jwt/03-jwt-구조.html">
+            <span class="topic-num">02</span><span class="topic-title">JWT 구조와 함정</span><span class="topic-meta">2편</span>
+          </a>
+          <a class="topic-item done" href="./posts/2026-05-인증-session-jwt/01-http-stateless와-인증.html">
+            <span class="topic-num">03</span><span class="topic-title">Session vs JWT</span><span class="topic-meta">3편</span>
+          </a>
         </div>
       </div>
 

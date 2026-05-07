@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session 인증 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 2/5</div>
+        <h1>Session 인증 — 동작과 scale-out</h1>
+        <p class="subtitle">
+          서버가 상태를 들고 있는 가장 전통적인 방식.
+          단일 서버에서 단순했던 패턴이 분산 환경으로 가면 어떤 도전을 만나는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">인증 — Session vs JWT</div>
+        <ol>
+          <li><a href="./01-http-stateless와-인증.html">HTTP stateless와 인증</a></li>
+          <li class="current">Session 인증 — 동작과 scale-out</li>
+          <li><a href="./03-jwt-구조.html">JWT의 구조</a></li>
+          <li><a href="./04-jwt-함정.html">JWT의 함정</a></li>
+          <li><a href="./05-session-vs-jwt-refresh-token.html">Session vs JWT + Refresh Token</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Session 인증의 흐름</h2>
+
+        <p>
+          전통적인 Session 인증은 단순한 두 단계 흐름으로 동작한다. 로그인 시점에 서버가 세션을 만들고,
+          이후 요청마다 클라이언트가 그 세션을 가리키는 짧은 ID를 함께 보내는 식.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Session 인증 흐름">
+            <defs>
+              <style>
+                .actor { fill: #f9fafb; stroke: #4e5968; stroke-width: 1.2; }
+                .session { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #4e5968; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .arrow { stroke: #6b7684; stroke-width: 1.2; fill: none; marker-end: url(#a-gray); }
+                .step { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #1b64da; font-weight: 600; }
+              </style>
+              <marker id="a-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+            </defs>
+
+            <rect x="20" y="20" width="120" height="40" rx="6" class="actor"/>
+            <text x="80" y="44" text-anchor="middle" class="label">Client</text>
+
+            <rect x="240" y="20" width="120" height="40" rx="6" class="actor"/>
+            <text x="300" y="44" text-anchor="middle" class="label">Server</text>
+
+            <rect x="460" y="20" width="120" height="40" rx="6" class="session"/>
+            <text x="520" y="44" text-anchor="middle" class="label">Session 저장소</text>
+
+            <text x="20" y="92" class="step">① 로그인</text>
+            <line x1="80" y1="100" x2="240" y2="100" class="arrow"/>
+            <text x="160" y="92" text-anchor="middle" class="small">POST /login (id, pw)</text>
+
+            <text x="240" y="132" class="step">② 세션 생성</text>
+            <line x1="300" y1="140" x2="460" y2="140" class="arrow"/>
+            <text x="380" y="132" text-anchor="middle" class="small">save(sessionId, user)</text>
+
+            <text x="240" y="172" class="step">③ 쿠키 응답</text>
+            <line x1="240" y1="180" x2="80" y2="180" class="arrow"/>
+            <text x="160" y="172" text-anchor="middle" class="small">Set-Cookie: JSESSIONID=...</text>
+
+            <text x="20" y="212" class="step">④ 다음 요청</text>
+            <line x1="80" y1="220" x2="240" y2="220" class="arrow"/>
+            <text x="160" y="212" text-anchor="middle" class="small">GET /api  Cookie: JSESSIONID</text>
+
+            <text x="240" y="252" class="step">⑤ 세션 조회</text>
+            <line x1="300" y1="260" x2="460" y2="260" class="arrow"/>
+            <text x="380" y="252" text-anchor="middle" class="small">get(sessionId)</text>
+
+            <text x="240" y="292" class="step">⑥ 사용자 식별 후 응답</text>
+            <line x1="240" y1="300" x2="80" y2="300" class="arrow"/>
+          </svg>
+          <figcaption>Session 인증 — 서버가 상태를 들고 있고 클라이언트는 ID만 보냄</figcaption>
+        </figure>
+
+        <h3>단계별 동작</h3>
+
+        <ol>
+          <li>클라이언트가 ID/비밀번호로 로그인 요청</li>
+          <li>서버가 사용자 검증 후 새 Session 객체 생성, 저장소에 저장</li>
+          <li>응답에 <code>Set-Cookie: JSESSIONID=...</code> 헤더 포함</li>
+          <li>이후 요청부터 브라우저가 자동으로 같은 쿠키 첨부</li>
+          <li>서버가 쿠키의 ID로 저장소 조회해 사용자 정보 획득</li>
+          <li>그 정보로 요청 처리 후 응답</li>
+        </ol>
+
+        <p>
+          Session 객체에는 보통 사용자 ID, 권한, 마지막 활동 시각, 사용자 환경설정 같은 정보가 들어간다.
+          저장소는 메모리, DB, 또는 Redis 같은 캐시.
+        </p>
+
+        <h2>Session ID의 보안 요건</h2>
+
+        <p>
+          Session ID는 사용자를 대신하는 인증 토큰이므로 다음 요건을 만족해야 한다.
+        </p>
+
+        <ul>
+          <li><strong>예측 불가</strong> — 충분한 엔트로피를 가진 무작위 값. 보통 128bit 이상.</li>
+          <li><strong>만료</strong> — 일정 시간 후 또는 일정 비활성 시간 후 자동 무효화.</li>
+          <li><strong>HttpOnly</strong> — JavaScript에서 접근 불가 (XSS로 탈취 방지).</li>
+          <li><strong>Secure</strong> — HTTPS 통신에서만 전송 (네트워크 도청 방지).</li>
+          <li><strong>SameSite</strong> — Cross-site 요청에 첨부되지 않음 (CSRF 방어).</li>
+        </ul>
+
+        <p>
+          Spring Boot는 기본 설정으로 이 대부분을 적용한다. <code>server.servlet.session.cookie</code> 하위 설정으로 명시 가능.
+        </p>
+
+        <h2>Spring에서의 Session</h2>
+
+        <pre><code class="language-java">@PostMapping("/login")
+public String login(@RequestParam String id, @RequestParam String password,
+                    HttpSession session) {
+    User user = authService.authenticate(id, password);
+    session.setAttribute("user", user);
+    return "redirect:/home";
+}
+
+@GetMapping("/api/me")
+public User me(HttpSession session) {
+    return (User) session.getAttribute("user");
+}</code></pre>
+
+        <p>
+          <code>HttpSession</code> 추상화로 Spring이 세션 처리를 감춘다.
+          <code>setAttribute</code>로 데이터 저장하고 <code>getAttribute</code>로 꺼낸다.
+          쿠키 발급, ID 생성, 저장소 관리는 모두 자동.
+        </p>
+
+        <h2>분산 환경의 도전 — 서버가 여러 대일 때</h2>
+
+        <p>
+          로컬 메모리에 세션을 저장하는 단일 서버 시절엔 위 패턴이 단순했다.
+          하지만 트래픽이 늘어 여러 서버 인스턴스로 scale-out하면 문제가 생긴다.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="분산 환경 세션 문제">
+            <defs>
+              <style>
+                .lb { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.2; }
+                .server { fill: #f9fafb; stroke: #4e5968; stroke-width: 1; }
+                .session-box { fill: #f2f6ff; stroke: #c0d6f8; stroke-width: 1; }
+                .empty-box { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1; stroke-dasharray: 3,3; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .arrow { stroke: #6b7684; stroke-width: 1; fill: none; marker-end: url(#a-gray2); }
+                .arrow-fail { stroke: #c4302b; stroke-width: 1.2; fill: none; marker-end: url(#a-red2); stroke-dasharray: 4,3; }
+              </style>
+              <marker id="a-gray2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+              <marker id="a-red2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#c4302b"/>
+              </marker>
+            </defs>
+
+            <rect x="20" y="80" width="100" height="44" rx="4" class="server"/>
+            <text x="70" y="106" text-anchor="middle" class="label">Client</text>
+
+            <rect x="180" y="80" width="100" height="44" rx="4" class="lb"/>
+            <text x="230" y="106" text-anchor="middle" class="label">LB</text>
+
+            <rect x="350" y="20" width="100" height="50" rx="4" class="server"/>
+            <text x="400" y="40" text-anchor="middle" class="label">Server A</text>
+            <rect x="358" y="48" width="84" height="16" rx="2" class="session-box"/>
+            <text x="400" y="60" text-anchor="middle" class="small">SID=abc123</text>
+
+            <rect x="350" y="100" width="100" height="50" rx="4" class="server"/>
+            <text x="400" y="120" text-anchor="middle" class="label">Server B</text>
+            <rect x="358" y="128" width="84" height="16" rx="2" class="empty-box"/>
+            <text x="400" y="140" text-anchor="middle" class="small" fill="#c4302b">없음</text>
+
+            <line x1="120" y1="100" x2="180" y2="100" class="arrow"/>
+            <line x1="280" y1="100" x2="350" y2="45" class="arrow"/>
+            <text x="320" y="60" class="small">① 로그인 → A</text>
+
+            <line x1="120" y1="110" x2="180" y2="110" class="arrow"/>
+            <line x1="280" y1="110" x2="350" y2="125" class="arrow-fail"/>
+            <text x="320" y="180" class="small" fill="#c4302b">② 다음 요청 → B (LB가 라우팅)</text>
+            <text x="320" y="196" class="small" fill="#c4302b">→ B는 SID 모름 → 인증 실패</text>
+          </svg>
+          <figcaption>로컬 메모리 세션의 분산 환경 문제 — 다른 서버는 그 세션을 모름</figcaption>
+        </figure>
+
+        <p>
+          한 서버에 로그인했는데 다음 요청이 LB에 의해 다른 서버로 라우팅되면,
+          그 서버는 해당 Session ID를 모르므로 인증 실패. 사용자가 갑자기 로그아웃당한 것처럼 보인다.
+        </p>
+
+        <h2>분산 환경의 해법 세 가지</h2>
+
+        <h3>1. Sticky Session — 같은 사용자는 같은 서버로</h3>
+
+        <p>
+          Load Balancer가 클라이언트 IP나 쿠키 기반으로 같은 사용자의 요청을 항상 같은 서버에 라우팅.
+          LB의 hash 또는 cookie-based persistence 기능을 사용.
+        </p>
+
+        <p>
+          장점은 단순함. 기존 로컬 메모리 세션 코드를 거의 그대로 두고 LB 설정만 바꾸면 된다.
+          단점은 부하 분산이 비효율적이고 (특정 서버에 트래픽 집중 가능),
+          서버 한 대가 다운되면 그 서버의 모든 사용자가 로그아웃당한다.
+          확장성 면에서 한계가 분명한 임시 해결책에 가깝다.
+        </p>
+
+        <h3>2. Session Clustering — 서버 간 세션 동기화</h3>
+
+        <p>
+          모든 서버가 자기 메모리에 모든 세션을 들고 있고, 변경이 일어나면 다른 서버로 복제.
+          전통적으로 Tomcat의 DeltaManager나 Hazelcast, Apache Ignite 같은 분산 캐시가 사용됐다.
+        </p>
+
+        <p>
+          어느 서버가 요청을 받든 세션을 알 수 있다는 게 장점.
+          하지만 동기화 트래픽이 서버 수에 따라 제곱으로 늘어 확장성이 나쁘다.
+          서버 수가 많아지면 동기화 비용이 본업을 방해할 정도가 된다. 현대에서 거의 쓰이지 않는 방식.
+        </p>
+
+        <h3>3. 외부 저장소 — Redis 등</h3>
+
+        <p>
+          가장 흔히 쓰이는 현대적 답안. 모든 서버가 외부의 Redis(또는 다른 빠른 저장소)에 세션을 저장하고 조회.
+          Spring Session 라이브러리가 이 패턴을 추상화해준다.
+        </p>
+
+        <pre><code class="language-yaml">spring:
+  session:
+    store-type: redis
+  data:
+    redis:
+      host: redis.internal
+      port: 6379</code></pre>
+
+        <p>
+          이 한 줄 설정으로 <code>HttpSession</code>의 모든 동작이 Redis에 저장된다.
+          애플리케이션 코드는 그대로, 인프라만 바꾸는 셈.
+          서버 인스턴스가 늘어도 모두 같은 Redis를 보면 되니 확장성 좋고,
+          서버 한 대가 죽어도 사용자가 영향받지 않는다.
+        </p>
+
+        <p>
+          단점은 Redis가 추가 의존성이 된다는 것. Redis 다운 시 인증 자체가 마비되므로
+          HA 구성과 모니터링이 필수. 매 요청마다 Redis 조회가 일어나 latency도 약간 추가된다.
+        </p>
+
+        <h2>Session의 비용 — 트레이드오프</h2>
+
+        <p>
+          Session 인증의 본질적 비용은 "서버가 상태를 들고 있어야 한다"는 데서 온다.
+        </p>
+
+        <ul>
+          <li><strong>저장소 비용</strong> — 동시 접속 사용자 수만큼 메모리 또는 Redis 키.</li>
+          <li><strong>조회 비용</strong> — 매 요청마다 저장소 조회. Redis 0.1~1ms 수준이지만 0은 아니다.</li>
+          <li><strong>분산 복잡도</strong> — 위에서 본 sticky / clustering / 외부 저장소 중 하나를 선택해야 함.</li>
+          <li><strong>스케일 한계</strong> — Redis 한 대가 처리할 수 있는 RPS에 한계. 더 늘리려면 Redis 클러스터 등.</li>
+        </ul>
+
+        <p>
+          반대로 얻는 것은 강력한 통제력. 로그아웃이 즉시 반영되고,
+          권한 변경이 즉시 다음 요청에 적용되며, 세션 무효화가 단순하다.
+          이게 다음 편들에서 볼 JWT의 약점이다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Session 인증의 동작 흐름?</h3>
+
+        <p>
+          로그인 시 서버가 사용자 정보를 저장소에 저장하고 그 ID를 쿠키로 응답.
+          이후 요청마다 브라우저가 쿠키를 자동 첨부하고, 서버는 ID로 저장소를 조회해 사용자 식별.
+          서버 측에 상태가 있다는 게 핵심.
+        </p>
+
+        <h3>Q. Session 쿠키의 보안 옵션?</h3>
+
+        <p>
+          HttpOnly (JavaScript 접근 차단), Secure (HTTPS 전용), SameSite (CSRF 방어).
+          이 셋을 모두 적용하는 게 표준. Spring Boot 기본 설정에서 대부분 자동 적용.
+        </p>
+
+        <h3>Q. Sticky Session의 한계?</h3>
+
+        <p>
+          부하가 균일하게 분산되지 않고, 서버 한 대가 다운되면 그 서버의 사용자들이 모두 로그아웃당한다.
+          서버 수가 많아지면 한 서버에 과부하가 몰릴 수도. 임시 해결책 정도로 쓰이고 본격 분산엔 부적합.
+        </p>
+
+        <h3>Q. Spring Session + Redis 패턴은?</h3>
+
+        <p>
+          Spring Session 라이브러리가 <code>HttpSession</code>의 동작을 Redis로 위임하도록 만든 것.
+          애플리케이션 코드는 기존과 동일하고 인프라만 외부화한 셈.
+          확장성과 가용성이 좋아 현대 분산 환경의 표준 답안.
+          단, Redis 다운 시 인증 마비되므로 HA 구성이 필수.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Session 인증은 서버가 상태를 들고 있는 전통적 방식. 단일 서버에서는 단순하지만 분산 환경으로 가면 추가 작업이 필요.
+          현대 표준은 외부 저장소(Redis) + Spring Session 같은 추상화로 stateless에 가깝게 운영.
+          강력한 통제력이 장점이고, 저장소 의존이 단점.
+        </p>
+
+        <p>
+          다음 편은 정반대 방향 — 토큰 자체에 정보를 넣어 서버를 stateless로 만드는 JWT의 구조.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

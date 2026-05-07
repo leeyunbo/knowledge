@@ -81,8 +81,8 @@
 
 ### 보안
 - [ ] ★ OAuth 2.0 / OIDC — Authorization Code부터 PKCE (4편)
-- [ ] ★ JWT 구조와 함정 — 무효화 어떻게 (3편)
-- [ ] ★ Session vs JWT — 언제 어느 것 (2편)
+- [x] ★ JWT 구조와 함정 — 무효화 어떻게 (3편)
+- [x] ★ Session vs JWT — 언제 어느 것 (2편)
 
 ### 분산 시스템
 - [ ] ★ CAP 정리 — 실무 적용 (3편)
