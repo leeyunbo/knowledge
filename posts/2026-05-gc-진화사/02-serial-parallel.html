@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serial / Parallel — 전통의 GC (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 2/5</div>
+        <h1>Serial / Parallel — 전통의 GC</h1>
+        <p class="subtitle">
+          GC 진화의 출발점 두 GC. 단일 스레드로 도는 가장 단순한 Serial,
+          그리고 멀티코어를 활용해 처리량을 끌어올린 Parallel.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">GC 진화사</div>
+        <ol>
+          <li><a href="./01-gc가-풀려는-문제.html">GC가 풀려는 문제</a></li>
+          <li class="current">Serial / Parallel — 전통의 GC</li>
+          <li><a href="./03-cms-g1.html">CMS / G1 — Concurrent와 Region</a></li>
+          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
+          <li><a href="./05-gc-튜닝-실전.html">GC 튜닝 실전</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Serial GC — 가장 단순한 시작점</h2>
+
+        <p>
+          이름 그대로 단일 스레드 하나로 모든 GC 작업을 도는 가장 단순한 알고리즘.
+          Java 1.0 시절부터 있던 가장 오래된 GC이고, JVM이 단일 코어 환경에서 도는 일이 흔했던 시대의 산물.
+          지금도 작은 워크로드(임베디드, 클라이언트 단의 작은 도구)에서는 여전히 합리적인 선택지다.
+        </p>
+
+        <h3>동작 방식</h3>
+
+        <p>
+          Young GC는 1편에서 본 Copying 알고리즘. Eden과 사용 중인 Survivor에서 살아있는 객체를
+          빈 다른 Survivor로 복사하고 둘을 통째로 비운다.
+          이 모든 작업이 하나의 GC 스레드로 진행되고, 그동안 모든 application 스레드는 정지(STW).
+        </p>
+
+        <p>
+          Old GC는 Mark-Compact. 살아있는 객체를 Heap의 한쪽으로 모으고 빈 자리를 큰 덩어리로 만든다.
+          이것도 단일 스레드 STW.
+        </p>
+
+        <h3>활성화 옵션</h3>
+
+        <pre><code class="language-bash">java -XX:+UseSerialGC MyApp</code></pre>
+
+        <h3>장단점</h3>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>Serial GC</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>구현 복잡도</td><td>가장 단순. JVM 코드의 GC 부분이 작음.</td></tr>
+            <tr><td>메모리 오버헤드</td><td>가장 적음. 추가 자료구조 거의 없음.</td></tr>
+            <tr><td>처리량</td><td>낮음. 코어 하나만 사용.</td></tr>
+            <tr><td>STW 시간</td><td>Heap이 크면 매우 길어짐.</td></tr>
+            <tr><td>적합한 환경</td><td>단일 CPU, 작은 Heap, 짧게 사는 프로세스.</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          단일 코어 시절엔 합리적이었지만 멀티코어가 보편화되면서 처리량 관점에서 명백한 한계가 드러났다.
+          GC가 도는 동안 사용 가능한 다른 코어들이 놀고 있는 셈.
+        </p>
+
+        <h2>Parallel GC — 멀티코어 활용</h2>
+
+        <p>
+          Serial과 같은 알고리즘(Young은 Copying, Old는 Mark-Compact)을 쓰지만
+          GC 작업을 여러 스레드로 병렬화한 것. Java 5에서 도입돼 Java 8까지 기본 GC 자리를 차지했다.
+          Parallel Scavenge라는 이름으로도 불린다.
+        </p>
+
+        <h3>동작 방식</h3>
+
+        <p>
+          Young GC가 시작되면 GC 스레드 풀(기본적으로 CPU 코어 수만큼)이
+          Eden을 여러 구간으로 나눠 각자 자기 구간의 살아있는 객체를 마킹/복사한다.
+          Old GC도 동일한 방식으로 여러 스레드가 mark-compact를 협력 수행.
+        </p>
+
+        <p>
+          여전히 STW이지만, GC 자체는 여러 코어를 동시에 사용하므로 한 번의 GC가 끝나는 시간이 짧아진다.
+          처리량(throughput) 관점에서는 Serial 대비 압도적 개선.
+          Parallel GC가 "throughput collector"라고 불리는 이유.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Serial vs Parallel GC 시간 비교">
+            <defs>
+              <style>
+                .app { fill: #f9fafb; stroke: #d8dce0; stroke-width: 1; }
+                .gc-serial { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1; }
+                .gc-parallel { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 500; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .axis { stroke: #d8dce0; stroke-width: 1; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">SERIAL GC — 단일 스레드 STW</text>
+            <line x1="20" y1="60" x2="580" y2="60" class="axis"/>
+            <rect x="20" y="40" width="180" height="20" class="app"/>
+            <text x="110" y="55" text-anchor="middle" class="small">application</text>
+            <rect x="200" y="40" width="200" height="20" class="gc-serial"/>
+            <text x="300" y="55" text-anchor="middle" class="small">GC (1 thread, 길다)</text>
+            <rect x="400" y="40" width="180" height="20" class="app"/>
+            <text x="490" y="55" text-anchor="middle" class="small">application</text>
+
+            <text x="20" y="100" class="header">PARALLEL GC — N개 스레드 STW</text>
+            <line x1="20" y1="138" x2="580" y2="138" class="axis"/>
+            <rect x="20" y="118" width="180" height="20" class="app"/>
+            <text x="110" y="133" text-anchor="middle" class="small">application</text>
+            <rect x="200" y="118" width="80" height="20" class="gc-parallel"/>
+            <text x="240" y="133" text-anchor="middle" class="small">GC (N threads)</text>
+            <rect x="280" y="118" width="300" height="20" class="app"/>
+            <text x="430" y="133" text-anchor="middle" class="small">application</text>
+
+            <text x="20" y="180" class="header">관찰</text>
+            <text x="20" y="200" class="small">• 둘 다 STW (application 멈춤). 알고리즘도 동일 (Copying / Mark-Compact).</text>
+            <text x="20" y="218" class="small">• 차이는 GC 자체 소요 시간. Parallel은 코어 수만큼 짧아짐 → 처리량 개선.</text>
+          </svg>
+          <figcaption>Serial과 Parallel은 둘 다 STW. 차이는 GC 작업 자체의 소요 시간.</figcaption>
+        </figure>
+
+        <h3>활성화 옵션</h3>
+
+        <pre><code class="language-bash">java -XX:+UseParallelGC MyApp
+java -XX:ParallelGCThreads=8 MyApp</code></pre>
+
+        <p>
+          Java 8까지의 서버 JVM 기본 GC.
+          <code>ParallelGCThreads</code>로 GC 스레드 수를 명시할 수 있고, 미지정 시 CPU 코어 수에 따라 자동.
+        </p>
+
+        <h2>"Throughput vs Latency"의 시작</h2>
+
+        <p>
+          Parallel GC는 한 번의 GC가 끝나는 시간을 짧게 만들지만,
+          여전히 GC가 일어날 때마다 모든 application 스레드가 멈추는 STW에서 자유롭지 않다.
+          Heap이 큰 서버에서는 한 번의 Full GC가 수 초 이상 걸릴 수 있고, 그동안 사용자 요청은 모두 대기.
+        </p>
+
+        <p>
+          이 문제를 풀기 위한 두 가지 전략이 있다.
+          하나는 GC 자체를 더 빠르게 만들어 STW를 짧게 끝내는 길 (throughput 중심).
+          다른 하나는 GC를 application 스레드와 동시에(concurrent) 진행해 STW 자체를 줄이는 길 (latency 중심).
+        </p>
+
+        <p>
+          Parallel GC는 throughput 길의 끝판왕에 가깝다 — 같은 알고리즘을 더 많은 코어로 병렬화하는 것.
+          하지만 latency 관점에선 한계가 분명하다.
+          Heap이 클수록 한 번의 GC가 옮길 객체가 많아지고, STW도 그만큼 길어진다.
+          반응 시간이 중요한 서비스에서 사용자가 느끼는 응답 지연이 누적된다.
+        </p>
+
+        <p>
+          그래서 다음 세대 GC는 latency 길로 방향을 튼다.
+          GC를 application과 함께 도는 concurrent collector — CMS와 G1이 다음 편의 주제.
+        </p>
+
+        <h2>이 둘의 자리는 지금도 있다</h2>
+
+        <p>
+          모던 환경에서도 Serial과 Parallel은 여전히 쓰인다.
+          짧게 사는 CLI 도구, 배치 작업, 단일 코어 컨테이너 환경에서는 단순함이 곧 미덕이고,
+          STW가 길어도 사용자 응답에 영향이 없는 워크로드라면 throughput 중심의 Parallel이 합리적이다.
+        </p>
+
+        <p>
+          Heap이 4GB를 넘기 시작하면 Parallel의 STW는 사용자가 체감할 만큼 길어지므로,
+          이때부터는 G1이 기본 선택지가 된다 (Java 9부터 G1이 server JVM 기본 GC).
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Serial과 Parallel GC의 차이?</h3>
+
+        <p>
+          알고리즘은 같다 (Young Copying, Old Mark-Compact).
+          차이는 GC를 단일 스레드로 도느냐, 여러 스레드로 병렬 처리하느냐.
+          둘 다 STW를 사용하지만 Parallel은 코어 수만큼 GC 시간을 짧게 줄여 처리량을 높인다.
+        </p>
+
+        <h3>Q. "Throughput Collector"라는 별명의 의미?</h3>
+
+        <p>
+          Parallel GC는 단위 시간당 application이 실제로 일하는 비율(throughput)을 최대화하는 데 초점.
+          GC 자체를 빠르게 끝내 application 시간 비율을 높이는 전략이다.
+          반대 축은 Latency Collector — 한 번의 GC를 짧게 만들어 사용자 응답 지연을 최소화하는 방향이고
+          CMS, G1, ZGC가 이 길을 간다.
+        </p>
+
+        <h3>Q. Java 8까지 기본 GC는?</h3>
+
+        <p>
+          서버 JVM 기준 Parallel GC. Java 9부터 G1으로 변경됐다.
+          이는 Heap이 점점 커지고 latency 요구가 강해진 시대 흐름을 반영한 결정.
+        </p>
+
+        <h3>Q. Serial GC는 언제 쓰나?</h3>
+
+        <p>
+          작은 Heap (수백 MB 이하), 단일 코어 환경, 짧게 사는 프로세스.
+          또는 GC가 동작하는 동안 다른 코어가 application에 집중해야 하는 다중 컨테이너 환경
+          (이 경우 Serial이 GC 코어를 적게 쓰는 게 더 합리적).
+          정해진 사용 시나리오가 분명히 있다는 점에서 폐기되지 않은 GC.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Serial GC는 단일 스레드로 도는 가장 단순한 GC, Parallel은 같은 알고리즘을 여러 코어로 병렬화한 GC.
+          둘 다 STW를 쓰지만 Parallel은 GC 자체를 빠르게 끝내 처리량을 높인다.
+          Heap이 크고 latency 요구가 강해지면서 결국 두 GC 모두 한계를 보이고,
+          다음 세대 GC가 STW 자체를 줄이는 방향으로 진화한다.
+        </p>
+
+        <p>
+          다음 편은 그 진화의 첫 시도 — CMS와 G1.
+          Concurrent라는 새로운 차원이 GC에 들어온다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

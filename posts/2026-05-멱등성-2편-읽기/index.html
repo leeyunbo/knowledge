@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>멱등성 — 토스페이먼츠 + Stripe 글 읽고 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../reading.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07</div>
+        <h1>멱등성 — 토스페이먼츠 + Stripe 글 읽고</h1>
+        <p class="subtitle">
+          멱등성을 다른 두 관점에서 본 글. 한국어 + 영어 페어로 읽으니 더 잘 들어왔다.
+        </p>
+      </header>
+
+      <section class="post-body">
+
+        <h2>토스페이먼츠 — 멱등성이 뭔가요?</h2>
+
+        <p>
+          <strong>멱등성</strong>이란, 첫 번째 수행을 한 뒤 여러 차례 다시 수행해도 결과를 변경시키지 않는 작업의 속성.
+        </p>
+
+        <h3>HTTP 메서드의 멱등성</h3>
+        <ul>
+          <li><code>POST</code>, <code>PATCH</code> — 멱등성 X</li>
+          <li><code>GET</code>, <code>DELETE</code>, <code>PUT</code> — 멱등성 보장</li>
+          <li>안정성(safety)이라는 개념도 있는데, <code>GET</code>은 안정적이지만 <code>DELETE</code>, <code>PUT</code>은 서버 데이터를 변경하기 때문에 안정적이지 않음.</li>
+          <li><strong>멱등성 ≠ 안정성</strong>. 두 개념이 다르다는 것 기억.</li>
+        </ul>
+
+        <h3>멱등성 보장하는 방법</h3>
+        <ul>
+          <li>보통 멱등키를 API 요청에 포함시키는데, 헤더를 많이 사용한다.</li>
+          <li>IETF에는 요청 헤더에 포함하는 방법을 표준으로 제안.</li>
+        </ul>
+
+        <pre><code>Idempotency-Key: {unique-key}</code></pre>
+
+        <h3>서버는 어떻게 처리할까?</h3>
+        <ul>
+          <li>API 서버는 요청마다 멱등키가 헤더에 있는지 확인.</li>
+          <li>멱등키가 포함된 요청이 들어오면, DB 확인 후 있으면 기존 응답을 그대로 내려준다.</li>
+          <li>보통 DB에 보관 시 TTL을 지정하는 편. DB에서 제거되면 동일한 멱등키로 새로운 요청을 보낼 수 있다.
+            <ul>
+              <li>TTL은 <strong>도메인에 따라 다름</strong>. 일반 API는 짧게(시간 단위), 금융은 길게(며칠~몇 주). 토스페이먼츠는 15일.</li>
+              <li>금융처럼 사용자 분쟁(환불, chargeback) 또는 감사가 가능한 기간이 긴 도메인은 TTL을 길게 가져감. 멱등키가 거래 증거 역할도 하기 때문.</li>
+            </ul>
+          </li>
+        </ul>
+
+        <h3>멱등성 에러 시나리오</h3>
+        <p>IETF 명세는 아래 세 가지 시나리오를 대응하는 방법을 제안한다.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>에러 코드</th>
+              <th>시나리오</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>400 Bad Request</code></td>
+              <td>멱등해야 하는 API 요청에 멱등키가 누락됐거나 형식에 맞지 않는 키값이 들어왔을 때</td>
+            </tr>
+            <tr>
+              <td><code>409 Conflict</code></td>
+              <td>이전 요청 처리가 아직 진행 중인데 같은 멱등키로 새로운 요청이 올 때</td>
+            </tr>
+            <tr>
+              <td><code>422 Unprocessable Entity</code></td>
+              <td>재시도된 요청 본문(payload)이 처음 요청과 다른데 같은 멱등키를 또 사용했을 때</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          <strong>422의 보안 측면도 있음</strong>. 멱등키가 유출됐을 때 공격자가 같은 키로 다른 body를 보내 위조 시도할 수 있는데, 서버가 body를 비교해서 다르면 거부하면 위조가 차단된다. 키만 알아내선 안 되고 원본 body까지 알아야 위조 가능 → 추가 보안 레이어.
+        </p>
+
+        <p style="font-size: 14px; color: var(--text-soft); margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed var(--border);">
+          🔗 출처: <a href="https://docs.tosspayments.com/blog/what-is-idempotency" target="_blank" rel="noopener">토스페이먼츠 — 멱등성이 뭔가요?</a>
+        </p>
+
+        <h2>Stripe — Designing robust and predictable APIs with idempotency</h2>
+
+        <p>
+          Retry할 때 <strong>jitter를 섞어주는 게 중요하다</strong>는 게 핵심 인사이트.
+        </p>
+
+        <h3>Thundering Herd 문제</h3>
+
+        <p>
+          서버 장애가 발생해서 비슷한 시점에 클라이언트들이 재시도를 시도하면, backoff를 적용해도 재시도 스케줄이 거의 동시에 진행되어 서버 회복을 늦출 수 있다. 이걸 <strong>thundering herd</strong> 문제라고 부른다.
+        </p>
+
+        <p>
+          따라서 Retry할 때 backoff뿐만 아니라 <strong>jitter</strong>를 섞어주는 것이 재시도 스케줄을 분산시켜 서버가 한숨 돌릴 시간을 확보할 수 있다 ㅋㅋ
+        </p>
+
+        <h3>공명(Resonance) — Jitter가 진짜 막는 것</h3>
+
+        <p>
+          Spring Retry 문서에는 이렇게 적혀있다:
+        </p>
+
+        <blockquote style="border-left: 3px solid var(--text-muted); padding: 0.5rem 1rem; margin: 1rem 0; color: var(--text-soft); font-size: 14px;">
+          "randomized versions of delay policies that are quite useful to avoid <strong>resonating between related failures</strong> in a complex system, by adding jitter"
+        </blockquote>
+
+        <p>
+          공명(resonance)은 물리학에서 빌려온 비유다. 1831년 영국 Broughton 다리에서 군대가 발맞춰 건너다 다리가 무너진 일이 있었다. 같은 박자의 진동이 누적돼 다리를 무너뜨린 것. 그 후로 군대는 다리에서 발맞춤을 풀고 건넌다.
+        </p>
+
+        <p>
+          시스템에서도 같은 일이 일어난다. 여러 인스턴스가 동시에 외부 sender 장애를 만나서 모두 같은 backoff 패턴(100ms → 200ms → 400ms)으로 재시도하면, 재시도 시점이 시간 축에서 정렬돼서 트래픽 스파이크가 주기적으로 친다. 회복 시도 자체가 또 장애를 일으키는 패턴.
+        </p>
+
+        <p>
+          Jitter는 그 박자를 흐트린다. 각 인스턴스가 무작위 시점에 재시도하니 트래픽이 시간 축에 분산되고, 서버는 점진적으로 처리할 수 있게 된다. <strong>공명을 깬다</strong>는 표현이 정확하다.
+        </p>
+
+        <h3>결론 — 견고한 API 설계 3원칙</h3>
+
+        <ul>
+          <li>
+            <strong>장애가 일관되게 처리되도록 하라</strong><br>
+            클라이언트가 재시도하게 만들어라. 그렇지 않으면 데이터가 일관되지 않은 상태로 남아 나중에 문제가 된다.<br>
+            <em>(잠깐, 이게 멱등성 아닌가? — 정확히는 짝이다. 서버의 멱등성 보장 + 클라이언트의 재시도 = 실패 처리 완성. 둘이 짝일 때 의미 있다.)</em>
+          </li>
+          <li>
+            <strong>장애가 안전하게 처리되도록 하라</strong><br>
+            멱등성으로 같은 요청을 여러 번 보내도 안전하게.
+          </li>
+          <li>
+            <strong>장애가 책임감 있게 처리되도록 하라</strong><br>
+            Backoff + Random Jitter. 서버를 배려하라.
+          </li>
+        </ul>
+
+        <p style="font-size: 14px; color: var(--text-soft); margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed var(--border);">
+          🔗 출처: <a href="https://stripe.com/blog/idempotency" target="_blank" rel="noopener">Stripe — Designing robust and predictable APIs with idempotency</a>
+        </p>
+
+        <h2>두 글에서 얻은 것</h2>
+
+        <ul>
+          <li>토스 글은 <strong>"멱등성 어떻게 구현"</strong> 측면 (HTTP 메서드, 멱등키 헤더, 에러 시나리오)</li>
+          <li>Stripe 글은 <strong>"멱등성 + 클라이언트 retry"</strong> 측면 (jitter, thundering herd까지)</li>
+          <li>두 관점이 짝을 이뤄야 진짜 견고한 API. 멱등성만으로 안 되고, 재시도만으로도 안 된다.</li>
+        </ul>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

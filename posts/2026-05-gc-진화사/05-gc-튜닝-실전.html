@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GC 튜닝 실전 (5) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 5/5</div>
+        <h1>GC 튜닝 실전</h1>
+        <p class="subtitle">
+          어떤 GC를 언제 쓰고, 어떤 메트릭을 보고, 어떤 함정을 피할지.
+          이론에서 운영으로 넘어가는 마지막 편.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">GC 진화사</div>
+        <ol>
+          <li><a href="./01-gc가-풀려는-문제.html">GC가 풀려는 문제</a></li>
+          <li><a href="./02-serial-parallel.html">Serial / Parallel — 전통의 GC</a></li>
+          <li><a href="./03-cms-g1.html">CMS / G1 — Concurrent와 Region</a></li>
+          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
+          <li class="current">GC 튜닝 실전</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>GC 선택 가이드</h2>
+
+        <p>
+          GC 튜닝의 첫 번째 결정은 어떤 GC를 쓸지. Heap 크기와 워크로드 특성에 따라 합리적인 디폴트가 있다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>워크로드</th>
+              <th>Heap 크기</th>
+              <th>권장 GC</th>
+              <th>이유</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>CLI 도구, 배치, 단일 코어</td>
+              <td>~수백 MB</td>
+              <td>Serial</td>
+              <td>단순함, 메모리 오버헤드 최소</td>
+            </tr>
+            <tr>
+              <td>처리량 위주 배치, 빅데이터</td>
+              <td>~수 GB</td>
+              <td>Parallel</td>
+              <td>throughput 최대화, latency 둔감</td>
+            </tr>
+            <tr>
+              <td>일반 웹 서버, MSA</td>
+              <td>2GB ~ 64GB</td>
+              <td>G1 (Java 9+ 기본)</td>
+              <td>처리량과 latency 균형</td>
+            </tr>
+            <tr>
+              <td>실시간 응답, 결제, 트레이딩</td>
+              <td>4GB 이상</td>
+              <td>ZGC / Shenandoah</td>
+              <td>STW를 ms 한 자릿수로 보장</td>
+            </tr>
+            <tr>
+              <td>매우 큰 캐시, in-memory DB</td>
+              <td>수십 GB ~ TB</td>
+              <td>ZGC</td>
+              <td>Heap 크기와 무관한 일정 STW</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>꼭 봐야 할 메트릭</h2>
+
+        <p>
+          GC 튜닝의 출발점은 측정. 추측이 아니라 데이터 기반으로 판단해야 잘못된 옵션 추가로 더 망가뜨리지 않는다.
+        </p>
+
+        <h3>Throughput</h3>
+
+        <p>
+          전체 시간 중 application이 실제로 일한 시간의 비율.
+          공식은 <code>(전체 시간 - GC 시간) / 전체 시간</code>.
+          95% 이상이면 보통 무난하고, 90% 미만이면 GC가 너무 자주 또는 너무 길게 도는 신호.
+          처리량 위주 서비스에서 특히 중요.
+        </p>
+
+        <h3>Pause Time</h3>
+
+        <p>
+          한 번의 GC가 끝나는 시간. 평균보다 p99(상위 1% 최악)와 max가 더 중요하다.
+          평균이 50ms여도 p99가 500ms면 사용자 일부는 그만큼의 응답 지연을 느낀다.
+          Latency 위주 서비스의 핵심 메트릭.
+        </p>
+
+        <h3>GC Frequency</h3>
+
+        <p>
+          GC가 얼마나 자주 일어나는지.
+          Young GC가 1초에 여러 번 일어나면 Eden이 너무 작거나 객체 생성이 과도하다는 신호.
+          Old GC가 분 단위로 일어나면 객체 누수 또는 promotion이 너무 잦다는 신호.
+        </p>
+
+        <h3>Heap 사용 패턴</h3>
+
+        <p>
+          GC 후 Old 영역의 사용량 추이. 정상이라면 GC 후 사용량이 톱니의 골 부분에서 일정 수준에 머물러야 한다.
+          그 골이 점점 우상향한다면 메모리 누수 의심 — 회수되지 않는 객체가 누적되고 있다.
+        </p>
+
+        <h2>GC 로그 켜기</h2>
+
+        <p>
+          모든 튜닝의 기초. 운영 환경에 항상 활성화해두는 것이 좋다 — 부담은 거의 없고 사후 분석에 결정적.
+        </p>
+
+        <pre><code class="language-bash">java -Xlog:gc*:file=gc.log:time,uptime,level,tags:filecount=10,filesize=10M MyApp</code></pre>
+
+        <p>
+          Java 9+ 통합 로그 옵션. 출력에 GC 종류, 소요 시간, before/after Heap 사용량이 모두 나온다.
+          예시 라인: <code>[2.345s][info][gc] GC(0) Pause Young (G1 Evacuation Pause) 100M-&gt;30M(256M) 25.123ms</code>.
+        </p>
+
+        <h3>로그 분석 도구</h3>
+
+        <p>
+          텍스트 로그를 직접 보는 것보단 시각화 도구가 효율적이다.
+          GCViewer, GCEasy, JClarity Censum 같은 도구가 GC 패턴을 그래프로 보여주고 이상 지표를 자동으로 짚어준다.
+          Datadog, New Relic 같은 APM도 JVM 메트릭을 자동 수집해 같은 분석을 제공한다.
+        </p>
+
+        <h2>흔한 문제 시나리오</h2>
+
+        <h3>문제 1 — Young GC가 너무 잦음</h3>
+
+        <p>
+          증상은 1초에 수십 회 발생하는 Minor GC. 원인은 보통 Eden이 너무 작거나
+          애플리케이션이 단명 객체를 과도하게 생성하는 것.
+        </p>
+
+        <p>
+          진단의 첫 단계는 GC 로그에서 Eden 크기와 객체 생성 속도를 확인하는 것.
+          처방으로는 <code>-Xmn</code>으로 Young 영역을 키워보고, 그래도 자주 발생하면 hot path에서 객체 생성을 줄이는 코드 변경이 필요하다.
+          예를 들어 String concat 대신 StringBuilder, autoboxing 회피, 객체 풀링 등.
+        </p>
+
+        <h3>문제 2 — Full GC 발생</h3>
+
+        <p>
+          G1 환경에서 Full GC가 떴다는 건 일반적으로 비정상. Old가 채워지는 속도를 G1이 따라가지 못해 fallback한 상황.
+          한 번의 Full GC는 수 초 이상 걸려 사용자 응답에 큰 영향.
+        </p>
+
+        <p>
+          원인은 보통 두 가지.
+          하나는 Heap 자체가 작아 Old가 빨리 차오르는 것 — <code>-Xmx</code>를 늘리거나 객체 누수를 잡아야 한다.
+          다른 하나는 거대 객체(Humongous)가 자주 만들어져 region을 빠르게 잡아먹는 것 —
+          <code>-XX:G1HeapRegionSize</code>를 늘리거나 큰 배열/컬렉션을 분할 처리로 바꾼다.
+        </p>
+
+        <h3>문제 3 — Allocation Failure 후 STW 폭증</h3>
+
+        <p>
+          GC 후에도 충분한 메모리를 확보하지 못해 application이 OOM을 회피하려고 GC를 연달아 돌리는 상태.
+          GC 시간 비율이 50%를 넘기 시작하면 <code>OutOfMemoryError: GC overhead limit exceeded</code>가 뜬다.
+        </p>
+
+        <p>
+          이건 메모리 누수 또는 절대 부족. Heap dump를 떠서 누가 메모리를 쥐고 있는지 분석해야 한다 (jcmd, jmap, VisualVM, Eclipse MAT).
+          누수가 아니라면 단순히 <code>-Xmx</code> 부족이라 늘리면 해결.
+        </p>
+
+        <h3>문제 4 — Concurrent Mode Failure (CMS 한정)</h3>
+
+        <p>
+          Concurrent sweep이 끝나기 전에 Old가 가득 차서 Serial Full GC로 폴백된 상황.
+          CMS의 가장 악명 높은 함정이고, 한 번에 수 초 STW.
+          처방은 단순 — CMS를 쓰지 않는다. Java 9+에서 G1으로 마이그레이션하면 자연스럽게 사라진다.
+          이미 Java 14에서 CMS는 제거되어 더는 만나지 않을 문제이지만, 레거시 시스템에서 만날 수 있다.
+        </p>
+
+        <h2>안티패턴 — 하지 말아야 할 것</h2>
+
+        <h3>측정 없이 옵션 추가</h3>
+
+        <p>
+          가장 흔한 실수. 인터넷에서 본 GC 옵션을 무작정 따라 붙이면 보통 더 나빠진다.
+          예를 들어 <code>-XX:NewRatio</code>를 줄이면 Young이 작아지고 Minor GC가 자주 발생.
+          반대로 늘리면 Young 영역이 커져 Old가 좁아짐.
+          어떤 옵션도 측정 → 가설 → 검증 사이클 없이는 의미 없다.
+        </p>
+
+        <h3>Heap을 무한히 키우기</h3>
+
+        <p>
+          OOM이 났다고 <code>-Xmx</code>만 늘리는 처방. 메모리 누수 코드가 있다면 그저 OOM 발생을 늦출 뿐 근본 해결 아님.
+          또한 Heap이 커지면 한 번의 GC가 길어진다 (G1, ZGC 제외).
+          Heap dump부터 떠서 누수 원인을 찾는 게 우선.
+        </p>
+
+        <h3>Old GC 옵션 미세 조정</h3>
+
+        <p>
+          <code>-XX:CMSInitiatingOccupancyFraction</code>, <code>-XX:G1MixedGCLiveThresholdPercent</code> 같은
+          저수준 옵션을 처음부터 만지는 건 위험. JVM 개발자가 합리적 디폴트를 정해뒀고,
+          이를 바꾸려면 깊은 이해와 측정 데이터가 필수.
+          GC 튜닝의 첫 단계는 GC 종류 선택과 <code>-Xmx</code>, <code>-Xmn</code> 정도까지.
+        </p>
+
+        <h3>JVM 버전 안 올리기</h3>
+
+        <p>
+          GC는 매 JVM 버전마다 개선된다. Java 8의 G1은 Java 17의 G1과 같은 이름이지만 성능이 크게 다르고,
+          ZGC는 Java 11~21 사이 매우 큰 진화를 거쳤다.
+          애플리케이션 코드 변경 없이 JVM만 올려도 GC 성능이 개선되는 경우가 많다.
+          오래된 JVM에 머무르며 GC 옵션 튜닝하는 것보다 새 JVM으로 옮기는 게 더 효과적인 경우가 흔하다.
+        </p>
+
+        <h2>실전 체크리스트</h2>
+
+        <p>
+          새 서비스를 띄울 때, 또는 GC 이슈가 의심될 때 이 순서로 확인한다.
+        </p>
+
+        <ol>
+          <li>JVM 버전 확인. Java 17+ LTS가 안전한 선택.</li>
+          <li>워크로드 특성 정의. 처리량 우선인가, latency 우선인가.</li>
+          <li>GC 로그 활성화 (<code>-Xlog:gc*</code>).</li>
+          <li>적절한 Heap 크기 설정 (<code>-Xms</code>=<code>-Xmx</code>로 동일).</li>
+          <li>워크로드에 맞는 GC 선택 (위 표 기준).</li>
+          <li>며칠 운영 후 GC 로그 분석 도구로 패턴 확인.</li>
+          <li>이상 지표 발견 시 가설을 세우고 단일 옵션만 변경, 다시 측정.</li>
+          <li>모니터링 (APM, Prometheus 등)에 GC 메트릭 알림 등록.</li>
+        </ol>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Heap 8GB 웹 서버에 어떤 GC를 쓰겠나?</h3>
+
+        <p>
+          기본은 G1. Java 9 이상이면 별도 옵션 없이 자동 적용. Throughput과 latency의 균형이 잘 맞고,
+          MaxGCPauseMillis로 응답 목표를 명시하면 그 안에서 동작.
+          Latency가 매우 critical한 결제/트레이딩이면 ZGC도 검토 가치.
+        </p>
+
+        <h3>Q. Full GC가 자주 발생하는 원인 진단은?</h3>
+
+        <p>
+          일반적으로 두 가지 원인. Heap 자체가 작거나(절대 부족), 메모리 누수로 Old에 객체가 쌓이는 경우.
+          GC 로그에서 GC 후 Old 사용량 추이를 확인.
+          꾸준히 우상향한다면 누수 의심 → Heap dump 떠서 누가 메모리를 쥐고 있는지 분석 (Eclipse MAT 등).
+          누수 아니라면 <code>-Xmx</code> 늘리는 게 답.
+        </p>
+
+        <h3>Q. GC 옵션을 임의로 추가하면 어떤 위험?</h3>
+
+        <p>
+          저수준 옵션은 JVM 개발자가 측정 후 정한 합리적 디폴트가 있는데 함부로 바꾸면 균형이 깨진다.
+          예를 들어 NewRatio를 잘못 조정하면 Young/Old 한쪽이 너무 작아져 GC가 더 자주 발생.
+          모든 옵션 변경은 측정 → 가설 → 검증 사이클 안에서.
+          가장 안전한 시작점은 GC 종류 선택과 Heap 크기까지만 만지는 것.
+        </p>
+
+        <h3>Q. GC 메트릭 중 가장 중요한 것?</h3>
+
+        <p>
+          서비스 특성에 따라 다르지만 latency 위주 서비스는 pause time의 p99/max,
+          처리량 위주는 throughput 비율(GC 시간이 전체 시간의 몇 %인지).
+          그리고 두 경우 모두 GC 후 Old 사용량 추이 — 누수 조기 탐지의 핵심.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          GC 튜닝의 첫 단계는 워크로드에 맞는 GC 선택. Heap 크기와 latency/처리량 우선순위에 따라 Serial / Parallel / G1 / ZGC 중에서.
+          그 다음은 GC 로그를 켜고 메트릭을 보면서 측정 → 가설 → 검증 사이클로 옵션을 조정.
+          저수준 옵션을 함부로 만지지 말고, 메모리 누수가 의심되면 옵션 튜닝보다 Heap dump 분석이 먼저.
+        </p>
+
+        <p>
+          GC 시리즈는 여기까지. 다음은 다시 동시성으로 돌아가서 volatile과 JMM의 happens-before로 들어간다.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

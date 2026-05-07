@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>좋았던 글 · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="./index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <section class="hero">
+      <h1>좋았던 글</h1>
+      <p>
+        읽고 좋았던 테크 블로그 글을 본인 톤으로 정리한다.<br>
+        검색용 자료가 아니라, 다시 읽을 미래의 나를 위해 남기는 메모.
+      </p>
+    </section>
+
+    <section class="post-list">
+
+      <a href="./posts/2026-05-멱등성-2편-읽기/index.html" class="post-item">
+        <div class="post-date">2026.05.07 · 읽고 정리</div>
+        <div class="post-title">멱등성 — 토스페이먼츠 + Stripe 글 읽고</div>
+        <div class="post-summary">
+          멱등성을 다른 두 관점에서 본 글. 토스 글은 "어떻게 구현하나" 측면, Stripe 글은 "멱등성 + retry + jitter" 측면. 두 관점이 짝을 이뤄야 진짜 견고한 API.
+        </div>
+        <div class="post-tags">
+          <span class="tag">멱등성</span>
+          <span class="tag">API 설계</span>
+          <span class="tag">retry</span>
+          <span class="tag">jitter</span>
+        </div>
+      </a>
+
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+</body>
+</html>

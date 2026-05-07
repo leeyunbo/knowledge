@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GC가 풀려는 문제 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.07 · 시리즈 1/5</div>
+        <h1>GC가 풀려는 문제</h1>
+        <p class="subtitle">
+          어떤 객체를 살리고 어떤 객체를 죽일지 정하는 일.
+          그리고 죽은 자리를 어떻게 다시 쓸 만하게 만들지의 선택.
+          모든 GC 알고리즘이 이 두 질문에 답한다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">GC 진화사</div>
+        <ol>
+          <li class="current">GC가 풀려는 문제</li>
+          <li><a href="./02-serial-parallel.html">Serial / Parallel — 전통의 GC</a></li>
+          <li><a href="./03-cms-g1.html">CMS / G1 — Concurrent와 Region</a></li>
+          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
+          <li><a href="./05-gc-튜닝-실전.html">GC 튜닝 실전</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 GC인가</h2>
+
+        <p>
+          C나 C++의 세계에서 메모리 관리는 개발자의 책임이다.
+          <code>malloc</code>으로 잡은 메모리는 <code>free</code>로 직접 풀어야 하고,
+          이걸 잊으면 메모리 누수, 두 번 풀면 use-after-free.
+          큰 코드베이스에서 누가 언제 객체를 마지막으로 쓰는지 추적하는 일은 일종의 정신 노동이고
+          C 시절의 보안 취약점 상당수가 여기서 나왔다.
+        </p>
+
+        <p>
+          GC는 이 책임을 런타임이 떠안겠다는 결정이다.
+          개발자는 <code>new</code>로 객체를 만들기만 하고, 누가 더 이상 그 객체를 참조하지 않게 되면
+          런타임이 알아서 회수한다. 자바, C#, Go, Python 등 거의 모든 모던 언어의 표준 모델.
+        </p>
+
+        <p>
+          대신 두 가지 비용을 치른다. 회수 작업이 일어나는 동안 발생하는 일시적 멈춤 (pause time),
+          그리고 항상 살아있는 객체와 죽은 객체를 구별해야 하는 추적 비용 (overhead).
+          GC 알고리즘의 진화는 이 두 비용을 어떻게 줄일 것인가에 대한 30년의 답안지다.
+        </p>
+
+        <h2>"살아있는 객체"의 정의 — Reachability</h2>
+
+        <p>
+          누가 살았고 누가 죽었는지 어떻게 판단하나.
+          가장 단순한 답은 "참조하는 사람이 한 명도 없는 객체는 죽었다"이지만,
+          모든 모던 GC는 이보다 한 단계 더 나아가 <strong>도달 가능성(reachability)</strong>을 본다.
+        </p>
+
+        <p>
+          출발점은 GC roots. 자바에서 GC root에 해당하는 것은 다음 네 종류다.
+        </p>
+
+        <ul>
+          <li>실행 중인 모든 스레드의 JVM Stack 안 로컬 변수와 매개변수</li>
+          <li>모든 클래스의 static 필드</li>
+          <li>JNI를 통해 native 코드가 들고 있는 참조</li>
+          <li>현재 동기화 락을 잡고 있는 객체 (synchronized 모니터)</li>
+        </ul>
+
+        <p>
+          GC는 이 root들을 출발점으로 객체 그래프를 탐색해 "도달 가능한" 객체를 모두 살아있는 것으로 간주한다.
+          한 번도 도달되지 않은 객체는 죽었다고 판단해 회수.
+          참조 카운트만 보면 안 되는 이유는 사이클(cycle) 때문이다 — A가 B를 참조하고 B가 A를 참조하면
+          외부 참조가 없어도 둘 다 카운트가 1이라 죽지 않는다. Reachability 기반은 이 함정을 자연스럽게 푼다.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reachability 그림">
+            <defs>
+              <style>
+                .root { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .live { fill: #f9fafb; stroke: #4e5968; stroke-width: 1.2; }
+                .dead { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.2; stroke-dasharray: 4,3; }
+                .ref { stroke: #6b7684; stroke-width: 1.2; fill: none; marker-end: url(#a-gray); }
+                .ref-dead { stroke: #c4302b; stroke-width: 1; fill: none; stroke-dasharray: 3,3; marker-end: url(#a-red); }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 12px; fill: #19181a; font-weight: 500; }
+                .legend { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+              </style>
+              <marker id="a-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+              <marker id="a-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#c4302b"/>
+              </marker>
+            </defs>
+
+            <text x="20" y="22" class="header">GC ROOTS</text>
+            <rect x="20" y="32" width="120" height="44" rx="6" class="root"/>
+            <text x="80" y="58" text-anchor="middle" class="label">Stack 변수</text>
+
+            <rect x="20" y="92" width="120" height="44" rx="6" class="root"/>
+            <text x="80" y="118" text-anchor="middle" class="label">static 필드</text>
+
+            <text x="180" y="22" class="header">REACHABLE (살아있음)</text>
+            <circle cx="220" cy="54" r="22" class="live"/>
+            <text x="220" y="58" text-anchor="middle" class="label">A</text>
+
+            <circle cx="320" cy="54" r="22" class="live"/>
+            <text x="320" y="58" text-anchor="middle" class="label">B</text>
+
+            <circle cx="270" cy="120" r="22" class="live"/>
+            <text x="270" y="124" text-anchor="middle" class="label">C</text>
+
+            <circle cx="370" cy="120" r="22" class="live"/>
+            <text x="370" y="124" text-anchor="middle" class="label">D</text>
+
+            <text x="430" y="22" class="header">UNREACHABLE (죽음)</text>
+            <circle cx="470" cy="54" r="22" class="dead"/>
+            <text x="470" y="58" text-anchor="middle" class="label" fill="#c4302b">X</text>
+
+            <circle cx="540" cy="54" r="22" class="dead"/>
+            <text x="540" y="58" text-anchor="middle" class="label" fill="#c4302b">Y</text>
+
+            <line x1="140" y1="54" x2="198" y2="54" class="ref"/>
+            <line x1="140" y1="114" x2="248" y2="120" class="ref"/>
+            <line x1="242" y1="54" x2="298" y2="54" class="ref"/>
+            <line x1="320" y1="76" x2="320" y2="98" class="ref"/>
+            <line x1="320" y1="120" x2="348" y2="120" class="ref"/>
+
+            <line x1="492" y1="54" x2="518" y2="54" class="ref-dead"/>
+            <line x1="540" y1="76" x2="492" y2="76" class="ref-dead" transform="translate(0,0)"/>
+            <path d="M 540 76 Q 540 90 510 90 Q 490 90 490 76" class="ref-dead" stroke-dasharray="3,3"/>
+
+            <text x="20" y="180" class="header">SUMMARY</text>
+            <rect x="20" y="190" width="14" height="14" rx="3" class="root"/>
+            <text x="44" y="202" class="legend">GC root — 탐색의 출발점</text>
+
+            <rect x="20" y="214" width="14" height="14" rx="3" class="live"/>
+            <text x="44" y="226" class="legend">Reachable — root에서 도달 가능 = 살아있음</text>
+
+            <rect x="20" y="238" width="14" height="14" rx="3" class="dead"/>
+            <text x="44" y="250" class="legend">Unreachable — 자기들끼리 참조해도 root에서 못 닿으면 죽음</text>
+          </svg>
+          <figcaption>Reachability — root에서 도달 가능한 객체만 살아있는 것으로 간주</figcaption>
+        </figure>
+
+        <h2>Tracing GC의 두 단계 — Mark & Sweep</h2>
+
+        <p>
+          가장 기초가 되는 GC 알고리즘. 1960년 John McCarthy가 LISP을 위해 처음 제안했고,
+          이후 거의 모든 GC가 이 골격 위에서 변형된다.
+        </p>
+
+        <h3>Mark — 살아있는 것에 표시</h3>
+
+        <p>
+          GC root에서 출발해 도달 가능한 모든 객체를 그래프 탐색(BFS 또는 DFS)으로 방문하며
+          각 객체에 "살아있음" 비트를 기록한다.
+          객체 헤더의 Mark Word(synchronized 시리즈에서 본 그것)에 GC 마킹 비트가 한 자리 마련되어 있다.
+        </p>
+
+        <h3>Sweep — 표시되지 않은 것 제거</h3>
+
+        <p>
+          Heap 전체를 처음부터 끝까지 훑으며 마킹되지 않은 객체의 메모리를 회수해 free list에 등록.
+          마킹된 객체의 비트는 다음 GC를 위해 초기화된다.
+        </p>
+
+        <h3>Mark & Sweep의 한계 — 단편화</h3>
+
+        <p>
+          살아있는 객체와 죽은 객체가 뒤섞여 있다가 죽은 객체만 제거되면
+          Heap이 마치 빈 자리가 군데군데 뚫린 치즈처럼 된다 — 이게 메모리 단편화(fragmentation).
+          전체 빈 공간의 합은 충분한데 연속된 큰 공간이 없어 큰 객체 할당이 실패할 수 있다.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mark Sweep과 단편화">
+            <defs>
+              <style>
+                .heap { fill: none; stroke: #d8dce0; stroke-width: 1; }
+                .obj { fill: #f9fafb; stroke: #4e5968; stroke-width: 1; }
+                .free { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1; stroke-dasharray: 3,3; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 500; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">BEFORE GC — A,B,C,D,E,F 객체 혼재</text>
+            <rect x="20" y="32" width="560" height="34" rx="3" class="heap"/>
+            <rect x="22" y="34" width="80" height="30" class="obj"/>
+            <text x="62" y="54" text-anchor="middle" class="label">A</text>
+            <rect x="104" y="34" width="60" height="30" class="obj"/>
+            <text x="134" y="54" text-anchor="middle" class="label">B</text>
+            <rect x="166" y="34" width="100" height="30" class="obj"/>
+            <text x="216" y="54" text-anchor="middle" class="label">C</text>
+            <rect x="268" y="34" width="50" height="30" class="obj"/>
+            <text x="293" y="54" text-anchor="middle" class="label">D</text>
+            <rect x="320" y="34" width="120" height="30" class="obj"/>
+            <text x="380" y="54" text-anchor="middle" class="label">E</text>
+            <rect x="442" y="34" width="80" height="30" class="obj"/>
+            <text x="482" y="54" text-anchor="middle" class="label">F</text>
+
+            <text x="20" y="100" class="header">AFTER MARK&amp;SWEEP — B, D, F만 살아남음. 나머진 free.</text>
+            <rect x="20" y="110" width="560" height="34" rx="3" class="heap"/>
+            <rect x="22" y="112" width="80" height="30" class="free"/>
+            <rect x="104" y="112" width="60" height="30" class="obj"/>
+            <text x="134" y="132" text-anchor="middle" class="label">B</text>
+            <rect x="166" y="112" width="100" height="30" class="free"/>
+            <rect x="268" y="112" width="50" height="30" class="obj"/>
+            <text x="293" y="132" text-anchor="middle" class="label">D</text>
+            <rect x="320" y="112" width="120" height="30" class="free"/>
+            <rect x="442" y="112" width="80" height="30" class="obj"/>
+            <text x="482" y="132" text-anchor="middle" class="label">F</text>
+
+            <text x="20" y="172" class="small">자유 공간이 80 + 100 + 120 = 300이지만, 200짜리 객체는 못 들어감 (가장 큰 빈 자리는 120).</text>
+          </svg>
+          <figcaption>Mark &amp; Sweep 후 단편화 — 자유 공간 합은 충분하나 연속된 빈 자리는 작음</figcaption>
+        </figure>
+
+        <h2>Mark-Compact — 단편화의 해결</h2>
+
+        <p>
+          Sweep 단계 대신 살아있는 객체를 한쪽 끝으로 모아버리는 방식.
+          빈 자리는 자연스럽게 다른 한쪽에 큰 덩어리로 남고, 다음 객체 할당은 그 끝부터 차례로 채우면 된다.
+        </p>
+
+        <p>
+          단점은 객체를 실제로 옮겨야 한다는 것. 옮기는 비용 + 옮긴 객체를 가리키는 모든 참조를 갱신하는 비용이
+          Mark & Sweep보다 무겁다.
+          Old Generation의 GC가 보통 이 알고리즘을 쓴다 — Old는 자주 일어나지 않으니 한 번 일어날 때 깊게 정리하는 편이 낫기 때문.
+        </p>
+
+        <h2>Copying — 단편화 없이 빠르게</h2>
+
+        <p>
+          공간을 둘로 나눠 절반(From space)에서 살아있는 객체만 다른 절반(To space)으로 통째로 복사하고,
+          From 전체를 한 번에 비우는 방식.
+          살아있는 객체만 만지므로 Mark & Sweep보다 빠르고, 복사 후엔 단편화도 없다.
+        </p>
+
+        <p>
+          하지만 Heap의 절반은 항상 비어있어야 하므로 메모리 효율이 50%.
+          Young Generation의 Eden + Survivor 구조가 정확히 이 알고리즘을 변형한 것.
+          Eden + 사용 중인 Survivor에서 살아남은 객체를 빈 다른 Survivor로 복사하고, 나머지는 통째로 비운다.
+          "대부분의 객체는 곧 죽는다"는 가설이 맞을 때 Copying은 매우 효율적이다.
+        </p>
+
+        <h2>세 알고리즘의 비교</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>알고리즘</th>
+              <th>장점</th>
+              <th>단점</th>
+              <th>주요 사용처</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Mark &amp; Sweep</strong></td>
+              <td>단순. 객체 이동 없음.</td>
+              <td>단편화 발생.</td>
+              <td>오래된 GC, CMS의 Old GC</td>
+            </tr>
+            <tr>
+              <td><strong>Mark-Compact</strong></td>
+              <td>단편화 없음.</td>
+              <td>객체 이동 + 참조 갱신 비용.</td>
+              <td>대부분의 Old GC (Serial, Parallel, G1 mixed)</td>
+            </tr>
+            <tr>
+              <td><strong>Copying</strong></td>
+              <td>빠름. 단편화 없음.</td>
+              <td>메모리 효율 50%.</td>
+              <td>Young GC (Eden + Survivor)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>왜 Stop-the-World가 필요한가</h2>
+
+        <p>
+          위의 알고리즘들이 정확히 동작하려면 GC 도중 객체 그래프가 변하지 않아야 한다.
+          GC 스레드가 마킹 중인데 다른 스레드가 새 참조를 만들거나 기존 참조를 끊어버리면 결과가 깨진다.
+          그래서 가장 안전한 방법은 GC 동작 중 모든 application 스레드를 잠시 멈추는 것 — Stop-the-World (STW).
+        </p>
+
+        <p>
+          STW가 짧으면 사용자가 못 느끼지만, Heap이 크고 객체가 많으면 수백 ms~수 초까지 갈 수 있다.
+          웹 서버에서 갑자기 응답이 멈추는 현상의 흔한 원인.
+          현대 GC의 진화는 결국 "이 STW를 어떻게 줄이거나 없앨 것인가"의 답안.
+        </p>
+
+        <p>
+          Serial과 Parallel은 STW에 정직하게 의존하고,
+          CMS와 G1은 일부 단계만 application 스레드와 함께(concurrent) 진행한다.
+          ZGC와 Shenandoah는 거의 모든 단계를 concurrent로 만들어 사실상 사라진 STW에 도달한다.
+          다음 편들에서 한 단계씩 본다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. GC는 살아있는 객체를 어떻게 판별하나?</h3>
+
+        <p>
+          참조 카운트가 아닌 도달 가능성(reachability)을 본다.
+          GC root(스택 로컬, static 필드, JNI 참조, 락 보유 객체)에서 출발해 그래프 탐색으로 도달 가능한 객체를 살아있는 것으로 간주.
+          참조 카운트만 보면 사이클을 이루는 객체들이 외부 참조 없이도 죽지 않는 함정에 걸린다.
+        </p>
+
+        <h3>Q. Mark &amp; Sweep의 한계는?</h3>
+
+        <p>
+          단편화. 살아있는 객체와 죽은 객체가 뒤섞인 상태에서 죽은 것만 제거되면 Heap이 군데군데 빈 자리로 깨진다.
+          자유 공간의 합은 충분한데 연속된 큰 공간이 없어 큰 객체 할당이 실패할 수 있다.
+          이를 해결하려고 등장한 것이 Mark-Compact와 Copying.
+        </p>
+
+        <h3>Q. Young GC가 Copying인 이유?</h3>
+
+        <p>
+          Young은 "대부분의 객체가 곧 죽는다"는 가설이 강하게 성립하는 영역.
+          Copying은 살아있는 객체만 만지므로 죽은 객체가 많을수록 빠르다.
+          단편화 없이 깔끔하게 정리되는 것도 장점.
+          메모리 효율 50% 단점은 Young 영역이 작은 비중(전체 Heap의 1/3)이라 큰 부담은 아니다.
+        </p>
+
+        <h3>Q. Stop-the-World가 왜 필요한가?</h3>
+
+        <p>
+          GC 알고리즘이 정확히 동작하려면 객체 그래프가 변하지 않아야 한다.
+          GC 도중 application 스레드가 참조를 바꾸면 마킹 결과가 깨질 수 있어,
+          가장 안전하고 단순한 방법으로 모든 application 스레드를 일시 정지시키는 것.
+          현대 GC의 진화는 이 STW를 줄이거나 없애는 방향이다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          GC는 두 가지 질문에 답한다. "어떤 객체가 살아있나" 와 "죽은 자리를 어떻게 다시 쓸 만하게 만드나".
+          첫 질문은 GC root에서 출발하는 도달 가능성으로,
+          두 번째 질문은 Mark &amp; Sweep / Mark-Compact / Copying 세 알고리즘의 변형으로 해결된다.
+          그 과정에서 발생하는 Stop-the-World가 실무 GC 튜닝의 핵심 비용.
+        </p>
+
+        <p>
+          다음 편은 가장 오래된 두 GC — Serial과 Parallel.
+          STW에 정직하게 의존하면서도 멀티코어를 활용하기 시작한 단계.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
