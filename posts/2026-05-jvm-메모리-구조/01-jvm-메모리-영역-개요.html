@@ -168,16 +168,11 @@ String s = "hello";</code></pre>
         <h2>Method Area / Metaspace — 클래스의 청사진</h2>
 
         <p>
-          JVMS는 "Method Area"라는 이름으로 정의하지만 HotSpot의 구현체 이름은 Java 8부터 Metaspace다.
-          저장되는 것:
+          JVMS가 정의한 이름은 "Method Area"인데 HotSpot의 구현체는 Java 8부터 Metaspace로 불린다.
+          이 안에는 클래스 하나하나의 청사진이 들어간다.
+          필드와 메서드 목록, 상속 관계, 메서드의 바이트코드, 런타임 상수 풀, 어노테이션 정보까지
+          그 클래스를 실행에 옮기기 위해 필요한 메타데이터가 모여 있다.
         </p>
-
-        <ul>
-          <li>클래스의 구조 정보 (필드, 메서드, 상속 관계)</li>
-          <li>메서드의 바이트코드</li>
-          <li>런타임 상수 풀 (Runtime Constant Pool)</li>
-          <li>인터페이스, 어노테이션 정보</li>
-        </ul>
 
         <p>
           JIT가 컴파일한 native 코드는 Metaspace가 아닌 별도의 <strong>Code Cache</strong> 영역에 저장된다.
@@ -197,14 +192,8 @@ String s = "hello";</code></pre>
         <p>
           스레드가 만들어질 때 함께 만들어지는 자기만의 스택.
           메서드 하나가 호출될 때마다 스택 프레임(frame)이 push되고, 메서드가 끝나면 pop된다.
-          한 프레임에는 다음이 들어간다.
+          프레임 하나에는 그 메서드의 로컬 변수 배열, 연산용 피연산자 스택, 그리고 메서드가 속한 클래스의 런타임 상수 풀 참조가 함께 묶여 들어간다.
         </p>
-
-        <ul>
-          <li>로컬 변수 배열 (Local Variables)</li>
-          <li>피연산자 스택 (Operand Stack)</li>
-          <li>메서드를 가진 클래스의 런타임 상수 풀 참조</li>
-        </ul>
 
         <pre><code class="language-java">void outer() {
     int x = 10;
