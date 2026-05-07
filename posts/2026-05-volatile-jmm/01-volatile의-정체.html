@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>volatile의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 1/3</div>
+        <h1>volatile의 정체</h1>
+        <p class="subtitle">
+          한 키워드로 메모리 배리어를 박는 가벼운 도구.
+          가시성과 순서는 보장하지만 원자성은 보장하지 않는, 그 정확한 경계를 짚어본다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">volatile & JMM</div>
+        <ol>
+          <li class="current">volatile의 정체</li>
+          <li><a href="./02-happens-before.html">JMM과 happens-before</a></li>
+          <li><a href="./03-실무-함정.html">실무 함정 — DCL, AtomicXXX와 비교</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 volatile이 필요한가 — 가시성 문제</h2>
+
+        <p>
+          synchronized 시리즈에서 본 그림을 다시 꺼낸다. 한 스레드가 변수에 값을 썼는데
+          다른 스레드는 그 변경을 보지 못하는 상황. 흔한 예시는 작업 종료 신호용 boolean flag.
+        </p>
+
+        <pre><code class="language-java">class Worker {
+    boolean running = true;
+
+    void run() {
+        while (running) {
+            // 작업
+        }
+    }
+
+    void stop() {
+        running = false;
+    }
+}</code></pre>
+
+        <p>
+          기대는 단순하다. 다른 스레드에서 <code>stop()</code>을 호출하면 worker가 멈춰야 한다.
+          그런데 실제로는 worker가 영원히 멈추지 않을 수 있다.
+          원인은 CPU 캐시와 컴파일러 최적화 때문이다.
+        </p>
+
+        <h3>발생 메커니즘</h3>
+
+        <p>
+          현대 CPU는 각 코어마다 자기 캐시(L1, L2)를 가지고, 메모리 쓰기는 일단 캐시에 머물다 나중에 메인 메모리로 flush된다.
+          한 스레드가 <code>running = false</code>를 자기 캐시에만 쓰고 메인 메모리는 아직 <code>true</code>인 상태에서,
+          다른 스레드가 자기 캐시의 옛 값(<code>true</code>)을 계속 읽으면 변경을 영원히 보지 못한다.
+        </p>
+
+        <p>
+          더 나아가 JIT 컴파일러는 반복문을 최적화하면서 <code>running</code>이 루프 안에서 안 바뀐다고 판단해
+          한 번 읽은 값을 레지스터에 캐싱하고 그것만 계속 검사할 수도 있다.
+          그러면 메모리 자체는 갱신되어도 그 변수는 영원히 옛 값이다.
+        </p>
+
+        <h2>volatile이 약속하는 것</h2>
+
+        <p>
+          변수 선언에 <code>volatile</code>을 붙이면 위 두 함정이 사라진다.
+        </p>
+
+        <pre><code class="language-java">class Worker {
+    volatile boolean running = true;
+    // 나머지 동일
+}</code></pre>
+
+        <p>
+          이제 worker는 <code>stop()</code>이 호출되는 즉시 멈춘다. JLS와 JMM이 보장하는 것은 두 가지.
+        </p>
+
+        <h3>가시성 (Visibility)</h3>
+
+        <p>
+          한 스레드가 volatile 변수에 쓴 값은 <strong>다른 스레드가 그 변수를 읽는 시점에 즉시 보인다</strong>.
+          오해를 피해야 하는 부분이 있다. 흔한 설명인 "volatile은 캐시를 flush한다"는 정확하지 않다.
+          현대 CPU의 캐시는 MESI 같은 코히런시 프로토콜로 코어 간 일관성을 항상 유지하기 때문에
+          이미 다른 코어의 변경은 자동으로 보인다.
+        </p>
+
+        <p>
+          volatile의 본질은 캐시가 아니라 <strong>재정렬 차단</strong>이다.
+          컴파일러와 CPU가 명령어를 임의로 재정렬해 일반 변수의 쓰기/읽기 시점을 옮기는 것을 막아,
+          volatile 변수의 쓰기/읽기 순서가 정확히 코드 그대로 메모리 시스템에 반영되도록 보장한다.
+          ARM 같은 약한 메모리 모델에서는 명시적 배리어 명령(dmb)이, x86에서는 lock-prefixed 명령이나 컴파일러 배리어 형태로 구현된다.
+        </p>
+
+        <h3>순서 (Ordering)</h3>
+
+        <p>
+          volatile 변수에 대한 쓰기/읽기는 컴파일러나 CPU에 의해 재정렬되지 않는다.
+          정확히는 다음 두 가지 보장이다.
+        </p>
+
+        <ul>
+          <li>volatile <strong>write</strong> 이전의 모든 명령은 그 write보다 앞서 완료된다 (release semantics)</li>
+          <li>volatile <strong>read</strong> 이후의 모든 명령은 그 read 이후에 시작된다 (acquire semantics)</li>
+        </ul>
+
+        <p>
+          이 두 보장이 결합되면 강력한 효과가 생긴다.
+          스레드 A가 일반 변수들을 쓴 뒤 마지막에 volatile 변수에 쓰면,
+          스레드 B가 그 volatile 변수를 읽었을 때 A가 쓴 모든 일반 변수들도 함께 보인다.
+          이 패턴이 다음 편 happens-before의 핵심.
+        </p>
+
+        <h2>volatile이 보장하지 않는 것 — 원자성</h2>
+
+        <p>
+          여기가 가장 자주 헷갈리는 지점. volatile은 <strong>원자성을 보장하지 않는다</strong>.
+        </p>
+
+        <pre><code class="language-java">class Counter {
+    volatile int count = 0;
+
+    void increment() {
+        count++;
+    }
+}</code></pre>
+
+        <p>
+          여러 스레드가 <code>increment()</code>를 동시에 호출하면 count가 깨진다. 왜냐하면
+          <code>count++</code>는 단일 연산이 아니기 때문.
+          내부적으로 다음 세 단계로 분해된다.
+        </p>
+
+        <ol>
+          <li>현재 count 값을 읽음 (volatile read)</li>
+          <li>1을 더함</li>
+          <li>새 값을 다시 씀 (volatile write)</li>
+        </ol>
+
+        <p>
+          volatile은 1번과 3번 각각의 단계에 가시성/순서를 보장하지만,
+          1-2-3 전체가 인터럽트 없이 진행되는 것은 보장하지 않는다.
+          두 스레드가 각자 1번에서 같은 값을 읽고, 각자 +1해서 같은 값을 쓰면 한 번의 증가가 사라진다 — race condition 그대로.
+        </p>
+
+        <p>
+          원자성이 필요한 read-modify-write 연산에는 <code>AtomicInteger</code> 같은 자료구조 또는 <code>synchronized</code>가 필요하다.
+          이 비교는 3편에서 자세히.
+        </p>
+
+        <h2>volatile vs synchronized</h2>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>volatile</th><th>synchronized</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>가시성</td><td>O</td><td>O</td></tr>
+            <tr><td>순서</td><td>O</td><td>O</td></tr>
+            <tr><td>원자성</td><td>X</td><td>O</td></tr>
+            <tr><td>락 비용</td><td>없음</td><td>있음 (락 진입/해제)</td></tr>
+            <tr><td>여러 변수 보호</td><td>X (변수당 독립)</td><td>O (임계 영역 단위)</td></tr>
+            <tr><td>적합 케이스</td><td>단일 변수 read/write, flag</td><td>복합 연산, 여러 변수 묶음</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          volatile은 더 가볍지만 보장하는 범위가 좁다.
+          단일 boolean flag, 한 번만 쓰이고 여러 번 읽히는 설정값, 또는 read-modify-write가 아닌 단순 대입에는 volatile이 적합.
+          그 외엔 synchronized 또는 java.util.concurrent의 락/원자 클래스가 답이다.
+        </p>
+
+        <h2>64bit primitive와 volatile</h2>
+
+        <p>
+          한 가지 덜 알려진 보장. JLS에 따르면 일반 <code>long</code>과 <code>double</code> 변수의 read/write는
+          32bit 단위로 쪼개져 일어날 수 있다 (32bit JVM의 잔재).
+          이 경우 한 스레드가 절반만 쓴 상태에서 다른 스레드가 읽으면 절반은 옛 값, 절반은 새 값이라 깨진 값이 된다.
+        </p>
+
+        <p>
+          volatile을 붙이면 이 문제가 사라진다 — volatile long/double은 read/write가 원자적으로 보장된다.
+          현대 64bit JVM에선 일반 long/double도 사실상 atomic이지만, 표준 보장은 volatile에만 있다.
+          신뢰할 수 있는 코드를 쓰려면 long/double 공유 변수에 volatile을 붙이는 게 안전.
+        </p>
+
+        <h2>volatile은 무엇을 막지 않는가</h2>
+
+        <p>
+          오해를 피하기 위해 volatile이 해결하지 않는 문제를 정리.
+        </p>
+
+        <ul>
+          <li><strong>원자성</strong> — 위에서 본 count++ 함정. read-modify-write는 깨진다.</li>
+          <li><strong>여러 변수의 일관성</strong> — A와 B 둘을 함께 갱신해야 하는데 둘 다 volatile이라도, A 쓰기와 B 쓰기 사이에 다른 스레드가 끼어들 수 있다.</li>
+          <li><strong>락 자체</strong> — 임계 영역 보호는 못 한다. 동시 접근 자체를 막지 않으니까.</li>
+          <li><strong>compound check-then-act</strong> — "값이 X면 Y로 바꾼다" 같은 패턴은 race condition. CAS(Compare-And-Swap)가 필요.</li>
+        </ul>
+
+        <h2>메모리 배리어가 박힌다는 것의 의미</h2>
+
+        <p>
+          volatile read/write는 컴파일된 후 CPU 명령어 수준에서 메모리 배리어가 함께 삽입된다.
+          x86은 강한 메모리 모델이라 일반 store/load도 거의 ordered되어 추가 명령이 적지만,
+          ARM 같은 약한 메모리 모델에서는 명시적 dmb 명령어가 들어간다.
+        </p>
+
+        <p>
+          이 비용은 락 획득/해제보다는 훨씬 가볍지만 0은 아니다.
+          단순 메모리 접근 대비 수~수십 배 느리고, 특히 hot loop 안에서 volatile read를 반복하면 성능에 영향이 있다.
+          그래서 진짜로 동기화가 필요한 자리에만 쓰는 게 좋다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. volatile이 보장하는 것은?</h3>
+
+        <p>
+          가시성과 순서. volatile write 이전의 모든 작업이 다른 스레드의 volatile read 이후에 보이고,
+          컴파일러나 CPU가 volatile 변수와 관련된 명령어를 함부로 재정렬하지 못한다.
+          하지만 원자성은 보장하지 않는다.
+        </p>
+
+        <h3>Q. volatile int에 ++ 연산을 하면 안전한가?</h3>
+
+        <p>
+          안전하지 않다. <code>count++</code>는 read-modify-write로 분해되고, volatile은 각 단계의 가시성만 보장할 뿐
+          전체 연산의 원자성은 보장하지 않는다. 동시 호출 시 race condition으로 카운트가 깨진다.
+          AtomicInteger.incrementAndGet() 또는 synchronized가 답.
+        </p>
+
+        <h3>Q. volatile과 synchronized 중 무엇을 쓸까?</h3>
+
+        <p>
+          단일 변수의 단순 read/write에는 volatile이 가볍다. 예를 들어 boolean flag, 한 번 set되고 여러 스레드가 읽기만 하는 설정값.
+          read-modify-write 또는 여러 변수의 일관성 보장이 필요하면 synchronized 또는 j.u.c의 락/원자 클래스.
+        </p>
+
+        <h3>Q. 64bit long을 여러 스레드가 읽고 쓰면?</h3>
+
+        <p>
+          일반 long은 32bit 단위로 쪼개진 read/write가 일어날 수 있어 깨진 값을 볼 위험이 표준상 있다.
+          volatile long은 atomic read/write가 보장된다. 현대 64bit JVM에선 일반 long도 사실상 atomic이지만
+          표준 보장은 volatile에만 있으니 공유 long/double엔 volatile을 붙이는 게 안전.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          volatile은 가시성과 순서를 보장하는 가벼운 키워드. 락 없이 메모리 배리어만 삽입한다.
+          단일 변수의 read/write, boolean flag, 64bit primitive 안전 보장에 적합.
+          원자성은 보장하지 않으므로 read-modify-write 패턴엔 부적합.
+        </p>
+
+        <p>
+          다음 편은 volatile이 의지하는 더 큰 약속 — JMM의 happens-before 관계.
+          volatile이 어떻게 다른 일반 변수의 가시성까지 보장하게 만드는지 그 메커니즘.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMM과 happens-before (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 2/3</div>
+        <h1>JMM과 happens-before</h1>
+        <p class="subtitle">
+          멀티스레드 코드의 정확성을 자바가 어떻게 약속하는지의 형식화.
+          여러 CPU 아키텍처를 추상화하는 메모리 모델의 핵심 개념.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">volatile & JMM</div>
+        <ol>
+          <li><a href="./01-volatile의-정체.html">volatile의 정체</a></li>
+          <li class="current">JMM과 happens-before</li>
+          <li><a href="./03-실무-함정.html">실무 함정 — DCL, AtomicXXX와 비교</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>JMM이 풀려는 문제</h2>
+
+        <p>
+          한 스레드가 변수를 갱신했을 때 다른 스레드가 그 변경을 언제 볼 수 있는가.
+          이 질문에 정확한 답이 없으면 멀티스레드 코드를 정확히 짤 수 없다.
+          그런데 답을 정의하기 어려운 이유가 있다.
+        </p>
+
+        <ul>
+          <li>CPU마다 메모리 모델이 다르다 (x86은 강한 일관성, ARM은 약한 일관성)</li>
+          <li>컴파일러는 단일 스레드 의미만 보존하면 자유롭게 재정렬할 수 있다</li>
+          <li>JIT는 핫 코드를 더 공격적으로 최적화한다</li>
+        </ul>
+
+        <p>
+          자바는 "어떤 환경에서도 동일한 동작"이라는 약속을 지키기 위해 자체 메모리 모델을 정의해야 했다.
+          그게 <strong>Java Memory Model (JMM)</strong>, JLS Chapter 17에 명세되어 있다.
+        </p>
+
+        <p>
+          JMM의 역할은 "어떤 쓰기가 어떤 읽기에서 보이는지"를 정의하는 것.
+          이걸 형식적으로 표현하기 위한 도구가 <strong>happens-before 관계</strong>다.
+        </p>
+
+        <h2>happens-before의 정의</h2>
+
+        <p>
+          A happens-before B라고 하면, 두 가지 의미가 함께 성립한다.
+        </p>
+
+        <ul>
+          <li>A의 모든 메모리 효과가 B에서 보인다 (가시성)</li>
+          <li>A는 B보다 먼저 일어난 것으로 간주된다 (순서)</li>
+        </ul>
+
+        <p>
+          중요한 점은 "단순한 시간적 선후"가 아니라 "보장된 가시성과 순서"라는 것.
+          물리적 시계로 A가 B보다 먼저 일어났더라도 happens-before 관계가 성립하지 않으면 B에서 A의 결과를 못 볼 수 있다.
+          반대로 happens-before 관계가 성립하면 어떤 환경에서도 가시성과 순서가 보장된다.
+        </p>
+
+        <h2>happens-before의 핵심 6가지 규칙</h2>
+
+        <p>
+          JLS 17.4.5는 happens-before가 성립하는 다양한 경우를 정의하고 있다.
+          그중 실무에서 가장 자주 쓰이는 핵심 규칙을 정리하면 다음 여섯 가지.
+        </p>
+
+        <h3>1. Program Order Rule</h3>
+
+        <p>
+          같은 스레드 안에서 코드 순서대로 happens-before 관계가 성립한다.
+          이는 가장 기본적인 보장. 한 스레드 안에서 <code>x = 1</code> 다음에 <code>y = 2</code>가 있으면
+          x = 1 happens-before y = 2.
+          단일 스레드 의미를 보존하기 위한 최소 조건이다.
+        </p>
+
+        <h3>2. Monitor Lock Rule</h3>
+
+        <p>
+          한 모니터 락의 unlock은 그 락의 다음 lock보다 happens-before.
+        </p>
+
+        <pre><code class="language-java">// Thread A
+synchronized (lock) {
+    x = 1;
+}   // unlock(lock) ← 여기서 A가 쓴 x = 1이 메모리에 flush
+
+// Thread B
+synchronized (lock) {   // lock(lock) ← 여기서 메모리 다시 읽음
+    int v = x;          // A의 x = 1이 보임
+}</code></pre>
+
+        <p>
+          synchronized가 단순한 mutex 이상으로 동기화를 제공하는 이유가 이 규칙.
+          락을 잡고 푸는 행위 자체에 메모리 가시성이 묶여 있다.
+        </p>
+
+        <h3>3. Volatile Variable Rule</h3>
+
+        <p>
+          volatile 변수에 대한 write는 그 변수의 다음 read보다 happens-before.
+        </p>
+
+        <pre><code class="language-java">// Thread A
+data = computeData();      // ① 일반 변수
+ready = true;              // ② volatile write
+
+// Thread B
+if (ready) {               // ③ volatile read
+    use(data);             // ④ ②의 happens-before 효과로 ①의 결과 보임
+}</code></pre>
+
+        <p>
+          이게 volatile의 진짜 힘. 1편에서 본 "volatile 변수 자체의 가시성"을 넘어,
+          그 volatile write 이전에 일어난 <strong>모든 일반 변수의 변경</strong>까지 다른 스레드가 볼 수 있게 만든다.
+          1번(Program Order)과 3번(Volatile)이 결합한 결과로 ① happens-before ② happens-before ③ happens-before ④가 성립.
+          ④가 ①의 결과를 보는 것이 보장된다.
+        </p>
+
+        <h3>4. Thread Start Rule</h3>
+
+        <p>
+          <code>Thread.start()</code>를 호출한 스레드의 모든 동작은
+          새 스레드의 모든 동작보다 happens-before.
+        </p>
+
+        <pre><code class="language-java">// Thread A
+data = "ready";              // ①
+new Thread(() -> {
+    System.out.println(data); // ② → "ready" 출력 보장
+}).start();                   // ← Thread.start()</code></pre>
+
+        <p>
+          새 스레드가 실행을 시작하기 전에 자신을 만든 스레드의 작업이 모두 보인다.
+          그래서 스레드 시작 직후 별도 동기화 없이도 부모 스레드의 변수를 볼 수 있다.
+        </p>
+
+        <h3>5. Thread Join Rule</h3>
+
+        <p>
+          한 스레드의 모든 동작은 그 스레드가 종료된 후 다른 스레드의 <code>join()</code> 반환 이후 동작보다 happens-before.
+        </p>
+
+        <pre><code class="language-java">Thread t = new Thread(() -> {
+    result = compute();   // ① 자식 스레드의 작업
+});
+t.start();
+t.join();                  // ← join 반환 시점
+System.out.println(result); // ② ①의 결과 보장</code></pre>
+
+        <p>
+          join이 반환되었다는 것은 자식 스레드가 종료되었다는 뜻이고,
+          종료 시점까지의 모든 변경이 join 호출자에게 보인다.
+        </p>
+
+        <h3>6. Transitivity</h3>
+
+        <p>
+          A happens-before B이고 B happens-before C면 A happens-before C.
+          위 규칙들을 조합해 더 복잡한 동기화 패턴을 정당화하는 도구.
+        </p>
+
+        <h2>volatile read/write 그림</h2>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="volatile happens-before">
+            <defs>
+              <style>
+                .thread-a { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.2; }
+                .thread-b { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.2; }
+                .normal-write { fill: #f9fafb; stroke: #6b7684; stroke-width: 1; }
+                .vol-write { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .vol-read { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 500; }
+                .legend { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; letter-spacing: 0.05em; }
+                .arrow { stroke: #6b7684; stroke-width: 1.2; fill: none; marker-end: url(#a-gray); stroke-dasharray: 4,3; }
+                .arrow-strong { stroke: #d97c1c; stroke-width: 1.5; fill: none; marker-end: url(#a-orange); }
+                .axis { stroke: #d8dce0; stroke-width: 1; }
+              </style>
+              <marker id="a-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+              <marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97c1c"/>
+              </marker>
+            </defs>
+
+            <text x="20" y="22" class="header">THREAD A</text>
+            <line x1="100" y1="40" x2="100" y2="240" class="axis"/>
+            <rect x="40" y="50" width="120" height="32" rx="4" class="normal-write"/>
+            <text x="100" y="70" text-anchor="middle" class="label">data = ...</text>
+
+            <rect x="40" y="100" width="120" height="32" rx="4" class="normal-write"/>
+            <text x="100" y="120" text-anchor="middle" class="label">x = 1</text>
+
+            <rect x="40" y="150" width="120" height="32" rx="4" class="vol-write"/>
+            <text x="100" y="170" text-anchor="middle" class="label">ready = true</text>
+            <text x="100" y="195" text-anchor="middle" class="legend" fill="#d97c1c">volatile write</text>
+
+            <text x="280" y="22" class="header">THREAD B</text>
+            <line x1="380" y1="40" x2="380" y2="240" class="axis"/>
+
+            <rect x="320" y="100" width="120" height="32" rx="4" class="vol-read"/>
+            <text x="380" y="120" text-anchor="middle" class="label">ready 읽기</text>
+            <text x="380" y="145" text-anchor="middle" class="legend" fill="#d97c1c">volatile read</text>
+
+            <rect x="320" y="160" width="120" height="32" rx="4" class="normal-write"/>
+            <text x="380" y="180" text-anchor="middle" class="label">data 사용</text>
+
+            <line x1="160" y1="166" x2="320" y2="116" class="arrow-strong"/>
+            <text x="240" y="138" text-anchor="middle" class="legend" fill="#d97c1c">happens-before</text>
+
+            <text x="20" y="260" class="legend">volatile write 이전의 모든 일반 변수 변경(data, x)도</text>
+            <text x="20" y="276" class="legend">volatile read 이후 스레드 B에서 보장된다.</text>
+          </svg>
+          <figcaption>volatile write가 다리를 놓아 그 이전의 일반 쓰기들까지 가시성 보장</figcaption>
+        </figure>
+
+        <h2>왜 happens-before가 중요한가</h2>
+
+        <p>
+          멀티스레드 코드를 정확히 짠다는 건 결국 happens-before 그래프를 머릿속에 그리는 일.
+          공유 변수 X를 한 스레드가 쓰고 다른 스레드가 읽을 때,
+          쓰기 작업과 읽기 작업 사이에 happens-before 관계를 만들어두지 않으면
+          읽는 쪽이 옛 값을 볼 수 있다.
+        </p>
+
+        <p>
+          happens-before를 만드는 도구가 위 6가지 규칙. 정리하면 다음 도구들이 동기화 다리를 놓는다.
+        </p>
+
+        <ul>
+          <li>같은 모니터 락 (synchronized)</li>
+          <li>같은 volatile 변수의 write/read</li>
+          <li>스레드 start와 join</li>
+          <li>j.u.c의 락 (ReentrantLock 등)과 동기화 도구 (Latch, Semaphore)</li>
+          <li>final 필드 초기화 (생성자 내부의 final 필드 쓰기는 외부에서 그 객체를 본 시점에 가시성 보장)</li>
+        </ul>
+
+        <h2>재정렬 (Reordering)과 happens-before</h2>
+
+        <p>
+          컴파일러와 CPU는 성능을 위해 명령어를 재정렬할 자유가 있다.
+          단, "단일 스레드에서 관찰되는 결과는 같아야 한다(as-if-serial)"는 제약이 있고,
+          멀티스레드 환경에서는 happens-before 관계를 깨지 않아야 한다.
+        </p>
+
+        <p>
+          그래서 코드 순서와 실제 실행 순서가 다를 수 있다.
+          예를 들어 컴파일러는 일반 변수 쓰기를 volatile write 이후로 옮기지 않는다 — 그러면 happens-before가 깨지니까.
+          반대로 volatile write 이전 작업끼리는 자유롭게 재정렬 가능.
+          이게 1편에서 말한 "release semantics" / "acquire semantics"의 의미.
+        </p>
+
+        <h2>Sequential Consistency가 아니다</h2>
+
+        <p>
+          JMM의 중요한 특징은 sequential consistency가 아니라는 것.
+          sequential consistency는 "모든 스레드가 같은 명령어 순서를 본다"는 강한 보장이지만,
+          이걸 보장하려면 CPU와 컴파일러의 최적화 자유를 크게 제약해야 해 성능이 손상된다.
+        </p>
+
+        <p>
+          JMM은 더 약한 모델 — happens-before 관계로 명시된 부분만 보장한다.
+          synchronized나 volatile로 보호하지 않은 변수는 다른 스레드가 어떤 순서로 보든 알 수 없고,
+          이걸 명시적으로 동기화하지 않은 채 의존하면 데이터 레이스(data race)가 된다.
+        </p>
+
+        <p>
+          이 약한 모델 덕에 JVM은 다양한 CPU에서 효율적으로 동작할 수 있고,
+          개발자는 happens-before 규칙만 지키면 정확성을 보장받는 거래.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. happens-before가 무엇인가?</h3>
+
+        <p>
+          A happens-before B는 A의 메모리 효과가 B에서 보이고, A가 B보다 먼저 일어난 것으로 간주된다는 의미.
+          단순한 시간 선후가 아니라 "보장된 가시성과 순서"의 형식적 정의.
+          JLS 17.4.5에 6가지 성립 규칙이 명시되어 있고, 멀티스레드 정확성의 토대.
+        </p>
+
+        <h3>Q. volatile이 일반 변수의 가시성까지 보장하는 이유?</h3>
+
+        <p>
+          Program Order Rule + Volatile Rule + Transitivity의 결합.
+          한 스레드 안에서 일반 쓰기가 volatile 쓰기보다 먼저 있으면 Program Order로 happens-before.
+          그 volatile 쓰기는 다른 스레드의 같은 volatile 읽기보다 happens-before.
+          전이성으로 일반 쓰기가 그 다른 스레드의 후속 작업보다 happens-before.
+          따라서 그 일반 변수의 변경도 보인다.
+        </p>
+
+        <h3>Q. JMM은 sequential consistency인가?</h3>
+
+        <p>
+          아니다. JMM은 더 약한 모델로 happens-before 관계로 명시된 부분만 보장한다.
+          이는 CPU와 컴파일러에게 최적화 자유를 주기 위한 설계 결정.
+          개발자가 동기화 도구를 적절히 사용하지 않으면 결과가 unpredictable할 수 있다는 뜻이기도 하다.
+        </p>
+
+        <h3>Q. final 필드와 happens-before?</h3>
+
+        <p>
+          생성자 안에서 쓴 final 필드는 다른 스레드가 그 객체 참조를 본 시점에 안전하게 보인다.
+          이는 immutable 객체를 안전하게 공유할 수 있게 하는 보장.
+          단, 생성자 안에서 <code>this</code>가 외부로 escape하면 이 보장이 깨진다 (생성자 안에서 자기를 다른 객체에 등록하는 코드 등).
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          JMM은 자바의 메모리 모델을 형식화한 명세. happens-before 관계가 그 핵심 도구다.
+          Program Order, Monitor Lock, Volatile, Thread Start/Join, Transitivity의 6가지 규칙으로 동기화 다리를 놓을 수 있고,
+          이 다리가 없으면 한 스레드의 변경이 다른 스레드에 보일지 보장받지 못한다.
+        </p>
+
+        <p>
+          마지막 편은 이 이론을 실무로 가져온다 — DCL Singleton의 미묘함, AtomicXXX와 비교, 그리고 volatile을 언제 써야 적절한가.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
