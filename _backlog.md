@@ -67,7 +67,7 @@
 - [x] ★ Bean 생명주기 완전 분해 (4편)
 - [x] ★ AOP 내부 동작 — Advisor / Pointcut / Weaving (4편)
 - [x] ★ 프록시 — JDK Dynamic vs CGLIB (3편)
-- [ ] ★ DI 방식 — 생성자 / 세터 / 필드 (2편)
+- [x] ★ DI 방식 — 생성자 / 세터 / 필드 (2편)
 
 ### Spring 모듈/기능
 - [x] ★ Transaction Propagation 7가지 (4편)

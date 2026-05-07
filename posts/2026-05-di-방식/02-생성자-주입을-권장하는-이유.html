@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>생성자 주입을 권장하는 이유 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 2/2</div>
+        <h1>생성자 주입을 권장하는 이유</h1>
+        <p class="subtitle">
+          Spring 공식 가이드, IntelliJ 경고, 모범 사례 모두가 한 방향을 가리킨다.
+          그 이유 다섯 가지와 함정들.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">DI 방식</div>
+        <ol>
+          <li><a href="./01-3가지-방식.html">DI 3가지 방식</a></li>
+          <li class="current">생성자 주입을 권장하는 이유</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>이유 1 — 객체가 처음부터 완전한 상태</h2>
+
+        <p>
+          생성자 주입은 의존성을 매개변수로 받아 final 필드에 저장하므로,
+          생성자가 끝나는 시점에 모든 의존성이 채워져 있다.
+          객체가 만들어진 직후부터 어떤 메서드를 호출해도 의존성이 null인 상황이 없다.
+        </p>
+
+        <p>
+          반면 세터 주입과 필드 주입은 객체 생성과 의존성 주입이 분리된다.
+          기본 생성자로 객체가 만들어진 직후에는 의존성이 null이고, 그 뒤에 setter나 reflection으로 채워진다.
+          이 짧은 구간이 잠재적 위험 — 생성자 안에서 의존성을 사용하려 하면 NPE.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    public OrderService() {
+        userRepository.findAll();   // NullPointerException
+    }
+}</code></pre>
+
+        <p>
+          위 코드는 컴파일은 되지만 컨테이너 시작 시 터진다.
+          생성자 주입이라면 이 문제가 애초에 발생할 수 없다 — 의존성 없이는 객체가 만들어지지 않으니까.
+        </p>
+
+        <h2>이유 2 — final로 immutable 보장</h2>
+
+        <p>
+          생성자 주입은 필드를 final로 선언할 수 있다.
+          한 번 주입된 의존성이 객체 수명 동안 절대 바뀌지 않음을 컴파일러가 보장해준다.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    private final UserRepository userRepository;
+    private final PaymentClient paymentClient;
+
+    public OrderService(UserRepository userRepository, PaymentClient paymentClient) {
+        this.userRepository = userRepository;
+        this.paymentClient = paymentClient;
+    }
+}</code></pre>
+
+        <p>
+          빈의 의존성이 런타임에 바뀌어야 할 이유는 거의 없다.
+          final이 그 사실을 코드로 명시해 잘못된 재대입을 컴파일 단계에서 차단한다.
+          멀티스레드 환경에서 final 필드는 안전한 publication도 보장 — JMM 시리즈에서 본 그것.
+        </p>
+
+        <p>
+          세터 주입과 필드 주입은 final이 불가능하다 (생성자 외에서 값을 쓰려면 final일 수 없으니).
+          의존성이 런타임에 바뀔 수 있다는 신호를 주는 셈이고, 이는 의도와 다른 경우가 대부분.
+        </p>
+
+        <h2>이유 3 — 순환 참조 즉시 발견</h2>
+
+        <p>
+          A가 B에 의존하고 B가 A에 의존하는 순환 구조는 설계상 거의 항상 잘못된 신호다.
+          생성자 주입은 이걸 컨테이너 시작 시점에 강제로 드러낸다.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class A {
+    private final B b;
+    public A(B b) { this.b = b; }
+}
+
+@Service
+public class B {
+    private final A a;
+    public B(A a) { this.a = a; }
+}</code></pre>
+
+        <p>
+          A를 만들려면 B가 필요하고 B를 만들려면 A가 필요하다.
+          Spring은 이 순환을 풀 수 없어 컨테이너 시작이 즉시 실패하며 에러 메시지가 명확하다.
+          개발자는 시작 단계에서 설계의 잘못을 알게 된다.
+        </p>
+
+        <p>
+          반면 세터/필드 주입은 Spring이 일단 객체를 만들고 나중에 주입하므로 순환 참조도 일단 동작한다 (Spring Boot 2.6 이전).
+          런타임에야 미묘한 버그로 드러나거나 영영 발견되지 않을 수도.
+          Spring Boot 2.6+에서는 기본적으로 순환 참조를 금지하지만, <code>spring.main.allow-circular-references=true</code>로 풀면 다시 허용 가능 — 이 옵션을 쓰는 건 거의 안티패턴.
+        </p>
+
+        <h2>이유 4 — 단위 테스트가 자연스럽다</h2>
+
+        <p>
+          생성자 주입된 클래스는 Spring 컨텍스트 없이 그냥 자바 객체로 테스트할 수 있다.
+        </p>
+
+        <pre><code class="language-java">@Test
+void test() {
+    UserRepository mockRepo = mock(UserRepository.class);
+    PaymentClient mockClient = mock(PaymentClient.class);
+
+    OrderService service = new OrderService(mockRepo, mockClient);
+
+    // ...
+}</code></pre>
+
+        <p>
+          mock을 만들고 생성자에 그냥 넘기면 끝. JUnit과 Mockito만 있으면 충분하다.
+          Spring 컨텍스트를 띄우지 않으니 테스트가 빠르고, 의존성이 무엇인지 한눈에 보인다.
+        </p>
+
+        <p>
+          필드 주입이라면 같은 일을 하기 위해 <code>ReflectionTestUtils.setField()</code>를 쓰거나
+          <code>@InjectMocks</code>로 reflection을 우회해야 한다.
+          한 줄 더 길어지는 게 문제가 아니라, 클래스를 그냥 자바 객체로 다룰 수 없다는 게 핵심 단점.
+        </p>
+
+        <h2>이유 5 — 의존성이 명시적</h2>
+
+        <p>
+          생성자 시그니처를 보면 그 클래스가 무엇에 의존하는지 한눈에 들어온다.
+          매개변수가 너무 많아지면 "이 클래스 책임이 너무 큰 거 아닌가"라는 자연스러운 질문이 생긴다 — 일종의 자가 진단.
+        </p>
+
+        <pre><code class="language-java">// 매개변수가 8개면 SRP 의심
+public OrderService(
+    UserRepository userRepository,
+    PaymentClient paymentClient,
+    NotificationService notificationService,
+    InventoryService inventoryService,
+    PromotionService promotionService,
+    AuditLogger auditLogger,
+    EventPublisher eventPublisher,
+    MetricsCollector metricsCollector
+) { ... }</code></pre>
+
+        <p>
+          필드 주입은 의존성이 클래스 곳곳에 흩어져 있어 이런 신호가 잘 보이지 않는다.
+          어노테이션이 늘어나도 한 줄씩 추가되는 셈이라 부담이 적게 느껴진다.
+          그 결과 단일 책임 원칙이 깨진 클래스가 자연스럽게 자란다.
+        </p>
+
+        <h2>Lombok과 함께 — 보일러플레이트 해소</h2>
+
+        <p>
+          생성자 주입의 유일한 단점은 코드가 길어진다는 것 — 모든 의존성에 대해 final 필드 선언과 생성자 매개변수가 필요.
+          Lombok의 <code>@RequiredArgsConstructor</code>가 이를 해결한다.
+        </p>
+
+        <pre><code class="language-java">@Service
+@RequiredArgsConstructor
+public class OrderService {
+    private final UserRepository userRepository;
+    private final PaymentClient paymentClient;
+}</code></pre>
+
+        <p>
+          final 필드를 매개변수로 받는 생성자가 컴파일 시점에 자동 생성된다.
+          필드 주입과 길이가 비슷하면서 모든 장점은 그대로 유지.
+          현대 Spring + Lombok 코드의 사실상 표준 패턴.
+        </p>
+
+        <h2>피해야 할 함정</h2>
+
+        <h3>함정 1 — 자기 자신 주입의 셀프 호출</h3>
+
+        <pre><code class="language-java">@Service
+@RequiredArgsConstructor
+public class OrderService {
+    private final OrderService self;   // 자기 자신
+}</code></pre>
+
+        <p>
+          생성자 주입에서 자기 자신을 받으려 하면 즉시 순환 참조 에러로 컨테이너가 안 뜬다.
+          self-invocation 함정 시리즈에서 본 것처럼 같은 클래스 안 메서드 호출이 프록시를 안 거치는 문제를 풀려고
+          이 패턴을 시도할 수 있는데, <code>@Lazy</code> 없이는 불가능.
+          이 경우엔 메서드를 별도 빈으로 분리하는 게 더 깔끔.
+        </p>
+
+        <h3>함정 2 — 생성자 안에서 의존성 사용</h3>
+
+        <pre><code class="language-java">@Service
+@RequiredArgsConstructor
+public class OrderService {
+
+    private final UserRepository userRepository;
+
+    public OrderService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+        userRepository.warmup();   // 생성 시점에 호출
+    }
+}</code></pre>
+
+        <p>
+          위 코드 자체는 동작한다. 하지만 빈이 아직 완전히 만들어지지 않은 상태에서 의존성 메서드를 호출하는 건
+          Bean 생명주기 시리즈에서 본 함정. 의존성에 AOP 프록시가 적용된 경우 그 메서드 호출이 의도대로 동작하지 않을 수 있다.
+          초기화 작업은 <code>@PostConstruct</code>로 옮기는 게 안전.
+        </p>
+
+        <h3>함정 3 — 매개변수가 많아질 때</h3>
+
+        <p>
+          생성자 매개변수가 6개를 넘기 시작하면 SRP 위반의 신호일 가능성이 높다.
+          이때 더 큰 클래스가 만들어지지 않도록 의식적으로 책임을 분리하는 리팩토링이 필요.
+          단순히 매개변수 객체(Parameter Object)로 묶는 건 표면적 해결이고, 진짜로는 클래스 자체를 쪼개야 할 때가 많다.
+        </p>
+
+        <h3>함정 4 — Lombok 의존</h3>
+
+        <p>
+          <code>@RequiredArgsConstructor</code>를 쓰면 생성자가 코드에 안 보여
+          IDE 디버깅이나 byte code 분석 시 약간 헷갈릴 수 있다.
+          Lombok은 매우 안정적이지만, JDK 메이저 업그레이드 때 호환성 이슈가 가끔 발생.
+          이를 알고 사용하는 한 큰 문제는 아니다.
+        </p>
+
+        <h2>예외 — 옵셔널 의존성은 세터로</h2>
+
+        <p>
+          모든 의존성이 생성자로 가야 하는 건 아니다.
+          항상 필요하지는 않은 옵셔널 의존성은 세터 주입이 자연스럽다.
+        </p>
+
+        <pre><code class="language-java">@Service
+@RequiredArgsConstructor
+public class OrderService {
+
+    private final UserRepository userRepository;
+
+    private MetricsCollector metricsCollector;
+
+    @Autowired(required = false)
+    public void setMetricsCollector(MetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+    }
+}</code></pre>
+
+        <p>
+          필수 의존성은 final + 생성자, 옵셔널 의존성은 setter — 이 패턴이 가장 일관된 구조.
+          단, 옵셔널 의존성을 사용하는 코드에서는 null 체크 또는 Optional로 감싸야 한다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 생성자 주입이 권장되는 이유?</h3>
+
+        <p>
+          크게 다섯. 객체가 처음부터 완전한 상태, final로 immutable 보장,
+          순환 참조 즉시 발견, 단위 테스트가 자연스러움, 의존성이 명시적이라 SRP 위반 신호가 잘 보임.
+          Lombok @RequiredArgsConstructor와 함께 쓰면 코드 길이도 필드 주입과 비슷.
+        </p>
+
+        <h3>Q. 생성자 주입에서 순환 참조가 발생하면?</h3>
+
+        <p>
+          컨테이너 시작 시점에 즉시 에러로 드러난다.
+          A가 B를 생성자로 받고 B가 A를 생성자로 받으면 둘 다 만들 수 없으므로 Spring이 시작을 거부.
+          이 명확한 실패가 설계 문제를 빠르게 알리는 안전망이다.
+          Spring 6 / Boot 3에서는 기본적으로 순환 참조 자체를 금지.
+        </p>
+
+        <h3>Q. 필드 주입을 쓰면 단위 테스트가 왜 어렵나?</h3>
+
+        <p>
+          필드가 private이고 setter도 없으면 외부에서 값을 넣을 방법이 reflection뿐.
+          <code>ReflectionTestUtils.setField</code>나 <code>@InjectMocks</code>를 써야 한다.
+          반면 생성자 주입은 그냥 자바 객체로 테스트하면 되어 Spring 컨텍스트도 필요 없다.
+          테스트가 빠르고 단순하다는 게 큰 차이.
+        </p>
+
+        <h3>Q. Spring Boot 2.6에서 순환 참조 정책이 어떻게 바뀌었나?</h3>
+
+        <p>
+          기본값이 금지로 바뀌었다. 이전엔 setter/필드 주입의 경우 Spring이 알아서 우회해 동작시켰지만,
+          이게 미묘한 버그의 원인이 됐다.
+          순환이 발견되면 컨테이너가 시작을 거부하고 명확한 에러를 던진다.
+          예외적으로 허용해야 하면 <code>spring.main.allow-circular-references=true</code>를 명시해야 하는데, 거의 안티패턴이라 안 쓰는 게 좋다.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          생성자 주입은 객체를 처음부터 완전하게 만들고 final로 immutable을 보장하며 순환 참조를 즉시 드러낸다.
+          단위 테스트도 자연스럽고 의존성이 명시적이라 SRP 위반의 신호가 잘 보인다.
+          Lombok @RequiredArgsConstructor와 함께 쓰면 코드 길이 부담도 사라진다.
+          옵셔널 의존성은 세터, 그 외 모든 케이스는 생성자 — 이게 현대 Spring의 표준.
+        </p>
+
+        <p>
+          DI 방식 시리즈 끝. 다음은 보안 — JWT 구조와 Session vs JWT 묶음.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

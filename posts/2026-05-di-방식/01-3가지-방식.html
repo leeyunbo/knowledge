@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DI 3가지 방식 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.08 · 시리즈 1/2</div>
+        <h1>DI 3가지 방식</h1>
+        <p class="subtitle">
+          Spring이 제공하는 의존성 주입의 세 가지 통로.
+          생성자 / 세터 / 필드. 각 방식이 어떻게 동작하고 어떤 신호를 코드에 남기는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">DI 방식</div>
+        <ol>
+          <li class="current">DI 3가지 방식</li>
+          <li><a href="./02-생성자-주입을-권장하는-이유.html">생성자 주입을 권장하는 이유</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>의존성 주입의 의미</h2>
+
+        <p>
+          한 클래스가 다른 클래스를 사용해야 할 때, 그 의존을 누가 만들어 주느냐의 문제.
+          전통적으로는 본인이 직접 <code>new</code>로 만들었지만 그러면 결합도가 높아 테스트와 교체가 어려워진다.
+          Spring은 이 책임을 컨테이너가 떠안고 빈을 만들어 주입한다 — Inversion of Control.
+        </p>
+
+        <p>
+          그 주입의 통로가 어디인지에 따라 세 방식으로 나뉜다. 생성자, 세터, 필드.
+          기능적으로는 모두 같은 결과를 만들지만 코드의 형태와 안전성이 달라진다.
+        </p>
+
+        <h2>1. 생성자 주입 (Constructor Injection)</h2>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    private final UserRepository userRepository;
+    private final PaymentClient paymentClient;
+
+    public OrderService(UserRepository userRepository, PaymentClient paymentClient) {
+        this.userRepository = userRepository;
+        this.paymentClient = paymentClient;
+    }
+}</code></pre>
+
+        <p>
+          가장 권장되는 방식. 의존성을 생성자 매개변수로 받고 final 필드에 저장한다.
+          Spring 4.3 이후로 생성자가 하나뿐이면 <code>@Autowired</code>는 생략 가능.
+          Lombok의 <code>@RequiredArgsConstructor</code>를 쓰면 final 필드용 생성자가 자동 생성된다.
+        </p>
+
+        <pre><code class="language-java">@Service
+@RequiredArgsConstructor
+public class OrderService {
+    private final UserRepository userRepository;
+    private final PaymentClient paymentClient;
+}</code></pre>
+
+        <h3>동작 흐름</h3>
+
+        <p>
+          Spring이 빈을 만들 때 의존성 그래프를 분석해 필요한 빈을 먼저 준비한 뒤 생성자에 넘긴다.
+          OrderService를 만들기 위해 UserRepository와 PaymentClient가 필요하다는 걸 컨테이너가 인식하고,
+          둘을 먼저 생성/준비한 후 OrderService 생성자를 호출한다.
+        </p>
+
+        <p>
+          생성자가 끝나는 시점에 모든 final 필드가 채워져 있다 — 객체가 처음부터 완전한 상태.
+          이 특성이 다음 편에서 다룰 여러 장점의 근거가 된다.
+        </p>
+
+        <h2>2. 세터 주입 (Setter Injection)</h2>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    private UserRepository userRepository;
+    private PaymentClient paymentClient;
+
+    @Autowired
+    public void setUserRepository(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Autowired
+    public void setPaymentClient(PaymentClient paymentClient) {
+        this.paymentClient = paymentClient;
+    }
+}</code></pre>
+
+        <p>
+          기본 생성자로 빈을 만든 뒤 setter를 호출해 의존성을 주입.
+          필드에 final을 붙일 수 없고, 객체 생성과 의존성 채워지는 시점이 분리된다.
+        </p>
+
+        <h3>동작 흐름</h3>
+
+        <p>
+          빈 생성 단계는 다음과 같다 (Bean 생명주기 시리즈에서 본 그것).
+        </p>
+
+        <ol>
+          <li>기본 생성자로 객체 생성</li>
+          <li>BeanPostProcessor가 <code>@Autowired</code>가 붙은 setter들을 모두 호출해 의존성 주입</li>
+          <li>초기화 콜백 (<code>@PostConstruct</code> 등) 실행</li>
+        </ol>
+
+        <p>
+          1번과 2번 사이에는 객체가 존재하지만 의존성이 비어있는 상태가 일시적으로 존재한다.
+          이 짧은 윈도우가 잠재적인 위험 — 생성자에서 의존성을 사용하려 하면 NPE.
+        </p>
+
+        <h3>적합한 용도 — 옵셔널 의존성</h3>
+
+        <p>
+          세터 주입의 진짜 자리는 옵셔널 의존성. 항상 필요한 건 아니지만 환경에 따라 들어올 수도 있는 빈.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    private MetricsCollector metricsCollector;
+
+    @Autowired(required = false)
+    public void setMetricsCollector(MetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+    }
+}</code></pre>
+
+        <p>
+          <code>required = false</code>로 두면 그 빈이 컨테이너에 없어도 에러 없이 넘어간다.
+          반대로 생성자 주입은 모든 매개변수가 반드시 있어야 객체가 만들어지므로 옵셔널을 표현하기 어렵다.
+        </p>
+
+        <h2>3. 필드 주입 (Field Injection)</h2>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PaymentClient paymentClient;
+}</code></pre>
+
+        <p>
+          가장 간결한 형태. 필드에 직접 <code>@Autowired</code>를 붙이고 끝.
+          생성자도 setter도 작성하지 않는다.
+        </p>
+
+        <h3>동작 흐름</h3>
+
+        <p>
+          Spring이 reflection으로 private 필드에 직접 값을 꽂는다.
+          필드의 접근 제어자를 <code>setAccessible(true)</code>로 풀고 <code>Field.set</code>으로 값 대입.
+          외부에서 강제로 필드를 건드리는 방식.
+        </p>
+
+        <h3>왜 권장되지 않는가</h3>
+
+        <p>
+          짧고 편하지만 다음 편에서 본격적으로 다룰 여러 단점이 있다. 핵심만 짚으면.
+        </p>
+
+        <ul>
+          <li>final 사용 불가 — 의존성이 immutable하지 않다</li>
+          <li>의존성 명시성 약함 — 클래스 외부에서 의존 관계를 보기 어렵다</li>
+          <li>테스트가 까다롭다 — Spring 컨텍스트 없이 단위 테스트하려면 reflection 또는 스프링 도구 필요</li>
+          <li>순환 참조가 늦게 발견된다 — 런타임에야 드러남</li>
+        </ul>
+
+        <p>
+          IntelliJ가 필드 주입에 경고 메시지를 띄우는 것도 이 이유들 때문.
+          Spring 공식 가이드도 생성자 주입을 권장한다.
+        </p>
+
+        <h2>세 방식 비교</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>측면</th>
+              <th>생성자</th>
+              <th>세터</th>
+              <th>필드</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>final 가능</td>
+              <td>O</td>
+              <td>X</td>
+              <td>X</td>
+            </tr>
+            <tr>
+              <td>객체 완전성</td>
+              <td>생성 직후 완전</td>
+              <td>주입 후 완전</td>
+              <td>주입 후 완전</td>
+            </tr>
+            <tr>
+              <td>옵셔널 의존성</td>
+              <td>표현 어려움</td>
+              <td>적합</td>
+              <td><code>required=false</code> 가능하나 어색</td>
+            </tr>
+            <tr>
+              <td>순환 참조 발견 시점</td>
+              <td>컨테이너 시작 시 즉시</td>
+              <td>가능 (Spring이 우회)</td>
+              <td>가능 (Spring이 우회)</td>
+            </tr>
+            <tr>
+              <td>단위 테스트 용이성</td>
+              <td>높음 (생성자에 mock 전달)</td>
+              <td>중간 (setter 호출)</td>
+              <td>낮음 (reflection 필요)</td>
+            </tr>
+            <tr>
+              <td>의존성 가시성</td>
+              <td>생성자에 전부 노출</td>
+              <td>setter 메서드들</td>
+              <td>필드 어노테이션</td>
+            </tr>
+            <tr>
+              <td>코드 간결성</td>
+              <td>중간 (Lombok 권장)</td>
+              <td>장황</td>
+              <td>가장 짧음</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>혼합 사용 — 가능하지만 권장 X</h2>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    private final UserRepository userRepository;   // 생성자
+
+    @Autowired
+    private PaymentClient paymentClient;           // 필드
+
+    public OrderService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+}</code></pre>
+
+        <p>
+          기술적으로 가능하지만 의존성을 어디서 받는지 일관성이 없어 가독성이 떨어진다.
+          한 클래스 안에서는 한 방식으로 통일하는 게 권장.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. DI의 세 방식은?</h3>
+
+        <p>
+          생성자 주입, 세터 주입, 필드 주입. Spring이 빈을 만들고 의존성을 채우는 통로의 차이.
+          생성자는 객체 생성 시점에 매개변수로, 세터는 setter 메서드로, 필드는 reflection으로 직접 필드에 꽂는다.
+          Spring 공식 가이드와 IntelliJ 모두 생성자 주입을 권장.
+        </p>
+
+        <h3>Q. 필드 주입이 권장되지 않는 이유?</h3>
+
+        <p>
+          final 사용 불가, 단위 테스트 시 reflection 필요, 의존성 명시성 부족, 순환 참조가 런타임에야 발견되는 점 등.
+          짧고 편하다는 게 유일한 장점이지만 그 대가가 너무 커서 모범 사례에서는 피한다.
+          Spring 4.3 + Lombok @RequiredArgsConstructor 조합이면 생성자 주입도 그만큼 짧게 쓸 수 있다.
+        </p>
+
+        <h3>Q. 세터 주입은 언제 쓰나?</h3>
+
+        <p>
+          옵셔널 의존성. 항상 필요한 건 아니지만 환경에 따라 들어올 수 있는 빈.
+          <code>@Autowired(required = false)</code>로 두면 그 빈이 없어도 에러 없이 넘어간다.
+          또는 의존성을 런타임에 교체해야 하는 특수한 경우 (드물지만).
+        </p>
+
+        <h3>Q. 생성자가 둘 이상이면 어떻게 되나?</h3>
+
+        <p>
+          Spring은 어느 생성자를 쓸지 모르므로 명시적으로 <code>@Autowired</code>가 붙은 생성자를 사용한다.
+          @Autowired 없는 다중 생성자면 컨테이너 시작 시점에 에러.
+          생성자가 하나뿐이면 Spring 4.3+에서 @Autowired 생략 가능.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          DI는 생성자 / 세터 / 필드 세 통로로 들어온다.
+          생성자는 객체를 처음부터 완전하게 만드는 강한 보장,
+          세터는 옵셔널 의존성을 표현하는 유연한 도구,
+          필드는 가장 짧지만 안전성을 잃는 지름길.
+          현대 Spring 코드의 표준은 final + 생성자 주입.
+        </p>
+
+        <p>
+          다음 편은 왜 생성자 주입을 권장하는가의 이유들. final 보장, 순환 참조 조기 발견, 테스트 용이성, 그리고 빠지기 쉬운 함정까지.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
