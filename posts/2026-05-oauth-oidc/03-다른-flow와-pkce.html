@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>다른 Flow들과 PKCE (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 3/4</div>
+        <h1>다른 Flow들과 PKCE</h1>
+        <p class="subtitle">
+          Authorization Code 외에 어떤 Flow가 있는지, 그리고 모바일/SPA에 필수인 PKCE 확장이 무엇인지 봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">OAuth 2.0 / OIDC</div>
+        <ol>
+          <li><a href="./01-oauth의-정체.html">OAuth 2.0의 정체</a></li>
+          <li><a href="./02-authorization-code-flow.html">Authorization Code Flow</a></li>
+          <li class="current">다른 Flow들과 PKCE</li>
+          <li><a href="./04-oidc와-실무.html">OIDC와 실무</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>OAuth 2.0의 4가지 Flow</h2>
+
+        <p>
+          OAuth 2.0 (RFC 6749)이 정의한 4가지 grant type을 먼저 정리할게요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>Flow</th><th>용도</th><th>현재 권장</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Authorization Code</strong></td>
+              <td>웹 앱 (서버가 있는)</td>
+              <td>표준 (PKCE 권장)</td>
+            </tr>
+            <tr>
+              <td><strong>Implicit</strong></td>
+              <td>SPA (옛날 권장)</td>
+              <td>Deprecated. 쓰지 마세요</td>
+            </tr>
+            <tr>
+              <td><strong>Resource Owner Password Credentials</strong></td>
+              <td>1st party 앱</td>
+              <td>거의 비권장</td>
+            </tr>
+            <tr>
+              <td><strong>Client Credentials</strong></td>
+              <td>서버 간 통신 (사용자 없음)</td>
+              <td>표준</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          여기에 RFC 8628로 추가된 <strong>Device Code Flow</strong>까지 합쳐서 다섯 가지를 봐요.
+        </p>
+
+        <h2>Implicit Flow — 왜 폐기됐나</h2>
+
+        <p>
+          OAuth 2.0 초창기에 SPA를 위해 만들어진 Flow예요. 핵심 차이는 Authorization Code Flow의 두 단계가 아니라
+          <strong>Auth Server가 Access Token을 직접 URL fragment(#)로 반환</strong>한다는 거예요.
+        </p>
+
+        <pre><code class="language-http">// 요청
+GET /authorize?
+    response_type=token        ← code가 아닌 token
+    &client_id=...
+    &redirect_uri=...
+
+// 응답 (redirect)
+HTTP/1.1 302 Found
+Location: https://app.com/callback#access_token=ya29...&token_type=Bearer</code></pre>
+
+        <p>
+          토큰이 fragment(#) 뒤에 있는 이유는 fragment가 서버로 전송되지 않기 때문이에요.
+          브라우저의 JavaScript만 fragment를 읽을 수 있고, SPA가 그 토큰을 받아 사용해요.
+        </p>
+
+        <h3>왜 폐기됐어요</h3>
+
+        <p>
+          OAuth 2.0 Security Best Current Practice (RFC 8252, 2017+)에서 Implicit Flow 사용을 권장하지 않게 됐어요.
+          여러 가지 보안 약점이 있어요.
+        </p>
+
+        <ul>
+          <li>토큰이 브라우저 히스토리, 메모리 dump, 브라우저 확장 프로그램에 노출됨</li>
+          <li>Refresh Token을 발급할 수 없음 (사용자 재인증 빈번)</li>
+          <li>Token Replay 공격에 취약</li>
+          <li>Access Token이 client_id 없이 사용 가능</li>
+        </ul>
+
+        <p>
+          현재 OAuth 2.1 초안에서는 Implicit Flow가 아예 제거됐어요.
+          SPA도 PKCE와 함께 Authorization Code Flow를 쓰는 게 현재 표준이에요.
+        </p>
+
+        <h2>Resource Owner Password Credentials — 거의 안 씀</h2>
+
+        <p>
+          이 Flow는 사용자가 client에게 직접 비밀번호를 알려주고, client가 그걸 Auth Server에 전달해 토큰을 받는 방식이에요.
+        </p>
+
+        <pre><code class="language-http">POST /token
+grant_type=password
+&username=alice
+&password=secret123
+&client_id=...</code></pre>
+
+        <p>
+          OAuth가 풀려는 핵심 문제 — "비밀번호 노출 회피" — 를 정면으로 위반해요. 그래서 거의 권장되지 않아요.
+        </p>
+
+        <ul>
+          <li>1st party 앱(자체 서비스 모바일 앱)에서 OAuth로 마이그레이션 중간 단계로만 일부 사용</li>
+          <li>레거시 시스템 통합에서 어쩔 수 없이</li>
+          <li>OAuth 2.1에서도 제거 예정</li>
+        </ul>
+
+        <p>
+          사용을 검토 중이라면 다른 방법(Authorization Code + PKCE)이 가능한지 먼저 확인해야 해요.
+        </p>
+
+        <h2>Client Credentials Flow — 서버끼리</h2>
+
+        <p>
+          이 Flow는 사용자가 없어요. 서버끼리의 통신에서 한 서버가 다른 서버의 자원에 접근할 때 써요.
+        </p>
+
+        <pre><code class="language-http">POST /token
+grant_type=client_credentials
+&client_id=order-service
+&client_secret=secret-key
+&scope=write:inventory</code></pre>
+
+        <p>
+          예시 — 주문 서비스가 재고 서비스에 접근. 둘 다 같은 회사 시스템이고 사용자 컨텍스트는 필요 없어요.
+          Order 서비스는 자기 client_id와 client_secret으로 토큰을 받고, 그 토큰으로 Inventory API를 호출해요.
+        </p>
+
+        <h3>적합한 자리</h3>
+
+        <ul>
+          <li>마이크로서비스 간 통신</li>
+          <li>백엔드 서비스의 외부 API 호출 (사용자 컨텍스트 없는)</li>
+          <li>배치 작업, 크론 잡</li>
+          <li>서비스 계정으로 동작하는 통합</li>
+        </ul>
+
+        <p>
+          간단하면서 표준이라 자주 쓰여요. 단, client_id/secret을 안전하게 관리하는 게 중요해요.
+          Vault, AWS Secrets Manager 같은 비밀 관리 도구 사용이 표준.
+        </p>
+
+        <h2>Device Code Flow — 키보드 없는 기기</h2>
+
+        <p>
+          스마트 TV, IoT 기기, CLI 도구처럼 키보드/브라우저가 없거나 제한적인 환경을 위한 Flow예요. (RFC 8628)
+          넷플릭스 TV 앱이나 GitHub CLI에서 본 그 흐름이에요.
+        </p>
+
+        <h3>흐름</h3>
+
+        <ol>
+          <li>기기가 Auth Server에 device code 요청</li>
+          <li>Auth Server가 user code(짧은 문자열)와 verification URL 응답</li>
+          <li>기기 화면에 "https://example.com/device로 가서 코드 ABC-123 입력하세요" 표시</li>
+          <li>사용자가 다른 기기(폰, 노트북)에서 그 URL과 코드로 인증 진행</li>
+          <li>기기는 동시에 token 엔드포인트를 polling. 사용자가 인증 완료하면 토큰 발급</li>
+        </ol>
+
+        <pre><code class="language-http">// 1. device code 요청
+POST /device/code
+client_id=tv-app
+
+// 응답
+{
+  "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
+  "user_code": "ABC-123",
+  "verification_uri": "https://example.com/device",
+  "expires_in": 1800,
+  "interval": 5
+}
+
+// 2. 기기가 polling
+POST /token (5초마다)
+grant_type=urn:ietf:params:oauth:grant-type:device_code
+&device_code=GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS
+&client_id=tv-app
+
+// 사용자가 아직 인증 안 함
+{ "error": "authorization_pending" }
+
+// 사용자가 인증 완료
+{ "access_token": "...", "refresh_token": "..." }</code></pre>
+
+        <p>
+          간단하면서 사용자 경험이 좋아요. 큰 화면에서 작은 코드를 입력받는 한계를 잘 풀었어요.
+          GitHub CLI, AWS CLI v2, Hashicorp Vault, 모든 스마트 TV 앱 등이 이 Flow 사용.
+        </p>
+
+        <h2>PKCE — Authorization Code Flow의 강화</h2>
+
+        <p>
+          이 시리즈의 핵심 보안 확장이에요. <strong>Proof Key for Code Exchange</strong>의 약자, 보통 "픽시"라고 발음해요.
+          RFC 7636에서 정의됐고, 모바일 앱과 SPA에서는 사실상 필수예요.
+        </p>
+
+        <h3>왜 필요한가요</h3>
+
+        <p>
+          2편의 Authorization Code Flow는 client_secret으로 안전성을 보장해요.
+          그런데 모바일 앱이나 SPA는 client_secret을 안전하게 보관할 수 없어요. 디컴파일이나 브라우저 개발자 도구로 누구나 볼 수 있거든요.
+        </p>
+
+        <p>
+          이런 "public client"에서는 다른 보호 메커니즘이 필요해요. 그게 PKCE예요.
+          client_secret 없이도 Authorization Code 탈취 공격을 막아줘요.
+        </p>
+
+        <h3>핵심 아이디어</h3>
+
+        <p>
+          매 인증 시도마다 client가 임시 비밀(code_verifier)을 만들고, 그 해시값(code_challenge)만 인증 요청에 보내요.
+          토큰 교환 시점에 client가 진짜 verifier를 보내고, Auth Server는 해시가 일치하는지 확인.
+        </p>
+
+        <p>
+          공격자가 코드를 탈취해도 verifier를 모르니 토큰 교환을 못 해요.
+          매 시도마다 새 verifier를 만드니 재사용도 안 돼요.
+        </p>
+
+        <h3>흐름</h3>
+
+        <pre><code class="language-text">1. client 측에서 매 시도마다 생성:
+   - code_verifier: 랜덤 문자열 (43~128자)
+   - code_challenge: SHA-256(code_verifier)을 base64url 인코딩
+
+2. 인증 요청에 code_challenge 포함:
+   GET /authorize?
+       response_type=code
+       &client_id=...
+       &redirect_uri=...
+       &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+       &code_challenge_method=S256
+
+3. Auth Server가 code_challenge를 잠깐 저장하고 인증 진행
+
+4. callback으로 code 받음 (평소처럼)
+
+5. 토큰 교환 시 code_verifier 함께 전송:
+   POST /token
+   grant_type=authorization_code
+   &code=...
+   &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
+
+6. Auth Server가 verifier 검증:
+   if SHA-256(received_verifier) == saved_challenge: 토큰 발급
+   else: 거부</code></pre>
+
+        <h3>왜 안전한가요</h3>
+
+        <p>
+          공격자가 callback URL의 code를 탈취했다고 가정해볼게요.
+          그래도 token 엔드포인트로 교환을 시도하려면 verifier가 필요해요.
+          공격자는 challenge(해시)만 보고는 verifier를 역산할 수 없어요. SHA-256은 단방향이거든요.
+          정상 client만 자기가 만든 verifier를 가지고 있으니, 정상 client만 토큰 교환 성공.
+        </p>
+
+        <h3>plain vs S256</h3>
+
+        <p>
+          PKCE의 challenge_method에 두 가지가 있어요. <code>S256</code>은 SHA-256 해시, <code>plain</code>은 verifier 그대로.
+          plain은 사실상 안전성이 약해서 거의 쓰지 않아요. 항상 S256을 사용해야 해요.
+          OAuth 2.1에서는 plain이 제거될 예정.
+        </p>
+
+        <h2>PKCE는 모든 곳에 권장</h2>
+
+        <p>
+          처음엔 모바일/SPA 같은 public client만을 위해 만들어졌어요.
+          하지만 OAuth 2.0 Security BCP는 이제 <strong>모든 client에 PKCE 사용을 권장</strong>해요.
+        </p>
+
+        <ul>
+          <li>모바일 앱: 필수</li>
+          <li>SPA: 필수</li>
+          <li>웹 앱 (백엔드 있음): 강력 권장</li>
+          <li>Native CLI 도구: 권장</li>
+        </ul>
+
+        <p>
+          백엔드 있는 웹 앱도 PKCE를 쓰면 추가 보안층이 생겨요. 단점은 거의 없으니 켜두는 게 좋아요.
+          OAuth 2.1에서는 모든 Authorization Code Flow에 PKCE가 필수가 돼요.
+        </p>
+
+        <h2>Flow별 정리</h2>
+
+        <table>
+          <thead>
+            <tr><th>Flow</th><th>사용자 있음?</th><th>brower?</th><th>client_secret 가능?</th><th>추천</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Authorization Code + PKCE</td>
+              <td>O</td>
+              <td>O</td>
+              <td>N/A (PKCE가 보호)</td>
+              <td>모든 환경 표준</td>
+            </tr>
+            <tr>
+              <td>Authorization Code (PKCE 없이)</td>
+              <td>O</td>
+              <td>O</td>
+              <td>O</td>
+              <td>레거시 (PKCE 추가 권장)</td>
+            </tr>
+            <tr>
+              <td>Implicit</td>
+              <td>O</td>
+              <td>O</td>
+              <td>X</td>
+              <td>Deprecated</td>
+            </tr>
+            <tr>
+              <td>Password Credentials</td>
+              <td>O</td>
+              <td>X</td>
+              <td>O</td>
+              <td>거의 비권장</td>
+            </tr>
+            <tr>
+              <td>Client Credentials</td>
+              <td>X</td>
+              <td>X</td>
+              <td>O</td>
+              <td>서버↔서버 표준</td>
+            </tr>
+            <tr>
+              <td>Device Code</td>
+              <td>O</td>
+              <td>외부에서</td>
+              <td>선택</td>
+              <td>TV/IoT/CLI 표준</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실전 가이드 — 어떤 Flow를 쓸까</h2>
+
+        <h3>1. 일반 웹 앱 (Spring Boot 백엔드 + 브라우저)</h3>
+
+        <p>
+          Authorization Code + PKCE. 사용자가 OAuth 제공자에서 로그인하고 토큰을 백엔드에 보관, 세션 쿠키로 사용자 식별.
+        </p>
+
+        <h3>2. SPA (React, Vue 등)</h3>
+
+        <p>
+          Authorization Code + PKCE. 토큰을 메모리에 보관 또는 백엔드 BFF(Backend For Frontend) 패턴으로 백엔드에 보관.
+          토큰을 localStorage에 두는 건 XSS 위험이 커서 권장되지 않아요.
+        </p>
+
+        <h3>3. 모바일 앱 (iOS/Android)</h3>
+
+        <p>
+          Authorization Code + PKCE. AppAuth 라이브러리 사용 권장. Custom URL Scheme 또는 App Links로 callback 처리.
+          토큰은 Keychain (iOS) / Keystore (Android)에 보관.
+        </p>
+
+        <h3>4. 백엔드 서비스의 다른 API 호출</h3>
+
+        <p>
+          Client Credentials. 서비스마다 client_id/secret을 발급받고 그걸로 토큰 받아 사용.
+          secret은 Vault 같은 비밀 관리 도구로 보관.
+        </p>
+
+        <h3>5. CLI 도구</h3>
+
+        <p>
+          Device Code. 사용자가 다른 기기에서 인증하고 CLI는 polling.
+          GitHub CLI, AWS CLI v2가 이 패턴.
+        </p>
+
+        <h3>6. 스마트 TV / IoT</h3>
+
+        <p>
+          Device Code. 큰 화면에 코드 표시하고 사용자가 폰에서 인증.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Implicit Flow가 왜 폐기됐나요?</h3>
+
+        <p>
+          토큰이 브라우저 URL에 직접 노출되어 히스토리, 메모리 dump, 브라우저 확장 프로그램에 토큰이 노출되는 위험이 있어요.
+          Refresh Token도 발급할 수 없어서 사용자 재인증이 빈번하고, Token Replay 공격에도 취약해요.
+          OAuth 2.0 Security BCP에서 권장이 사라졌고, OAuth 2.1에서는 아예 제거됐어요. 현재는 SPA도 Authorization Code + PKCE를 써요.
+        </p>
+
+        <h3>Q. PKCE가 무엇이고 왜 필요한가요?</h3>
+
+        <p>
+          Proof Key for Code Exchange. 모바일/SPA처럼 client_secret을 안전하게 보관할 수 없는 환경에서
+          Authorization Code 탈취 공격을 막는 메커니즘이에요. client가 매 시도마다 임시 비밀(verifier)을 만들고
+          그 해시(challenge)만 인증 요청에 보내요. 토큰 교환 시 진짜 verifier를 보내서 검증.
+          공격자가 code를 훔쳐도 verifier 없이는 토큰 교환을 못 해요.
+        </p>
+
+        <h3>Q. Client Credentials Flow는 언제 쓰나요?</h3>
+
+        <p>
+          사용자가 없는 서버끼리의 통신이에요. 마이크로서비스 간 호출, 백엔드의 외부 API 호출, 배치 작업 같은 자리예요.
+          한 서비스가 자기 client_id와 client_secret으로 직접 토큰을 받고, 그 토큰으로 다른 서비스 API를 호출해요.
+          단순하고 사용자 컨텍스트가 필요 없어 자주 쓰여요.
+        </p>
+
+        <h3>Q. Device Code Flow는 어떤 환경에 쓰나요?</h3>
+
+        <p>
+          키보드/브라우저가 없거나 제한적인 환경이에요. 스마트 TV, IoT 기기, CLI 도구가 대표적.
+          기기가 짧은 코드를 화면에 표시하고, 사용자가 다른 기기(폰, 노트북)에서 그 코드로 인증해요.
+          기기는 동시에 token 엔드포인트를 polling하다가 인증 완료되면 토큰 받아요. GitHub CLI, AWS CLI v2가 이 패턴이에요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          OAuth 2.0의 Flow는 환경에 맞춰 골라 써요. 사용자 있는 일반 환경은 Authorization Code + PKCE,
+          서버끼리는 Client Credentials, 키보드 없는 기기는 Device Code.
+          Implicit과 Password Credentials는 비권장이에요.
+          PKCE는 처음 모바일/SPA용이었지만 이제 모든 Authorization Code Flow에 권장돼요.
+          OAuth 2.1에서는 사실상 필수가 돼요.
+        </p>
+
+        <p>
+          마지막 편에서는 OIDC와 실무 패턴을 정리해요. 사용자 신원 확인, JWT 활용, refresh token rotation 같은 주제예요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

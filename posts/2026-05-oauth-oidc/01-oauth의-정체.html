@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OAuth 2.0의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 1/4</div>
+        <h1>OAuth 2.0의 정체</h1>
+        <p class="subtitle">
+          "구글로 로그인" 같은 기능 뒤에 있는 표준. 비밀번호 없이 권한을 위임하는 메커니즘이 뭔지부터 봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">OAuth 2.0 / OIDC</div>
+        <ol>
+          <li class="current">OAuth 2.0의 정체</li>
+          <li><a href="./02-authorization-code-flow.html">Authorization Code Flow</a></li>
+          <li><a href="./03-다른-flow와-pkce.html">다른 Flow들과 PKCE</a></li>
+          <li><a href="./04-oidc와-실무.html">OIDC와 실무</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>풀려는 문제 — 비밀번호 없이 권한 위임</h2>
+
+        <p>
+          OAuth 2.0이 풀려는 문제를 한 시나리오로 시작해볼게요.
+          내가 어떤 사진 인쇄 서비스(예: PrintifyMe)를 쓰려고 해요. 이 서비스는 내 구글 드라이브의 사진을 가져와 인쇄해줘요.
+        </p>
+
+        <p>
+          어떻게 가져오게 할까요? 가장 단순한 방법은 내 구글 비밀번호를 PrintifyMe에 알려주는 거예요.
+          그런데 이건 위험해요.
+        </p>
+
+        <ul>
+          <li>PrintifyMe가 내 비밀번호로 구글의 모든 기능을 마음대로 사용할 수 있어요</li>
+          <li>비밀번호를 바꾸려면 PrintifyMe에서도 다시 입력해야 해요</li>
+          <li>PrintifyMe의 보안이 뚫리면 내 구글 비밀번호도 함께 유출돼요</li>
+          <li>나중에 권한을 회수하려면 비밀번호를 바꿔야 해요</li>
+        </ul>
+
+        <p>
+          OAuth 2.0이 풀려는 문제가 이거예요. <strong>비밀번호를 알려주지 않고 특정 권한만 안전하게 위임하는 방법</strong>이요.
+          내가 PrintifyMe에 "내 구글 드라이브의 사진을 읽을 권한"만 주고, 다른 권한이나 비밀번호는 노출하지 않는 거죠.
+        </p>
+
+        <h2>4가지 역할</h2>
+
+        <p>
+          OAuth 2.0은 시스템을 4가지 역할로 나눠요. 위 시나리오에 대입하면 명확해져요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>역할</th><th>설명</th><th>예시</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Resource Owner</strong></td>
+              <td>자원의 실제 주인. 보통 사용자</td>
+              <td>나 (내 구글 드라이브 소유)</td>
+            </tr>
+            <tr>
+              <td><strong>Client</strong></td>
+              <td>자원에 접근하려는 애플리케이션</td>
+              <td>PrintifyMe</td>
+            </tr>
+            <tr>
+              <td><strong>Resource Server</strong></td>
+              <td>자원을 보관하고 제공하는 서버</td>
+              <td>구글 드라이브 API</td>
+            </tr>
+            <tr>
+              <td><strong>Authorization Server</strong></td>
+              <td>권한을 발급해주는 서버</td>
+              <td>구글 OAuth 서버</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          큰 서비스(구글, 페이스북, 카카오)는 Resource Server와 Authorization Server를 별도로 운영해요.
+          작은 서비스는 한 시스템이 둘 다 처리할 수도 있고요.
+        </p>
+
+        <h2>큰 그림 — Access Token이 핵심</h2>
+
+        <p>
+          OAuth 2.0의 모든 흐름은 결국 <strong>Access Token</strong>이라는 짧은 문자열을 발급받는 과정이에요.
+          이 토큰은 "이 클라이언트가 이 사용자의 이런 권한으로 자원에 접근할 수 있다"는 증명서 같은 거예요.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OAuth 큰 그림">
+            <defs>
+              <style>
+                .actor { fill: #f9fafb; stroke: #4e5968; stroke-width: 1.2; }
+                .auth { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .token { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #4e5968; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .arrow { stroke: #6b7684; stroke-width: 1.2; fill: none; marker-end: url(#a-oa); }
+                .step { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #1b64da; font-weight: 600; }
+              </style>
+              <marker id="a-oa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+            </defs>
+
+            <rect x="20" y="40" width="120" height="40" rx="6" class="actor"/>
+            <text x="80" y="64" text-anchor="middle" class="label">User (나)</text>
+
+            <rect x="220" y="40" width="120" height="40" rx="6" class="actor"/>
+            <text x="280" y="64" text-anchor="middle" class="label">Client (앱)</text>
+
+            <rect x="440" y="20" width="140" height="40" rx="6" class="auth"/>
+            <text x="510" y="44" text-anchor="middle" class="label">Auth Server</text>
+
+            <rect x="440" y="80" width="140" height="40" rx="6" class="actor"/>
+            <text x="510" y="104" text-anchor="middle" class="label">Resource Server</text>
+
+            <text x="20" y="142" class="step">① 권한 위임 요청 (사용자 동의)</text>
+            <line x1="80" y1="80" x2="280" y2="80" class="arrow"/>
+            <line x1="280" y1="40" x2="440" y2="40" class="arrow"/>
+
+            <text x="20" y="172" class="step">② Access Token 발급</text>
+            <line x1="440" y1="40" x2="280" y2="40" class="arrow"/>
+
+            <text x="20" y="202" class="step">③ Token으로 자원 접근</text>
+            <rect x="180" y="190" width="100" height="20" class="token"/>
+            <text x="230" y="204" text-anchor="middle" class="small">Token: abc...</text>
+            <line x1="280" y1="200" x2="440" y2="105" class="arrow"/>
+
+            <text x="20" y="240" class="step">④ 자원 응답</text>
+            <line x1="440" y1="115" x2="280" y2="115" class="arrow"/>
+          </svg>
+          <figcaption>OAuth 큰 그림 — 사용자 동의 → Auth Server에서 Token 발급 → Token으로 자원 접근</figcaption>
+        </figure>
+
+        <h3>흐름 정리</h3>
+
+        <ol>
+          <li>Client가 사용자에게 권한 위임을 요청</li>
+          <li>사용자가 Auth Server에서 동의하고 비밀번호 입력 (이때만!)</li>
+          <li>Auth Server가 Client에게 Access Token 발급</li>
+          <li>Client는 그 Token으로 Resource Server에 자원 요청</li>
+          <li>Resource Server가 Token 검증 후 자원 반환</li>
+        </ol>
+
+        <p>
+          핵심은 <strong>비밀번호가 Client(PrintifyMe)에 절대 노출되지 않는다</strong>는 거예요.
+          비밀번호는 사용자가 Auth Server에 직접 입력하고, 그 결과물인 Token만 Client가 받아요.
+        </p>
+
+        <h2>Access Token의 성격</h2>
+
+        <p>
+          Token은 어떻게 동작할까요? 몇 가지 중요한 성질이 있어요.
+        </p>
+
+        <ul>
+          <li><strong>제한된 권한 (scope)</strong>: "사진 읽기"만 허용, "삭제"는 안 됨 같은 식으로 권한 범위 명시</li>
+          <li><strong>유효 기간</strong>: 보통 짧음 (1시간 정도). 만료되면 새로 발급받아야 해요</li>
+          <li><strong>회수 가능</strong>: 사용자가 동의 철회하면 Token 즉시 무효</li>
+          <li><strong>대체 가능</strong>: Client가 손상되어도 그 Token만 폐기하면 됨. 비밀번호 안 바꿔도 됨</li>
+        </ul>
+
+        <p>
+          이 성질들이 비밀번호를 직접 주는 것에 비해 OAuth가 가지는 큰 장점이에요.
+          권한이 작고, 짧고, 통제 가능해요.
+        </p>
+
+        <h2>Scope — 권한의 범위</h2>
+
+        <p>
+          Token이 가지는 권한을 표현하는 게 scope예요. 사용자가 동의하는 시점에 어떤 권한을 줄지 결정돼요.
+        </p>
+
+        <pre><code class="language-text">scope=read:photos write:photos profile email</code></pre>
+
+        <p>
+          공백으로 구분된 문자열이에요. Authorization Server마다 정의된 scope가 달라요.
+        </p>
+
+        <ul>
+          <li>구글: <code>https://www.googleapis.com/auth/drive.readonly</code> 같은 URL 형태</li>
+          <li>GitHub: <code>repo</code>, <code>user</code>, <code>read:org</code> 같은 짧은 이름</li>
+          <li>OpenID Connect: <code>openid</code>, <code>profile</code>, <code>email</code> 같은 표준 scope</li>
+        </ul>
+
+        <p>
+          사용자 동의 화면에서 "이 앱이 다음 권한을 요청합니다"로 보이는 게 scope의 표현이에요.
+          개발자는 진짜 필요한 최소 권한만 요청하는 게 좋아요. 너무 많은 권한 요청은 사용자가 거부할 가능성이 높아요.
+        </p>
+
+        <h2>Refresh Token — 재발급용</h2>
+
+        <p>
+          Access Token은 짧게 유효해요(보통 1시간). 만료되면 어떻게 새 Token을 받을까요?
+          매번 사용자가 다시 로그인하라고 할 수는 없잖아요.
+        </p>
+
+        <p>
+          그래서 <strong>Refresh Token</strong>이라는 별도 토큰을 함께 발급해요.
+          이건 더 길게 유효(보통 7일~30일 또는 만료 없음)하고, Access Token이 만료되면 이걸로 새 Access Token을 받아요.
+        </p>
+
+        <pre><code class="language-http">POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token
+&refresh_token=def...
+&client_id=...
+&client_secret=...</code></pre>
+
+        <p>
+          Auth Server가 Refresh Token을 검증하고 새 Access Token(과 가끔 새 Refresh Token)을 반환해요.
+          사용자는 이 과정을 알아채지 못해요. 자동으로 갱신되니까요.
+        </p>
+
+        <p>
+          단, Refresh Token도 보안 자산이에요. 탈취되면 공격자가 계속 새 Access Token을 만들 수 있어요.
+          그래서 안전하게 보관해야 하고, 모바일 앱 같은 환경에선 Token Rotation 같은 추가 보호가 필요해요.
+          이건 4편에서 자세히.
+        </p>
+
+        <h2>OAuth 1.0과 뭐가 달라요</h2>
+
+        <p>
+          OAuth 2.0이 나오기 전에 OAuth 1.0이 있었어요. 둘은 거의 다른 프로토콜이라고 봐도 돼요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>OAuth 1.0</th><th>OAuth 2.0</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>서명</td>
+              <td>HMAC 서명 필수</td>
+              <td>HTTPS 의존, 서명 선택</td>
+            </tr>
+            <tr>
+              <td>복잡도</td>
+              <td>높음 (서명 계산 복잡)</td>
+              <td>낮음 (HTTPS만 있으면 됨)</td>
+            </tr>
+            <tr>
+              <td>Flow 종류</td>
+              <td>1가지</td>
+              <td>여러 가지 (Authorization Code, Implicit, Client Credentials, ...)</td>
+            </tr>
+            <tr>
+              <td>모바일/SPA 지원</td>
+              <td>어려움</td>
+              <td>적합한 Flow 제공</td>
+            </tr>
+            <tr>
+              <td>현재 위치</td>
+              <td>레거시</td>
+              <td>표준</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          OAuth 2.0이 단순함과 유연성을 챙긴 대신 보안의 일부를 HTTPS에 의존해요.
+          그래서 OAuth 2.0은 항상 HTTPS 환경에서만 안전하게 동작해요.
+          평문 HTTP에서 OAuth 2.0을 쓰면 토큰이 그대로 노출돼요.
+        </p>
+
+        <h2>"Authentication"이 아니에요</h2>
+
+        <p>
+          한 가지 헷갈리는 부분이 있어요. OAuth 2.0은 인증(Authentication)이 아니라 <strong>인가(Authorization)</strong> 프로토콜이에요.
+        </p>
+
+        <ul>
+          <li>인증: "당신이 누구인지" 확인 (로그인)</li>
+          <li>인가: "당신이 무엇을 할 수 있는지" 결정 (권한)</li>
+        </ul>
+
+        <p>
+          OAuth 2.0이 알려주는 건 "이 Token으로 이런 작업을 할 수 있다"이지 "이 Token의 사용자가 누구다"가 아니에요.
+          "구글로 로그인"처럼 사용자 신원도 알아야 하는 경우엔 OAuth 2.0 위에 추가 표준이 필요해요.
+          그게 OpenID Connect (OIDC)예요. 4편의 주제.
+        </p>
+
+        <h2>OAuth가 필요한 자리</h2>
+
+        <p>
+          어떤 상황에서 OAuth 2.0을 쓰는지 정리하면 이래요.
+        </p>
+
+        <ul>
+          <li><strong>3rd-party 앱이 사용자 데이터에 접근</strong>: PrintifyMe가 구글 드라이브 사진 사용</li>
+          <li><strong>SSO (Single Sign-On)</strong>: 한 번 로그인으로 여러 서비스 사용</li>
+          <li><strong>모바일 앱과 백엔드 API 인증</strong>: 모바일 앱이 백엔드 API에 접근하는 표준</li>
+          <li><strong>마이크로서비스 간 인증</strong>: 서비스끼리 서로 권한 확인</li>
+          <li><strong>"소셜 로그인"</strong>: 구글/페이스북/카카오 로그인 (OIDC와 결합)</li>
+        </ul>
+
+        <p>
+          현대 웹/모바일 인증의 사실상 표준이에요. 직접 인증 시스템 만들기 전에 OAuth 2.0과 OIDC 기반 솔루션을 먼저 검토하는 게 일반적.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. OAuth 2.0이 풀려는 문제가 뭔가요?</h3>
+
+        <p>
+          비밀번호를 노출하지 않고 특정 권한만 안전하게 위임하는 거예요.
+          예를 들어 사진 인쇄 앱이 내 구글 드라이브의 사진을 가져오게 하고 싶은데, 구글 비밀번호를 알려주는 건 위험해요.
+          OAuth는 사용자가 직접 구글에서 동의한 뒤, "사진 읽기" 같은 제한된 권한의 Access Token만 발급받아 앱에 전달해요.
+          비밀번호는 절대 앱에 노출되지 않아요.
+        </p>
+
+        <h3>Q. OAuth의 4가지 역할은요?</h3>
+
+        <p>
+          Resource Owner(자원 주인, 보통 사용자), Client(접근하려는 앱), Resource Server(자원 서버),
+          Authorization Server(권한 발급 서버)예요.
+          큰 서비스는 Resource Server와 Auth Server를 별도로 운영하고, 작은 서비스는 한 시스템이 둘 다 처리해요.
+        </p>
+
+        <h3>Q. Access Token과 Refresh Token의 차이는요?</h3>
+
+        <p>
+          Access Token은 자원 접근에 직접 쓰는 토큰이에요. 짧게 유효(보통 1시간).
+          Refresh Token은 Access Token이 만료되면 새 Access Token을 받기 위한 도구예요. 길게 유효(7일~30일).
+          Access Token은 자주 노출되니 짧게, Refresh Token은 안전하게 보관하면서 자주 안 보냄.
+          이 분리가 보안과 사용성의 균형을 만들어요.
+        </p>
+
+        <h3>Q. OAuth 2.0이 인증(Authentication)인가요?</h3>
+
+        <p>
+          엄밀히는 아니에요. OAuth 2.0은 인가(Authorization) 프로토콜이에요. "이 Token으로 무엇을 할 수 있는가"를 알려주지
+          "이 Token의 사용자가 누구인가"는 직접 알려주지 않아요.
+          사용자 신원을 알려면 OpenID Connect(OIDC)를 OAuth 2.0 위에 얹어 써요. "구글로 로그인" 같은 기능이 OIDC 기반이에요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          OAuth 2.0은 비밀번호 없이 권한을 위임하는 표준이에요.
+          Resource Owner, Client, Resource Server, Authorization Server 4가지 역할로 나누고,
+          사용자 동의를 거쳐 짧게 유효한 Access Token을 발급해요.
+          Refresh Token으로 자동 갱신하고, scope로 권한 범위를 제한해요.
+          현대 웹/모바일 인증의 사실상 표준이지만, 인증 자체가 아닌 인가 프로토콜이라는 점을 의식해야 해요.
+        </p>
+
+        <p>
+          다음 편에서는 가장 표준적인 흐름인 Authorization Code Flow를 단계별로 따라가봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
