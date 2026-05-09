@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실무 비교 — 무엇을 언제 쓸까 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 4/4</div>
+        <h1>실무 비교 — 무엇을 언제 쓸까</h1>
+        <p class="subtitle">
+          HTTP 1.1, 2, 3 중 어느 걸 쓸지 결정하는 가이드. 그리고 마이그레이션할 때 고려해야 할 것들이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP/1.1 → 2 → 3</div>
+        <ol>
+          <li><a href="./01-http-1-1.html">HTTP/1.1과 그 한계</a></li>
+          <li><a href="./02-http-2.html">HTTP/2 — 멀티플렉싱과 HPACK</a></li>
+          <li><a href="./03-http-3.html">HTTP/3 — QUIC 위의 새 시작</a></li>
+          <li class="current">실무 비교 — 무엇을 언제 쓸까</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>한 표로 정리</h2>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>HTTP/1.1</th><th>HTTP/2</th><th>HTTP/3</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>표준화 시기</td>
+              <td>1997</td>
+              <td>2015</td>
+              <td>2022</td>
+            </tr>
+            <tr>
+              <td>전송 형식</td>
+              <td>텍스트</td>
+              <td>바이너리</td>
+              <td>바이너리</td>
+            </tr>
+            <tr>
+              <td>전송 프로토콜</td>
+              <td>TCP</td>
+              <td>TCP</td>
+              <td>UDP (QUIC)</td>
+            </tr>
+            <tr>
+              <td>한 연결의 동시성</td>
+              <td>1 요청씩</td>
+              <td>여러 스트림 (HTTP HOL 해결)</td>
+              <td>여러 스트림 (TCP HOL까지 해결)</td>
+            </tr>
+            <tr>
+              <td>handshake</td>
+              <td>TCP 1 RTT (TLS 추가 1~2 RTT)</td>
+              <td>TCP 1 RTT + TLS</td>
+              <td>1 RTT (재연결 0 RTT)</td>
+            </tr>
+            <tr>
+              <td>헤더 압축</td>
+              <td>없음</td>
+              <td>HPACK</td>
+              <td>QPACK</td>
+            </tr>
+            <tr>
+              <td>TLS</td>
+              <td>선택</td>
+              <td>사실상 필수</td>
+              <td>QUIC에 내장 (필수)</td>
+            </tr>
+            <tr>
+              <td>모바일/IP 변경</td>
+              <td>연결 끊김</td>
+              <td>연결 끊김</td>
+              <td>Connection Migration</td>
+            </tr>
+            <tr>
+              <td>디버깅</td>
+              <td>쉬움</td>
+              <td>중간</td>
+              <td>어려움 (암호화)</td>
+            </tr>
+            <tr>
+              <td>인프라 호환성</td>
+              <td>매우 좋음</td>
+              <td>좋음</td>
+              <td>일부 환경 차단</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>상황별 권장</h2>
+
+        <h3>외부 사용자 대상 웹 서비스</h3>
+
+        <p>
+          브라우저로 접근하는 일반 웹 서비스라면 <strong>HTTP/2 + 가능하면 HTTP/3 폴백</strong>이 표준이에요.
+          모던 브라우저 모두 HTTP/2를 기본 지원하고, HTTP/3까지 활성화하면 모바일 사용자 응답 시간이 개선돼요.
+          Cloudflare, Fastly 같은 CDN은 HTTP/3를 한 번 클릭으로 켤 수 있어요.
+        </p>
+
+        <ul>
+          <li>모든 자원에 HTTPS 적용</li>
+          <li>웹 서버에 HTTP/2 활성화 (nginx 1.9.5+, Apache 2.4.17+, Spring Boot 내장 Tomcat)</li>
+          <li>CDN/엣지에서 HTTP/3 켜기</li>
+          <li>Alt-Svc 헤더로 클라이언트에 HTTP/3 가능 알림</li>
+        </ul>
+
+        <h3>모바일 앱과의 API 통신</h3>
+
+        <p>
+          모바일 환경은 HTTP/3 효과가 가장 큰 자리예요.
+          네트워크 전환(Wi-Fi → 5G), 패킷 유실, 큰 RTT 같은 조건이 모두 HTTP/3에 유리해요.
+        </p>
+
+        <ul>
+          <li>네이티브 앱이라면 HTTP/3 지원 라이브러리 사용 (OkHttp, NSURLSession, Cronet)</li>
+          <li>API Gateway/CDN에서 HTTP/3 활성화</li>
+          <li>0-RTT는 멱등 요청에만 적용 (재시도 안전한 GET 위주)</li>
+        </ul>
+
+        <h3>서버-서버 통신 (마이크로서비스)</h3>
+
+        <p>
+          내부 백엔드 통신은 의외로 <strong>HTTP/1.1로 충분</strong>한 경우가 많아요.
+        </p>
+
+        <ul>
+          <li>RTT가 매우 짧음 (같은 데이터센터 내, 보통 &lt;1ms)</li>
+          <li>요청 패턴이 단순 (RESTful)</li>
+          <li>HTTP/2의 장점인 멀티플렉싱 효과가 적음 (RTT가 짧으니)</li>
+          <li>디버깅 편의성이 더 중요할 수 있음</li>
+        </ul>
+
+        <p>
+          예외는 gRPC 환경이에요. gRPC는 HTTP/2 위에 빌드되어 있어서 HTTP/2가 자연스러운 선택.
+          스트리밍 API, 양방향 통신이 필요하면 HTTP/2 권장.
+        </p>
+
+        <h3>사내 도구 / 어드민</h3>
+
+        <p>
+          사용자 수 적고 기능 위주면 HTTP/1.1로 충분해요. 디버깅 쉽고 인프라 호환성 좋아요.
+          최신 기술의 이득이 사용자 수가 적은 환경에서는 의미 약해요.
+        </p>
+
+        <h3>WebSocket / 실시간 양방향</h3>
+
+        <p>
+          WebSocket은 HTTP로 시작해서 업그레이드되는 방식이에요.
+          HTTP/1.1과 HTTP/2 모두 WebSocket을 지원하지만, HTTP/3는 별도 표준(RFC 9220)이 필요했고 보급이 진행 중이에요.
+          현재는 WebSocket 환경에서 HTTP/2 기반이 가장 무난해요.
+        </p>
+
+        <h3>매우 큰 파일 다운로드 / 스트리밍</h3>
+
+        <p>
+          영상 스트리밍, 큰 파일 다운로드는 HTTP/3의 이점이 두드러져요.
+          한 패킷 유실로 전체가 막히지 않으니 더 안정적인 throughput.
+          Netflix, YouTube 같은 서비스가 HTTP/3 적극 활용.
+        </p>
+
+        <h2>마이그레이션 전략</h2>
+
+        <h3>HTTP/1.1 → HTTP/2</h3>
+
+        <p>
+          가장 단순한 단계예요. 대부분 인프라 설정만 바꾸면 끝.
+        </p>
+
+        <ol>
+          <li>HTTPS 적용 (이미 있다면 패스)</li>
+          <li>웹 서버 설정에서 HTTP/2 활성화</li>
+          <li>로드밸런서가 HTTP/2 지원하는지 확인</li>
+          <li>Domain Sharding 같은 1.1 시절 최적화 패턴 제거 (오히려 손해)</li>
+          <li>모니터링으로 실측 성능 확인</li>
+        </ol>
+
+        <h3>HTTP/1.1 시절 최적화의 함정</h3>
+
+        <p>
+          HTTP/1.1을 위한 최적화 패턴 일부는 HTTP/2에서 오히려 나빠요.
+        </p>
+
+        <ul>
+          <li><strong>Domain Sharding</strong>: HTTP/2는 한 연결로 충분해서 분산이 의미 없음. 오히려 DNS·TLS 비용</li>
+          <li><strong>이미지 스프라이트</strong>: 작은 이미지를 모아 큰 이미지 한 장으로. HTTP/2는 작은 이미지를 자유롭게 받을 수 있어 분리가 더 좋음</li>
+          <li><strong>인라인 CSS/JS</strong>: HTML에 모두 박는 패턴. HTTP/2에서는 별도 캐시 가능한 자원으로 분리가 더 좋음</li>
+          <li><strong>파일 합치기</strong>: 여러 JS를 하나로 합치는 패턴. 캐시 무효화가 통째로 일어나서 비효율</li>
+        </ul>
+
+        <p>
+          HTTP/2로 갈 때 이런 1.1 최적화를 제거하는 게 마이그레이션의 핵심이에요.
+          "최적화가 자동으로 따라오는 게 아니라 의식적으로 풀어줘야 한다"는 점이 중요해요.
+        </p>
+
+        <h3>HTTP/2 → HTTP/3</h3>
+
+        <p>
+          이 전환은 인프라 의존도가 높아요.
+        </p>
+
+        <ol>
+          <li>CDN/엣지가 HTTP/3 지원하는지 확인 (Cloudflare, Fastly, Akamai 모두 지원)</li>
+          <li>웹 서버는 직접 HTTP/3 안 해도 되는 경우 많음 (CDN이 처리)</li>
+          <li>Alt-Svc 헤더로 클라이언트에 HTTP/3 가능 알림</li>
+          <li>모바일 앱은 HTTP/3 지원 라이브러리로 업그레이드 (Cronet 등)</li>
+          <li>UDP 차단 환경 대비해 HTTP/2 fallback 유지</li>
+        </ol>
+
+        <h2>체크리스트</h2>
+
+        <h3>현재 사용 중인 HTTP 버전 확인</h3>
+
+        <pre><code class="language-bash">curl -I --http2 https://example.com
+curl -I --http3 https://example.com</code></pre>
+
+        <p>
+          또는 브라우저 개발자 도구 Network 탭에서 Protocol 컬럼 확인.
+          h2면 HTTP/2, h3면 HTTP/3, http/1.1이면 1.1.
+        </p>
+
+        <h3>nginx 설정 예</h3>
+
+        <pre><code class="language-nginx">server {
+    listen 443 ssl http2;
+    listen 443 quic reuseport;   # HTTP/3
+    http2 on;
+    http3 on;
+
+    add_header Alt-Svc 'h3=":443"; ma=86400';
+    # h3 endpoint 정보를 클라이언트에 알림
+
+    server_name example.com;
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+}</code></pre>
+
+        <p>
+          nginx 1.25.0+에서 HTTP/3가 정식 지원돼요. <code>quic</code> listen이 핵심.
+          <code>Alt-Svc</code> 헤더로 클라이언트에 HTTP/3 endpoint를 알려줘야 자동 업그레이드돼요.
+        </p>
+
+        <h3>Spring Boot</h3>
+
+        <pre><code class="language-yaml">server:
+  http2:
+    enabled: true
+  ssl:
+    enabled: true
+    key-store: classpath:keystore.p12</code></pre>
+
+        <p>
+          Spring Boot 내장 Tomcat은 HTTP/2 지원이 간단해요. yaml 한 줄.
+          HTTP/3는 직접 처리하지 않고 보통 앞단 LB/CDN이 처리해요.
+        </p>
+
+        <h2>모니터링 — 실측이 답</h2>
+
+        <p>
+          어떤 HTTP 버전이 좋은지는 환경마다 달라요. 추측 말고 실측해야 해요.
+        </p>
+
+        <ul>
+          <li><strong>RUM (Real User Monitoring)</strong>: 실제 사용자의 응답 시간을 수집. Datadog RUM, New Relic 등</li>
+          <li><strong>Web Vitals</strong>: LCP, FID, CLS 같은 사용자 체감 지표</li>
+          <li><strong>지역별 측정</strong>: HTTP/3는 RTT가 클수록 효과가 커요. 글로벌 서비스라면 지역별 비교</li>
+          <li><strong>네트워크별 측정</strong>: Wi-Fi vs 5G 등. 패킷 손실률에 따라 차이</li>
+          <li><strong>A/B 테스트</strong>: 일부 사용자에게만 HTTP/3 활성화하고 비교</li>
+        </ul>
+
+        <h2>흔한 함정</h2>
+
+        <h3>"무조건 최신이 더 빠르다"는 가정</h3>
+
+        <p>
+          HTTP/3가 항상 더 빠르지 않아요. 환경에 따라 달라요.
+          데이터센터 내부 통신처럼 RTT가 짧고 패킷 유실이 적은 환경에서는 HTTP/1.1이나 2가 더 빠를 수도 있어요.
+          벤치마크 없이 마이그레이션부터 하지 마세요.
+        </p>
+
+        <h3>HTTP/2를 켰는데 1.1 최적화를 그대로 둠</h3>
+
+        <p>
+          위에서 본 함정. Domain Sharding, 파일 합치기 등을 그대로 두면 HTTP/2의 이점을 못 살려요.
+          HTTP/2로 갈 땐 이런 1.1 패턴을 의식적으로 제거해야 해요.
+        </p>
+
+        <h3>HTTP/3 켜고 fallback 안 두기</h3>
+
+        <p>
+          UDP가 차단된 사용자 환경이 있어요. 회사 방화벽, 일부 ISP가 그래요.
+          HTTP/3만 두면 그런 사용자가 접근 못 해요. 항상 HTTP/2 fallback 유지.
+          Alt-Svc는 클라이언트에 옵션을 알리는 용도지, HTTP/3 강제가 아니에요.
+        </p>
+
+        <h3>0-RTT를 비멱등 요청에 사용</h3>
+
+        <p>
+          0-RTT 데이터는 replay 공격 가능성이 있어요. 같은 요청이 재전송될 수 있다는 뜻.
+          멱등성 있는 요청(GET, 안전한 PUT/DELETE)에만 안전해요.
+          POST나 결제 요청 같은 비멱등 작업은 0-RTT 비활성화 또는 별도 보호.
+        </p>
+
+        <h2>한 줄 요약</h2>
+
+        <table>
+          <thead>
+            <tr><th>상황</th><th>권장</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>외부 웹 서비스</td>
+              <td>HTTP/2 + CDN HTTP/3</td>
+            </tr>
+            <tr>
+              <td>모바일 앱 API</td>
+              <td>HTTP/3 (HTTP/2 fallback)</td>
+            </tr>
+            <tr>
+              <td>내부 백엔드 통신</td>
+              <td>HTTP/1.1 (단순 RESTful), HTTP/2 (gRPC)</td>
+            </tr>
+            <tr>
+              <td>WebSocket</td>
+              <td>HTTP/2 기반</td>
+            </tr>
+            <tr>
+              <td>스트리밍 / 큰 파일</td>
+              <td>HTTP/3 (가능하면)</td>
+            </tr>
+            <tr>
+              <td>사내 도구</td>
+              <td>HTTP/1.1로 충분</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HTTP/2와 HTTP/3 중 무엇을 쓸지 어떻게 결정하나요?</h3>
+
+        <p>
+          환경에 달려있어요. 일반 웹 서비스라면 HTTP/2 + CDN의 HTTP/3가 표준 답이에요.
+          모바일 앱과의 API 통신이면 HTTP/3 효과가 큽니다. RTT가 크고 IP 변경이 잦은 환경이거든요.
+          내부 마이크로서비스 통신은 HTTP/1.1로도 충분한 경우가 많고, gRPC면 HTTP/2.
+          무조건 최신이 빠른 게 아니라 측정해서 결정하는 게 정답이에요.
+        </p>
+
+        <h3>Q. HTTP/2로 마이그레이션할 때 주의할 점?</h3>
+
+        <p>
+          HTTP/1.1 시절 최적화 패턴을 의식적으로 제거해야 해요.
+          Domain Sharding, 이미지 스프라이트, 파일 합치기 같은 게 HTTP/2에서는 오히려 손해예요.
+          HTTP/2는 한 연결로 여러 자원을 동시에 받을 수 있어서 분리가 더 좋아요.
+          이런 1.1 최적화를 그대로 두고 HTTP/2 켜면 효과가 잘 안 나타나요.
+        </p>
+
+        <h3>Q. 0-RTT의 보안 위험은요?</h3>
+
+        <p>
+          replay 공격 가능성이에요. 0-RTT 데이터는 한 번 만들어진 키로 암호화되어 있어서 공격자가 캡처해뒀다 재전송할 수 있어요.
+          그래서 멱등성 있는 요청(GET 등)에만 안전하게 쓸 수 있어요.
+          POST, 결제 요청 같은 비멱등 작업은 0-RTT를 끄거나 별도 nonce 검증 같은 보호 장치를 둬야 해요.
+        </p>
+
+        <h3>Q. 데이터센터 내부에서도 HTTP/3가 더 좋나요?</h3>
+
+        <p>
+          보통 그렇지 않아요. 내부 통신은 RTT가 1ms 이하로 매우 짧고 패킷 유실도 적어요.
+          HTTP/3의 이점인 0-RTT, Connection Migration, TCP HOL 해결의 효과가 거의 없어요.
+          반면 QUIC의 유저 공간 처리 비용은 그대로 들어가서 오히려 손해예요.
+          내부 통신에는 HTTP/1.1이나 2로 충분한 게 일반적이에요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          HTTP 버전 선택은 환경에 따라 달라요. 외부 웹은 HTTP/2 + CDN HTTP/3, 모바일은 HTTP/3, 내부 통신은 HTTP/1.1로 충분한 경우 많음.
+          마이그레이션 시엔 1.1 시절 최적화를 의식적으로 풀어주는 게 핵심이고,
+          HTTP/3는 fallback과 함께 도입하는 게 안전해요. 무엇보다 추측이 아닌 실측으로 검증하는 자세가 중요해요.
+        </p>
+
+        <p>
+          HTTP 버전 시리즈는 여기까지예요. 다음은 다른 주제로 넘어가요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

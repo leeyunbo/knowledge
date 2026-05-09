@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP/2 — 멀티플렉싱과 HPACK (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 2/4</div>
+        <h1>HTTP/2 — 멀티플렉싱과 HPACK</h1>
+        <p class="subtitle">
+          한 연결에서 여러 요청을 동시에. 텍스트에서 바이너리로. HTTP/2가 1.1의 한계를 어떻게 깼는지 봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP/1.1 → 2 → 3</div>
+        <ol>
+          <li><a href="./01-http-1-1.html">HTTP/1.1과 그 한계</a></li>
+          <li class="current">HTTP/2 — 멀티플렉싱과 HPACK</li>
+          <li><a href="./03-http-3.html">HTTP/3 — QUIC 위의 새 시작</a></li>
+          <li><a href="./04-실무-비교.html">실무 비교</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>HTTP/2의 출발</h2>
+
+        <p>
+          2015년 RFC 7540으로 표준화됐어요. 출발점은 구글의 SPDY 프로토콜이고, 그게 HTTP/2로 IETF에 흡수됐어요.
+          목표는 단순했어요. <strong>HTTP/1.1의 의미를 그대로 두면서 전송 효율을 올리자</strong>는 거였어요.
+        </p>
+
+        <p>
+          그래서 HTTP의 메서드, 헤더, 상태코드, URL 같은 의미는 모두 동일해요.
+          바뀐 건 wire 위에 데이터가 어떻게 흐르는지, 그 부분만이에요.
+          개발자 입장에서는 거의 투명하게 1.1에서 2로 갈 수 있어요.
+        </p>
+
+        <h2>핵심 변화 4가지</h2>
+
+        <p>
+          HTTP/2를 정의하는 핵심 개선이 네 가지 있어요.
+        </p>
+
+        <ol>
+          <li>바이너리 프레이밍 (Binary Framing)</li>
+          <li>멀티플렉싱 (Multiplexing)</li>
+          <li>HPACK 헤더 압축</li>
+          <li>서버 푸시 (Server Push)</li>
+        </ol>
+
+        <p>
+          하나씩 봐볼게요.
+        </p>
+
+        <h2>1. 바이너리 프레이밍</h2>
+
+        <p>
+          HTTP/1.1은 텍스트 기반이에요. <code>GET /index.html\r\n</code> 같은 줄을 직접 파싱해야 해요.
+          공백, 줄바꿈, 대소문자 같은 미묘한 처리에 취약하고, 파싱 자체도 효율적이지 않아요.
+        </p>
+
+        <p>
+          HTTP/2는 통신 단위를 <strong>프레임</strong>이라는 바이너리 단위로 바꿨어요.
+          프레임 헤더는 정확히 9바이트, 그 뒤에 페이로드가 따라와요.
+        </p>
+
+        <pre><code class="language-text">+-----------------------------------------------+
+|                 Length (24)                   |
++---------------+---------------+---------------+
+|   Type (8)    |   Flags (8)   |
++-+-------------+---------------+-------------------------------+
+|R|                 Stream Identifier (31)                      |
++=+=============================================================+
+|                   Frame Payload (0...)                      ...
++---------------------------------------------------------------+</code></pre>
+
+        <h3>주요 프레임 타입</h3>
+
+        <ul>
+          <li><code>HEADERS</code>: 요청/응답 헤더 (HPACK 압축)</li>
+          <li><code>DATA</code>: 응답 본문, 요청 body</li>
+          <li><code>SETTINGS</code>: 연결 파라미터 협상</li>
+          <li><code>WINDOW_UPDATE</code>: 흐름 제어</li>
+          <li><code>RST_STREAM</code>: 스트림 강제 종료</li>
+          <li><code>GOAWAY</code>: 연결 종료 신호</li>
+          <li><code>PING</code>: 연결 살아있는지 확인</li>
+        </ul>
+
+        <p>
+          프레임을 단위로 통신하니 다음에 볼 멀티플렉싱이 가능해져요.
+        </p>
+
+        <h2>2. 멀티플렉싱 — 핵심 중의 핵심</h2>
+
+        <p>
+          가장 큰 변화예요. <strong>한 TCP 연결에서 여러 요청과 응답이 동시에 흐를 수 있어요</strong>.
+          어떻게 가능한가? 각 요청과 응답이 독립적인 <strong>스트림(Stream)</strong>이라는 가상 채널로 분리되거든요.
+        </p>
+
+        <h3>스트림과 프레임의 관계</h3>
+
+        <ul>
+          <li>한 TCP 연결 안에 여러 스트림이 동시에 존재</li>
+          <li>각 스트림은 고유한 ID를 가짐</li>
+          <li>요청 하나, 응답 하나가 한 스트림</li>
+          <li>프레임마다 자기가 속한 stream ID가 적혀 있어요</li>
+        </ul>
+
+        <p>
+          그래서 클라이언트와 서버 모두 프레임이 도착하면 그 ID로 어느 스트림 데이터인지 즉시 알 수 있어요.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HTTP/2 멀티플렉싱">
+            <defs>
+              <style>
+                .conn { fill: none; stroke: #4e5968; stroke-width: 1.5; }
+                .stream-1 { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1; }
+                .stream-2 { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1; }
+                .stream-3 { fill: #f0f9f4; stroke: #2e7d32; stroke-width: 1; }
+                .stream-4 { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">HTTP/2 — 한 TCP 연결에 여러 스트림 동시 진행</text>
+
+            <rect x="20" y="35" width="560" height="80" rx="6" class="conn" stroke-dasharray="3,3"/>
+            <text x="30" y="52" class="small" fill="#4e5968">단일 TCP 연결</text>
+
+            <g>
+              <rect x="40" y="65" width="50" height="20" class="stream-1"/>
+              <text x="65" y="79" text-anchor="middle" class="small">S1</text>
+
+              <rect x="100" y="65" width="50" height="20" class="stream-2"/>
+              <text x="125" y="79" text-anchor="middle" class="small">S3</text>
+
+              <rect x="160" y="65" width="50" height="20" class="stream-1"/>
+              <text x="185" y="79" text-anchor="middle" class="small">S1</text>
+
+              <rect x="220" y="65" width="50" height="20" class="stream-3"/>
+              <text x="245" y="79" text-anchor="middle" class="small">S5</text>
+
+              <rect x="280" y="65" width="50" height="20" class="stream-2"/>
+              <text x="305" y="79" text-anchor="middle" class="small">S3</text>
+
+              <rect x="340" y="65" width="50" height="20" class="stream-4"/>
+              <text x="365" y="79" text-anchor="middle" class="small">S7</text>
+
+              <rect x="400" y="65" width="50" height="20" class="stream-3"/>
+              <text x="425" y="79" text-anchor="middle" class="small">S5</text>
+
+              <rect x="460" y="65" width="50" height="20" class="stream-1"/>
+              <text x="485" y="79" text-anchor="middle" class="small">S1</text>
+
+              <rect x="40" y="90" width="50" height="20" class="stream-2"/>
+              <text x="65" y="104" text-anchor="middle" class="small">S3</text>
+
+              <rect x="100" y="90" width="50" height="20" class="stream-4"/>
+              <text x="125" y="104" text-anchor="middle" class="small">S7</text>
+
+              <rect x="160" y="90" width="50" height="20" class="stream-3"/>
+              <text x="185" y="104" text-anchor="middle" class="small">S5</text>
+            </g>
+
+            <text x="20" y="140" class="header">스트림별로 정리하면</text>
+
+            <g>
+              <rect x="20" y="155" width="14" height="14" class="stream-1"/>
+              <text x="44" y="167" class="small">S1: 요청 1 + 응답 1</text>
+
+              <rect x="200" y="155" width="14" height="14" class="stream-2"/>
+              <text x="224" y="167" class="small">S3: 요청 2 + 응답 2</text>
+
+              <rect x="380" y="155" width="14" height="14" class="stream-3"/>
+              <text x="404" y="167" class="small">S5: 요청 3 + 응답 3</text>
+
+              <rect x="20" y="180" width="14" height="14" class="stream-4"/>
+              <text x="44" y="192" class="small">S7: 요청 4 + 응답 4</text>
+
+              <text x="200" y="200" class="small" fill="#1b64da">프레임마다 stream ID로 구분 → 모두 동시 진행</text>
+            </g>
+          </svg>
+          <figcaption>HTTP/2 멀티플렉싱 — 한 연결의 프레임들이 여러 스트림으로 분리되어 동시 처리</figcaption>
+        </figure>
+
+        <h3>HOL blocking 일부 해결</h3>
+
+        <p>
+          HTTP 레벨에서는 head-of-line blocking이 사라졌어요.
+          한 요청의 응답이 늦어도 다른 요청들은 그것과 무관하게 진행돼요.
+          1편에서 본 1.1의 가장 큰 문제가 풀린 거예요.
+        </p>
+
+        <p>
+          단, TCP 레벨의 HOL blocking은 여전히 남아 있어요.
+          이건 HTTP/3에서 해결되는 부분이라 다음 편에서 자세히.
+        </p>
+
+        <h2>3. HPACK 헤더 압축</h2>
+
+        <p>
+          HTTP/1.1 요청은 헤더가 자주 비대해요. 쿠키, User-Agent, Accept 헤더만 모아도 수 KB.
+          그런데 같은 클라이언트가 같은 사이트로 보내는 요청들은 헤더가 거의 동일해요. 매번 같은 정보를 반복 전송하는 건 낭비예요.
+        </p>
+
+        <p>
+          HTTP/2의 HPACK은 이 낭비를 줄이는 헤더 전용 압축 알고리즘이에요. 두 가지 기법을 결합해요.
+        </p>
+
+        <h3>정적 테이블</h3>
+
+        <p>
+          자주 쓰이는 헤더 이름과 값 조합 61개가 미리 인덱스로 정의돼 있어요.
+          예를 들어 <code>:method = GET</code>은 인덱스 2번. 그래서 GET 요청은 헤더 한 줄을 한 바이트로 표현할 수 있어요.
+        </p>
+
+        <h3>동적 테이블</h3>
+
+        <p>
+          연결 동안 사용된 헤더를 동적으로 인덱스에 추가해요.
+          첫 요청에서 <code>User-Agent: Mozilla/5.0...</code>이 나오면 인덱스 62번에 등록.
+          다음 요청에선 같은 헤더가 인덱스 한 바이트로 표현돼요.
+        </p>
+
+        <h3>Huffman 코딩</h3>
+
+        <p>
+          새로 보내는 값은 Huffman 코딩으로 비트 단위로 압축해요. ASCII 문자별로 빈도 기반 가변 길이 코드.
+          UTF-8 영어 텍스트 기준 약 25% 압축 효과.
+        </p>
+
+        <h3>왜 gzip이 아니고 HPACK?</h3>
+
+        <p>
+          gzip 같은 일반 압축은 HTTP/1.1에서 응답 본문에 쓰여요. 이걸 헤더에도 쓰면 안 되나? 안 돼요.
+          CRIME, BREACH 같은 공격이 가능했어요. 압축 비율을 관찰해서 비밀 정보(쿠키 토큰 등)를 추측하는 사이드채널 공격이에요.
+        </p>
+
+        <p>
+          HPACK은 처음부터 이 공격에 안전하도록 설계됐어요. Huffman 코딩은 정적이고, 동적 테이블은 헤더 이름 단위라 비밀 값 비교가 안 돼요.
+        </p>
+
+        <h2>4. 서버 푸시</h2>
+
+        <p>
+          클라이언트가 요청하기 전에 서버가 자원을 미리 보내는 메커니즘이에요.
+          예를 들어 <code>index.html</code> 요청이 들어오면 서버는 그 페이지가 <code>style.css</code>도 필요할 거라고 예측해서 함께 푸시.
+          클라이언트는 HTML을 파싱하고 CSS 요청을 보내기 전에 이미 받아놓은 셈이에요.
+        </p>
+
+        <h3>실무에서 잘 안 쓰여요</h3>
+
+        <p>
+          이론적으로는 멋진데 현실에서는 잘 동작하지 않았어요.
+        </p>
+
+        <ul>
+          <li>클라이언트 캐시에 이미 있는 자원도 서버가 푸시해서 트래픽 낭비</li>
+          <li>클라이언트가 어떤 자원을 가지고 있는지 서버가 정확히 알기 어려움</li>
+          <li>실측에서 성능 향상이 미미하거나 오히려 손해</li>
+          <li>크롬은 2022년에 서버 푸시 지원을 deprecate</li>
+        </ul>
+
+        <p>
+          대안으로 <code>103 Early Hints</code> + <code>preload</code> 헤더 패턴이 부상하고 있어요.
+          서버가 "이 자원을 먼저 받아두라"고 힌트만 주고 클라이언트가 결정하게 하는 방식이라 더 안전해요.
+        </p>
+
+        <h2>HTTP/2의 또 다른 디테일</h2>
+
+        <h3>스트림 우선순위</h3>
+
+        <p>
+          클라이언트가 어느 자원이 더 중요한지 서버에 알릴 수 있어요.
+          예를 들어 CSS는 우선순위 높게, 광고 이미지는 낮게.
+          서버가 우선순위에 따라 프레임을 어떻게 섞을지 결정해요.
+        </p>
+
+        <h3>흐름 제어</h3>
+
+        <p>
+          연결과 스트림 단위로 윈도우 기반 흐름 제어가 있어요.
+          한 스트림이 데이터를 너무 빨리 보내서 받는 쪽이 처리 못하는 상황을 막아요.
+          TCP의 흐름 제어와 비슷한 개념인데 HTTP 레벨에서 또 한 번 적용돼요.
+        </p>
+
+        <h3>보안</h3>
+
+        <p>
+          기술적으로 HTTP/2는 평문(h2c)도 정의돼 있지만, <strong>모든 브라우저가 TLS 위에서만 HTTP/2를 지원</strong>해요.
+          그래서 실무에선 HTTPS == HTTP/2 위에서 가능 같은 인식이 자리잡았어요.
+          ALPN 확장으로 TLS handshake 중 HTTP 버전을 협상해요.
+        </p>
+
+        <h2>HTTP/1.1과 비교 정리</h2>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>HTTP/1.1</th><th>HTTP/2</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>전송 형식</td>
+              <td>텍스트</td>
+              <td>바이너리 프레임</td>
+            </tr>
+            <tr>
+              <td>한 연결의 동시성</td>
+              <td>1 요청씩 순차</td>
+              <td>여러 스트림 동시 (멀티플렉싱)</td>
+            </tr>
+            <tr>
+              <td>HTTP 레벨 HOL blocking</td>
+              <td>심함</td>
+              <td>해결</td>
+            </tr>
+            <tr>
+              <td>TCP 레벨 HOL blocking</td>
+              <td>있음</td>
+              <td>여전히 있음</td>
+            </tr>
+            <tr>
+              <td>헤더 압축</td>
+              <td>없음</td>
+              <td>HPACK</td>
+            </tr>
+            <tr>
+              <td>도메인당 연결 수</td>
+              <td>6개 (브라우저)</td>
+              <td>1개로 충분</td>
+            </tr>
+            <tr>
+              <td>TLS</td>
+              <td>선택</td>
+              <td>사실상 필수 (브라우저 정책)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>HTTP/2의 한계 — TCP HOL blocking</h2>
+
+        <p>
+          HTTP/2가 HTTP 레벨의 HOL blocking은 풀었지만, 더 아래층의 TCP 자체의 HOL blocking은 여전히 남았어요.
+          TCP는 데이터를 순서대로 전달해야 하기 때문에, 패킷 하나가 유실되면 그 뒤 패킷이 도착해도 응용 계층에 전달하지 않아요.
+          재전송으로 그 패킷이 채워질 때까지 모두 기다려요.
+        </p>
+
+        <p>
+          HTTP/2가 한 연결로 멀티플렉싱하니까 이 효과가 더 두드러져요.
+          한 스트림의 패킷이 유실되면 무관한 다른 스트림의 데이터까지 모두 막혀요.
+          연결을 여러 개 두는 1.1보다 오히려 못한 상황이 생길 수도 있어요.
+        </p>
+
+        <p>
+          이게 HTTP/3가 풀려는 핵심 문제예요. TCP 자체를 버리고 UDP 위에 새 프로토콜을 올린 이유죠.
+          다음 편에서 자세히 봐요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HTTP/2가 1.1과 가장 다른 점은요?</h3>
+
+        <p>
+          멀티플렉싱이에요. 1.1은 한 연결에서 한 번에 한 요청만 처리할 수 있었지만,
+          HTTP/2는 한 연결 안에 여러 스트림을 두고 요청·응답을 동시에 흐르게 해요.
+          각 프레임에 stream ID가 붙어 있어서 어떤 요청에 속한 데이터인지 구분할 수 있고요.
+        </p>
+
+        <h3>Q. HPACK이 뭔가요?</h3>
+
+        <p>
+          HTTP/2의 헤더 압축 알고리즘이에요. 정적 테이블(자주 쓰이는 헤더 61개), 동적 테이블(연결 동안 학습된 헤더),
+          Huffman 코딩 셋을 결합해서 헤더 크기를 크게 줄여요. 같은 클라이언트의 반복 요청에서 헤더가 거의 무료에 가까워져요.
+          gzip 같은 일반 압축으로는 CRIME/BREACH 사이드채널 공격이 가능해서 안전한 전용 알고리즘이 필요했어요.
+        </p>
+
+        <h3>Q. HTTP/2의 서버 푸시가 왜 잘 안 쓰여요?</h3>
+
+        <p>
+          이론적으론 좋은데 실무에서 효과가 미미했어요. 클라이언트가 이미 캐시에 가진 자원도 서버가 푸시해서 트래픽 낭비,
+          서버가 클라이언트 상황을 정확히 알기 어려운 한계 때문이에요.
+          크롬은 2022년에 서버 푸시 지원을 deprecate했고, 대안으로 103 Early Hints + preload 패턴이 부상 중이에요.
+        </p>
+
+        <h3>Q. HTTP/2도 HOL blocking이 있나요?</h3>
+
+        <p>
+          HTTP 레벨은 해결됐지만 TCP 레벨은 여전해요. TCP는 패킷 순서대로만 전달하기 때문에, 한 패킷이 유실되면 그 뒤 모두 막혀요.
+          HTTP/2가 멀티플렉싱으로 한 연결에 여러 스트림을 묶으니, 한 스트림 패킷 유실이 다른 스트림까지 막는 부작용이 있어요.
+          이걸 풀려고 HTTP/3가 TCP 대신 UDP 기반 QUIC를 사용해요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          HTTP/2는 한 연결 안에 여러 스트림을 두는 멀티플렉싱으로 1.1의 head-of-line blocking을 풀었어요.
+          바이너리 프레이밍으로 효율적 파싱, HPACK으로 헤더 압축, 서버 푸시(거의 안 쓰임)까지.
+          단, TCP 레벨 HOL blocking은 여전히 남아서 한 패킷 유실이 무관한 스트림까지 막을 수 있어요.
+        </p>
+
+        <p>
+          다음 편에서는 이 한계를 풀려고 TCP를 버린 HTTP/3와 그 기반 프로토콜 QUIC를 살펴봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

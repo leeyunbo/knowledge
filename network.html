@@ -270,7 +270,7 @@
     <section class="graph-canvas">
       <div class="graph-meta">
         <span></span>
-        <span><span id="progressText">7 / 12</span> · <span id="progressPct">58%</span></span>
+        <span><span id="progressText">8 / 12</span> · <span id="progressPct">67%</span></span>
       </div>
 
       <svg class="graph-svg" viewBox="0 0 800 620" xmlns="http://www.w3.org/2000/svg" aria-label="HTTP / 네트워크 토픽 그래프">
@@ -346,10 +346,11 @@
         </a>
 
         <!-- Group B: HTTP 프로토콜 -->
-        <a class="node group-B" data-state="locked" data-id="5"
+        <a class="node group-B" data-state="done" data-id="5"
            data-title="HTTP/1.1 → HTTP/2 → HTTP/3"
-           data-desc="HoL blocking, multiplexing, QUIC. 버전별 동작 차이" href="#">
-          <g transform="translate(430,150)">
+           data-desc="HoL blocking, multiplexing, QUIC. 버전별 동작 차이"
+           href="./posts/2026-05-http-1-2-3/01-http-1-1.html">
+          <g transform="translate(430,150)" style="--ring-delay: 2.4s;">
             <circle class="node-ring" />
             <circle class="node-circle" r="10" />
             <text class="node-label" y="26">HTTP/1.1 → 2 → 3</text>
@@ -469,11 +470,11 @@
         <h2>B · HTTP 프로토콜</h2>
         <p class="group-desc">HTTP 자체의 동작에 대하여</p>
         <div class="topic-list">
-          <div class="topic-item locked">
+          <a class="topic-item done" href="./posts/2026-05-http-1-2-3/01-http-1-1.html">
             <span class="topic-num">05</span>
             <span class="topic-title">HTTP/1.1 → HTTP/2 → HTTP/3</span>
-            <span class="topic-meta">예정</span>
-          </div>
+            <span class="topic-meta">4편</span>
+          </a>
           <a class="topic-item done" href="./posts/2026-05-http-메소드-멱등성/01-멱등성의-정의.html">
             <span class="topic-num">06</span>
             <span class="topic-title">HTTP 메소드와 멱등성</span>

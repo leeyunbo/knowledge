@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP/1.1과 그 한계 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 1/4</div>
+        <h1>HTTP/1.1과 그 한계</h1>
+        <p class="subtitle">
+          1997년에 자리잡고 25년 넘게 웹의 표준으로 살아온 HTTP/1.1. 어떻게 동작하고 왜 한계에 부딪혔는지부터 시작해요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP/1.1 → 2 → 3</div>
+        <ol>
+          <li class="current">HTTP/1.1과 그 한계</li>
+          <li><a href="./02-http-2.html">HTTP/2 — 멀티플렉싱과 HPACK</a></li>
+          <li><a href="./03-http-3.html">HTTP/3 — QUIC 위의 새 시작</a></li>
+          <li><a href="./04-실무-비교.html">실무 비교 — 무엇을 언제, 어떻게 선택하나</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>HTTP/1.0의 출발점</h2>
+
+        <p>
+          HTTP가 처음 나왔을 때(1991년 0.9, 1996년 1.0)의 모델은 단순했어요.
+          한 번의 요청에 한 번의 응답, 그게 끝이에요. 통신이 끝나면 TCP 연결도 닫혔어요.
+        </p>
+
+        <p>
+          웹 페이지 하나가 HTML 1개 + 이미지 10개 + CSS 1개로 구성됐다고 해볼게요.
+          HTTP/1.0이라면 자원 12개를 받기 위해 TCP 연결을 12번 맺어야 했어요.
+          매번 3-way handshake에 1 RTT, TLS까지 쓰면 추가 RTT.
+          요즘 기준으로는 이상한 비효율이지만, 당시는 페이지가 단순해서 견딜만 했어요.
+        </p>
+
+        <h2>HTTP/1.1이 가져온 변화</h2>
+
+        <p>
+          1997년 RFC 2068, 1999년 RFC 2616으로 자리잡은 HTTP/1.1은 몇 가지 핵심 개선을 가져왔어요.
+        </p>
+
+        <h3>영속 연결 (Persistent Connection)</h3>
+
+        <p>
+          가장 큰 변화예요. TCP 연결을 한 번 맺으면 닫지 않고 여러 요청에 재사용해요.
+          연결당 handshake 비용이 한 번으로 줄어든 거예요.
+        </p>
+
+        <pre><code class="language-http">GET /index.html HTTP/1.1
+Host: example.com
+Connection: keep-alive
+
+[response 1]
+
+GET /style.css HTTP/1.1
+Host: example.com
+Connection: keep-alive
+
+[response 2]
+</code></pre>
+
+        <p>
+          HTTP/1.1에서는 <code>Connection: keep-alive</code>가 기본이라 헤더를 명시하지 않아도 영속 연결이에요.
+          연결을 끊고 싶을 때만 <code>Connection: close</code>를 보내요.
+        </p>
+
+        <h3>Host 헤더</h3>
+
+        <p>
+          이전엔 한 IP에 한 도메인만 호스팅할 수 있었어요.
+          HTTP/1.1의 <code>Host</code> 헤더가 이 제약을 풀었어요.
+        </p>
+
+        <pre><code class="language-http">GET /index.html HTTP/1.1
+Host: blog.example.com</code></pre>
+
+        <p>
+          서버가 같은 IP라도 Host 헤더로 어느 도메인 요청인지 알 수 있어요.
+          한 IP에 여러 도메인을 호스팅하는 가상 호스팅이 이때부터 가능해졌어요.
+          현재 모든 클라우드 호스팅의 기반이에요.
+        </p>
+
+        <h3>Chunked Transfer Encoding</h3>
+
+        <p>
+          응답 크기를 미리 알 수 없을 때 데이터를 조각(chunk)으로 나눠 보내는 방식이에요.
+          서버가 응답을 동적으로 생성하면서 동시에 전송할 수 있게 해줘요.
+        </p>
+
+        <pre><code class="language-http">HTTP/1.1 200 OK
+Transfer-Encoding: chunked
+
+5
+Hello
+6
+ World
+0
+</code></pre>
+
+        <p>
+          각 청크는 16진수 크기 + 데이터 형태예요. 0이 오면 끝.
+          서버 측 스트리밍의 토대로, 지금도 자주 쓰여요.
+        </p>
+
+        <h3>파이프라이닝</h3>
+
+        <p>
+          HTTP/1.1 명세에는 파이프라이닝이라는 개념도 있어요.
+          한 연결에서 응답을 기다리지 않고 여러 요청을 연속으로 보내는 거예요.
+        </p>
+
+        <pre><code class="language-text">→ Request 1
+→ Request 2
+→ Request 3
+← Response 1
+← Response 2
+← Response 3</code></pre>
+
+        <p>
+          이론적으로는 RTT를 더 줄일 수 있어요.
+          그런데 실무에서는 거의 쓰이지 않아요. 다음 절에서 설명할 head-of-line blocking 때문이에요.
+          많은 브라우저가 파이프라이닝을 기본 비활성화로 두거나 아예 지원을 끊었어요.
+        </p>
+
+        <h2>HTTP/1.1의 결정적 한계 — Head-of-Line Blocking</h2>
+
+        <p>
+          영속 연결은 좋은데, 한 가지 큰 문제가 있어요.
+          <strong>한 연결에서는 한 번에 한 요청만 처리할 수 있어요</strong>. 응답이 완전히 돌아와야 다음 요청을 보낼 수 있어요.
+        </p>
+
+        <p>
+          파이프라이닝으로 여러 요청을 미리 보낼 수는 있지만, 응답은 여전히 요청 순서대로 와야 해요.
+          첫 요청의 응답이 늦어지면 그 뒤 모든 응답이 줄줄이 막혀요.
+          이걸 head-of-line blocking이라고 불러요.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HOL blocking">
+            <defs>
+              <style>
+                .req { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1; }
+                .slow { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1; }
+                .blocked { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1; stroke-dasharray: 3,3; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .axis { stroke: #d8dce0; stroke-width: 1; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">HTTP/1.1 — 한 연결에서 순차 처리</text>
+
+            <line x1="20" y1="60" x2="580" y2="60" class="axis"/>
+            <line x1="20" y1="50" x2="20" y2="70" class="axis"/>
+
+            <rect x="30" y="42" width="80" height="36" rx="4" class="slow"/>
+            <text x="70" y="65" text-anchor="middle" class="label">req 1 (느림)</text>
+
+            <rect x="120" y="42" width="60" height="36" rx="4" class="blocked"/>
+            <text x="150" y="60" text-anchor="middle" class="small">req 2</text>
+            <text x="150" y="74" text-anchor="middle" class="small" fill="#d97c1c">대기</text>
+
+            <rect x="190" y="42" width="60" height="36" rx="4" class="blocked"/>
+            <text x="220" y="60" text-anchor="middle" class="small">req 3</text>
+            <text x="220" y="74" text-anchor="middle" class="small" fill="#d97c1c">대기</text>
+
+            <rect x="260" y="42" width="60" height="36" rx="4" class="blocked"/>
+            <text x="290" y="60" text-anchor="middle" class="small">req 4</text>
+            <text x="290" y="74" text-anchor="middle" class="small" fill="#d97c1c">대기</text>
+
+            <text x="20" y="115" class="header">대안 — 여러 TCP 연결을 동시에 (브라우저가 6개씩)</text>
+
+            <g>
+              <rect x="20" y="135" width="120" height="20" class="req"/>
+              <text x="80" y="150" text-anchor="middle" class="small">conn 1: req 1</text>
+
+              <rect x="150" y="135" width="80" height="20" class="req"/>
+              <text x="190" y="150" text-anchor="middle" class="small">conn 2: req 2</text>
+
+              <rect x="240" y="135" width="80" height="20" class="req"/>
+              <text x="280" y="150" text-anchor="middle" class="small">conn 3: req 3</text>
+
+              <rect x="330" y="135" width="80" height="20" class="req"/>
+              <text x="370" y="150" text-anchor="middle" class="small">conn 4: req 4</text>
+
+              <rect x="420" y="135" width="80" height="20" class="req"/>
+              <text x="460" y="150" text-anchor="middle" class="small">conn 5: req 5</text>
+
+              <rect x="510" y="135" width="60" height="20" class="req"/>
+              <text x="540" y="150" text-anchor="middle" class="small">conn 6</text>
+            </g>
+
+            <text x="20" y="190" class="small">병렬 처리는 가능하지만 연결 6개의 비용 (handshake, TLS, 메모리, 파일 디스크립터).</text>
+            <text x="20" y="208" class="small">연결당 keepalive timeout, 6번째 이후 요청은 줄 서서 대기.</text>
+          </svg>
+          <figcaption>HTTP/1.1의 head-of-line blocking과 다중 연결 우회 패턴</figcaption>
+        </figure>
+
+        <h3>브라우저의 우회</h3>
+
+        <p>
+          이 문제를 풀려고 브라우저는 한 도메인당 여러 TCP 연결을 동시에 맺어요.
+          크롬, 파이어폭스 같은 모던 브라우저는 한 도메인당 6개 연결까지 동시 사용해요.
+          연결 6개에 요청을 분산하면 6배 빨라지는 셈이지만 한계가 있어요.
+        </p>
+
+        <ul>
+          <li>한 사이트에 자원이 100개라면 한 번에 6개씩만 처리, 나머지는 줄 서야 해요</li>
+          <li>연결 6개 만들려면 handshake 6번, TLS 6번. 비용이 누적돼요</li>
+          <li>서버 측에서도 클라이언트당 6개 연결을 유지해야 해서 부담</li>
+        </ul>
+
+        <h3>Domain Sharding</h3>
+
+        <p>
+          이 한계를 더 풀려고 한 사이트의 자원을 여러 서브도메인에 나눠 호스팅하는 패턴이 등장했어요.
+        </p>
+
+        <ul>
+          <li><code>img1.example.com</code>, <code>img2.example.com</code> 같이 분산</li>
+          <li>각 서브도메인마다 6개씩 연결 가능</li>
+          <li>전체 동시 연결 수가 6의 배수로 늘어남</li>
+        </ul>
+
+        <p>
+          처리량은 늘어났지만 DNS 조회도 늘고 TLS 인증서 관리도 복잡해졌어요.
+          결국 HTTP/1.1로는 본질적 해결이 어렵다는 게 분명해졌어요.
+          그래서 등장한 게 HTTP/2예요.
+        </p>
+
+        <h2>HTTP/1.1의 다른 특징들</h2>
+
+        <h3>Cache-Control 헤더</h3>
+
+        <p>
+          캐시 정책을 세밀하게 표현할 수 있게 해줘요.
+        </p>
+
+        <pre><code class="language-http">Cache-Control: max-age=3600, public, must-revalidate
+Cache-Control: no-cache
+Cache-Control: no-store</code></pre>
+
+        <ul>
+          <li><code>max-age</code>: 캐시 유효 시간(초)</li>
+          <li><code>public</code> / <code>private</code>: CDN이 캐시 가능 여부</li>
+          <li><code>no-cache</code>: 캐시 사용 가능, 단 매번 서버 검증</li>
+          <li><code>no-store</code>: 어디에도 저장 금지</li>
+        </ul>
+
+        <h3>Content Negotiation</h3>
+
+        <p>
+          클라이언트가 원하는 형식을 명시할 수 있어요. 같은 URL에서 다른 형식의 응답을 받을 수 있는 메커니즘이에요.
+        </p>
+
+        <pre><code class="language-http">GET /api/users/1 HTTP/1.1
+Accept: application/json
+Accept-Language: ko-KR,ko;q=0.9,en;q=0.8
+Accept-Encoding: gzip, br</code></pre>
+
+        <h3>Range 요청</h3>
+
+        <p>
+          큰 파일의 일부만 받아오는 요청이에요. 비디오 스트리밍, 이어받기 같은 데 쓰여요.
+        </p>
+
+        <pre><code class="language-http">GET /video.mp4 HTTP/1.1
+Range: bytes=0-1023</code></pre>
+
+        <h2>왜 HTTP/1.1이 이렇게 오래 살아남았을까요</h2>
+
+        <p>
+          HTTP/2가 2015년에 나왔는데도 HTTP/1.1은 여전히 많이 쓰여요. 이유가 있어요.
+        </p>
+
+        <ul>
+          <li><strong>충분히 빠르다</strong>: 모던 인터넷의 RTT가 짧아져서 1.1의 비효율도 견딜 만해요</li>
+          <li><strong>디버깅 쉽다</strong>: 텍스트 기반이라 tcpdump, Wireshark로 그대로 보여요</li>
+          <li><strong>인프라 호환성</strong>: 모든 프록시, 방화벽, 로드밸런서가 1.1을 안정적으로 처리</li>
+          <li><strong>서버-서버 통신</strong>: 짧은 요청 위주의 백엔드 통신엔 1.1이 충분</li>
+          <li><strong>점진적 마이그레이션</strong>: 클라이언트만 2/3로 바꾸고 백엔드는 1.1 유지하는 패턴이 흔해요</li>
+        </ul>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HTTP/1.0과 1.1의 가장 큰 차이는요?</h3>
+
+        <p>
+          영속 연결(persistent connection)이에요. 1.0은 한 요청마다 TCP 연결을 새로 맺고 끊었지만,
+          1.1은 같은 연결로 여러 요청을 처리할 수 있어요. 그 외에 Host 헤더, chunked transfer encoding,
+          Cache-Control 같은 개선도 함께 들어왔어요.
+        </p>
+
+        <h3>Q. HTTP/1.1의 head-of-line blocking이 뭔가요?</h3>
+
+        <p>
+          한 TCP 연결에서는 한 번에 한 요청만 처리할 수 있어요.
+          첫 요청의 응답이 늦으면 그 뒤 요청들이 모두 막혀요.
+          파이프라이닝으로 여러 요청을 미리 보낼 수 있지만 응답 순서가 요청 순서를 따라야 해서 본질적 해결은 안 돼요.
+          브라우저는 한 도메인당 6개 연결을 동시에 맺는 우회 전략을 써요.
+        </p>
+
+        <h3>Q. 영속 연결을 쓰는데 왜 connection pool이 필요한가요?</h3>
+
+        <p>
+          영속 연결은 한 클라이언트-서버 쌍의 연결을 재사용하는 거예요. 여러 요청을 동시에 보낼 수는 없어요.
+          한 요청 처리 중엔 그 연결이 묶여있어요. Connection Pool은 여러 영속 연결을 미리 만들어두고 동시 요청을 분산해서
+          처리량을 살리는 패턴이에요.
+        </p>
+
+        <h3>Q. 파이프라이닝이 실무에서 안 쓰이는 이유는요?</h3>
+
+        <p>
+          head-of-line blocking 때문이에요. 여러 요청을 한 번에 보내도 응답은 순서대로 와야 해요.
+          중간 응답 하나가 느리면 그 뒤가 다 막혀서 오히려 더 느릴 수도 있어요.
+          또 일부 프록시가 파이프라이닝을 잘 처리하지 못하는 호환성 문제도 있어서, 브라우저들이 기본 비활성화했어요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          HTTP/1.1은 영속 연결, Host 헤더, chunked encoding 같은 개선으로 25년 넘게 웹의 표준이 됐어요.
+          하지만 한 연결에서 한 번에 한 요청만 처리하는 본질적 한계 때문에 head-of-line blocking 문제가 있어요.
+          브라우저는 6개 연결로 우회했지만 한계가 분명했고, 그래서 HTTP/2가 등장했어요.
+        </p>
+
+        <p>
+          다음 편에서는 HTTP/2가 멀티플렉싱과 HPACK 같은 도구로 어떻게 이 한계를 깼는지 살펴봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

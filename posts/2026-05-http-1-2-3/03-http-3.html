@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP/3 — QUIC 위의 새 시작 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 3/4</div>
+        <h1>HTTP/3 — QUIC 위의 새 시작</h1>
+        <p class="subtitle">
+          TCP를 버리고 UDP 위에 새로 쌓은 프로토콜. 왜 그렇게까지 했는지, 무엇을 얻었는지 봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">HTTP/1.1 → 2 → 3</div>
+        <ol>
+          <li><a href="./01-http-1-1.html">HTTP/1.1과 그 한계</a></li>
+          <li><a href="./02-http-2.html">HTTP/2 — 멀티플렉싱과 HPACK</a></li>
+          <li class="current">HTTP/3 — QUIC 위의 새 시작</li>
+          <li><a href="./04-실무-비교.html">실무 비교</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 TCP를 버렸을까요</h2>
+
+        <p>
+          HTTP/2가 멀티플렉싱으로 HTTP 레벨의 head-of-line blocking을 풀었지만, TCP 레벨의 HOL blocking은 그대로 남았어요.
+          한 스트림의 패킷이 유실되면 무관한 다른 스트림 데이터까지 막혀요.
+        </p>
+
+        <p>
+          이걸 풀려면 결국 TCP의 "순서 보장"이라는 본질을 건드려야 해요. 그런데 TCP는 OS 커널에 깊이 박혀 있어서 바꾸기가 거의 불가능해요.
+          새 TCP 기능 하나 표준화하려면 전 세계 OS와 미들박스(라우터, 방화벽)가 모두 업데이트돼야 해요. 수십 년 단위 작업이에요.
+        </p>
+
+        <h3>QUIC의 답</h3>
+
+        <p>
+          그래서 구글이 2012년쯤 시작한 QUIC라는 프로토콜이 등장했어요.
+          OS 커널을 건드리지 않고 <strong>유저 공간(user-space)에서 새 프로토콜을 만들자</strong>는 접근이에요.
+          UDP 위에 신뢰성, 흐름 제어, 혼잡 제어, 멀티플렉싱, TLS 통합 같은 기능을 다시 쌓은 거예요.
+        </p>
+
+        <p>
+          QUIC는 IETF에서 표준화돼 2021년 RFC 9000으로 자리잡았고, 그 위에 HTTP를 올린 게 HTTP/3 (RFC 9114, 2022)예요.
+          이름은 HTTP/3이지만 사실 가장 큰 변화는 그 아래층이에요.
+        </p>
+
+        <h2>스택 구조 비교</h2>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HTTP 스택 비교">
+            <defs>
+              <style>
+                .layer-base { fill: #f9fafb; stroke: #4e5968; stroke-width: 1; }
+                .layer-tcp { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.5; }
+                .layer-tls { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1; }
+                .layer-quic { fill: #f0f9f4; stroke: #2e7d32; stroke-width: 1.5; }
+                .layer-http { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">HTTP/2 스택</text>
+
+            <rect x="20" y="32" width="180" height="40" rx="4" class="layer-http"/>
+            <text x="110" y="56" text-anchor="middle" class="label">HTTP/2</text>
+
+            <rect x="20" y="78" width="180" height="40" rx="4" class="layer-tls"/>
+            <text x="110" y="102" text-anchor="middle" class="label">TLS</text>
+
+            <rect x="20" y="124" width="180" height="40" rx="4" class="layer-tcp"/>
+            <text x="110" y="148" text-anchor="middle" class="label">TCP</text>
+
+            <rect x="20" y="170" width="180" height="40" rx="4" class="layer-base"/>
+            <text x="110" y="194" text-anchor="middle" class="small">IP</text>
+
+            <text x="220" y="22" class="header">HTTP/3 스택</text>
+
+            <rect x="220" y="32" width="180" height="40" rx="4" class="layer-http"/>
+            <text x="310" y="56" text-anchor="middle" class="label">HTTP/3</text>
+
+            <rect x="220" y="78" width="180" height="86" rx="4" class="layer-quic"/>
+            <text x="310" y="110" text-anchor="middle" class="label">QUIC</text>
+            <text x="310" y="128" text-anchor="middle" class="small">신뢰성 + 멀티플렉싱</text>
+            <text x="310" y="144" text-anchor="middle" class="small">+ TLS 1.3 통합</text>
+
+            <rect x="220" y="170" width="180" height="40" rx="4" class="layer-base"/>
+            <text x="310" y="194" text-anchor="middle" class="small">UDP</text>
+
+            <text x="430" y="22" class="header">차이</text>
+            <text x="430" y="56" class="small">TCP→UDP</text>
+            <text x="430" y="76" class="small">3계층(TLS,TCP)→</text>
+            <text x="430" y="92" class="small">  1계층(QUIC)</text>
+            <text x="430" y="116" class="small">handshake 단축</text>
+            <text x="430" y="138" class="small">스트림 독립 보장</text>
+          </svg>
+          <figcaption>HTTP/2와 HTTP/3의 스택 비교 — TLS, TCP가 QUIC 한 층으로 통합</figcaption>
+        </figure>
+
+        <h2>QUIC가 가져오는 변화</h2>
+
+        <h3>1. 스트림 독립 — TCP HOL blocking 해결</h3>
+
+        <p>
+          QUIC는 스트림을 처음부터 독립된 단위로 취급해요.
+          한 스트림의 패킷이 유실돼도 다른 스트림은 영향 받지 않고 계속 진행돼요.
+          이게 HTTP/3가 노렸던 가장 큰 이득이에요.
+        </p>
+
+        <p>
+          모바일 환경처럼 패킷 유실이 자주 일어나는 네트워크에서 효과가 두드러져요.
+          HTTP/2가 한 패킷 유실로 모든 자원이 멈췄다면, HTTP/3는 그 자원만 잠시 멈춰요.
+        </p>
+
+        <h3>2. 0-RTT — 첫 요청부터 빠르게</h3>
+
+        <p>
+          QUIC는 TLS 1.3을 통합했고, 한 번 연결한 적 있는 서버에 다시 연결할 때 <strong>0-RTT</strong>를 지원해요.
+          handshake 없이 첫 패킷부터 데이터를 보낼 수 있어요.
+        </p>
+
+        <pre><code class="language-text">TCP + TLS 1.2: 3 RTT (TCP handshake + TLS handshake)
+TCP + TLS 1.3: 2 RTT (TCP handshake + TLS handshake)
+QUIC 첫 연결: 1 RTT (모든 게 함께)
+QUIC 재연결: 0 RTT (캐시된 키로 즉시)</code></pre>
+
+        <p>
+          모바일에서 RTT가 클수록 효과가 커요. 5G 환경에서도 의미 있는 응답 시간 단축.
+          단, 0-RTT는 replay 공격 가능성이 있어서 멱등성 있는 요청에만 안전하게 쓸 수 있어요.
+        </p>
+
+        <h3>3. Connection Migration — IP 바뀌어도 연결 유지</h3>
+
+        <p>
+          TCP 연결은 (출발지 IP, 출발지 포트, 목적지 IP, 목적지 포트) 4튜플로 식별돼요.
+          이 중 하나라도 바뀌면 연결이 끊어져요. 모바일에서 Wi-Fi와 5G를 오갈 때 IP가 바뀌면 연결이 새로 맺어져야 해요.
+        </p>
+
+        <p>
+          QUIC는 4튜플 대신 <strong>Connection ID</strong>로 연결을 식별해요.
+          IP가 바뀌어도 같은 Connection ID로 계속 통신할 수 있어요.
+          모바일 사용자가 카페에서 나오며 Wi-Fi → 5G로 전환해도 영상 스트리밍이 끊기지 않아요.
+        </p>
+
+        <h3>4. 패킷 단위 암호화</h3>
+
+        <p>
+          TCP + TLS 조합은 TCP 헤더가 평문이라 중간 미들박스가 일부 정보를 볼 수 있어요.
+          QUIC는 거의 모든 부분을 암호화해서 외부 관찰을 어렵게 만들어요.
+          미들박스 ossification(굳어짐) 문제도 줄어요. TCP가 새 기능 못 넣는 이유 중 하나가 이거였어요.
+        </p>
+
+        <h2>HTTP/3가 풀지 못하는 것</h2>
+
+        <p>
+          좋은 점만 있는 건 아니에요. HTTP/3에도 트레이드오프가 있어요.
+        </p>
+
+        <h3>UDP 차단/제한</h3>
+
+        <p>
+          많은 기업 네트워크와 ISP가 UDP 트래픽을 차단하거나 제한해요. UDP 패킷 손실률이 TCP보다 높을 수 있고요.
+          그래서 HTTP/3가 안 되면 자동으로 HTTP/2로 fallback하는 패턴이 표준이에요.
+          Alt-Svc 헤더로 "이 사이트는 HTTP/3도 지원한다"고 알려주고 클라이언트가 시도해보는 방식.
+        </p>
+
+        <h3>CPU 비용</h3>
+
+        <p>
+          QUIC는 OS 커널의 TCP 처리를 못 쓰고 유저 공간에서 패킷 단위 처리를 해요.
+          그래서 TCP보다 CPU 비용이 높아요. 패킷마다 암호화 처리가 필요한 것도 추가 비용이에요.
+          서버 측에서 같은 트래픽을 처리하려면 더 많은 CPU 자원이 필요할 수 있어요.
+        </p>
+
+        <h3>도구 호환성</h3>
+
+        <p>
+          tcpdump, Wireshark 같은 분석 도구는 TCP는 자유롭게 들여다볼 수 있지만 QUIC는 암호화 때문에 거의 못 봐요.
+          디버깅과 보안 분석이 어려워졌어요. SSL keylog 같은 우회 방법은 있지만 운영 환경에선 보안 위험.
+        </p>
+
+        <h3>구현 복잡도</h3>
+
+        <p>
+          TCP는 OS 커널이 알아서 처리하지만 QUIC는 애플리케이션이 책임져야 해요.
+          서버, 프록시, CDN 모두 QUIC 라이브러리를 통합해야 하고, 그 라이브러리가 충분히 검증돼야 해요.
+          현재 nginx, Caddy, Cloudflare 등이 QUIC를 지원하지만 운영 사례가 TCP만큼 풍부하지는 않아요.
+        </p>
+
+        <h2>HTTP/3의 보급 현황</h2>
+
+        <p>
+          2022년 RFC 9114로 표준화된 후 보급이 빠르게 진행됐어요.
+        </p>
+
+        <ul>
+          <li>대형 클라우드/CDN (Cloudflare, Fastly, AWS CloudFront)이 모두 지원</li>
+          <li>Chrome, Firefox, Safari, Edge 모두 기본 활성화</li>
+          <li>2026년 기준 전 세계 사이트의 약 30% 정도가 HTTP/3 지원</li>
+          <li>Google, Facebook 같은 대형 서비스의 트래픽 대부분이 HTTP/3</li>
+        </ul>
+
+        <p>
+          단, 모든 사이트가 HTTP/3로 가는 건 아니에요.
+          내부 API, 서버-서버 통신, 단순한 사내 도구 같은 경우엔 HTTP/2나 1.1로 충분해요.
+          마지막 편에서 어떤 경우에 무엇을 쓸지 정리해요.
+        </p>
+
+        <h2>HTTP/2와 비교 정리</h2>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>HTTP/2</th><th>HTTP/3</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>전송 프로토콜</td>
+              <td>TCP</td>
+              <td>UDP (위에 QUIC)</td>
+            </tr>
+            <tr>
+              <td>TLS</td>
+              <td>별도 계층</td>
+              <td>QUIC에 통합</td>
+            </tr>
+            <tr>
+              <td>handshake</td>
+              <td>TCP + TLS = 2~3 RTT</td>
+              <td>1 RTT (재연결 0 RTT)</td>
+            </tr>
+            <tr>
+              <td>HTTP HOL blocking</td>
+              <td>해결</td>
+              <td>해결</td>
+            </tr>
+            <tr>
+              <td>TCP HOL blocking</td>
+              <td>있음</td>
+              <td>없음 (스트림 독립)</td>
+            </tr>
+            <tr>
+              <td>IP 변경 대응</td>
+              <td>연결 끊김</td>
+              <td>Connection Migration</td>
+            </tr>
+            <tr>
+              <td>구현 위치</td>
+              <td>OS 커널 (TCP 부분)</td>
+              <td>유저 공간 전체</td>
+            </tr>
+            <tr>
+              <td>CPU 비용</td>
+              <td>낮음</td>
+              <td>높음 (유저 공간 처리)</td>
+            </tr>
+            <tr>
+              <td>분석/디버깅</td>
+              <td>쉬움 (TCP 도구)</td>
+              <td>어려움 (암호화)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HTTP/3가 TCP가 아닌 UDP 기반인 이유는요?</h3>
+
+        <p>
+          TCP의 HOL blocking을 풀려면 TCP의 본질인 "순서 보장"을 건드려야 해요.
+          그런데 TCP는 OS 커널에 깊이 박혀 있어서 새 기능 추가가 거의 불가능해요. 전 세계 OS와 미들박스 업데이트가 필요하니까요.
+          그래서 OS를 건드리지 않고 유저 공간에서 새 프로토콜을 쌓을 수 있는 UDP를 택했어요.
+          UDP 위에 QUIC라는 새 전송 프로토콜을 만든 거예요.
+        </p>
+
+        <h3>Q. QUIC와 HTTP/3는 같은 건가요?</h3>
+
+        <p>
+          다른 거예요. QUIC는 UDP 위에 만든 범용 전송 프로토콜이에요. 신뢰성, 흐름 제어, 멀티플렉싱, TLS 통합을 제공해요.
+          HTTP/3는 그 QUIC 위에 올린 HTTP의 새 버전이에요. QUIC 자체는 HTTP가 아닌 다른 프로토콜에도 쓸 수 있어요.
+          가장 큰 변화는 사실 HTTP보다 그 아래 QUIC에 있어요.
+        </p>
+
+        <h3>Q. Connection Migration이 왜 중요한가요?</h3>
+
+        <p>
+          모바일 환경에서 큰 차이를 만들어요. 사용자가 Wi-Fi에서 5G로 전환하면 IP가 바뀌어요.
+          TCP는 4튜플 기반 연결이라 IP가 바뀌면 끊어져요. 영상 스트리밍이나 파일 다운로드가 중단되죠.
+          QUIC는 Connection ID로 연결을 식별해서 IP가 바뀌어도 통신이 이어져요.
+          모바일 사용자 경험이 크게 개선돼요.
+        </p>
+
+        <h3>Q. HTTP/3가 항상 더 좋은가요?</h3>
+
+        <p>
+          그렇진 않아요. 일부 환경에서는 UDP가 차단되거나 제한될 수 있어요. 사내 네트워크나 일부 ISP가 그래요.
+          유저 공간 처리 때문에 서버 CPU 비용이 더 높아요. 디버깅과 분석도 더 어렵고요.
+          그래서 사내 API, 서버-서버 통신, 단순 백엔드는 1.1이나 2가 더 합리적일 수 있어요.
+          모바일/외부 클라이언트가 많은 환경에서 효과가 가장 커요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          HTTP/3는 TCP를 버리고 UDP 위 QUIC 프로토콜에 올라가요.
+          그 결과 TCP 레벨의 HOL blocking이 사라지고, 0-RTT 재연결과 Connection Migration이 가능해졌어요.
+          단, UDP 차단·CPU 비용·디버깅 어려움 같은 트레이드오프가 있어서 모든 환경에 항상 더 좋은 건 아니에요.
+        </p>
+
+        <p>
+          마지막 편에서는 1.1, 2, 3 중 무엇을 언제 쓸지, 어떻게 마이그레이션할지 정리해요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

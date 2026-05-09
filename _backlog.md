@@ -163,7 +163,7 @@
 - [ ] Spring Security FilterChain (4편)
 
 ### HTTP/네트워크
-- [ ] HTTP/1.1 → HTTP/2 → HTTP/3 (4편)
+- [x] HTTP/1.1 → HTTP/2 → HTTP/3 (4편)
 - [ ] HTTPS / TLS handshake (3편)
 - [ ] DNS 동작 — 재귀 vs 반복 (2편)
 - [ ] Cookie / Session / Token — 트레이드오프 (3편)
