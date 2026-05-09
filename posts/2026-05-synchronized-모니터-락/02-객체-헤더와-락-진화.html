@@ -15,11 +15,10 @@
 
     <article>
       <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 2/3</div>
+        <div class="post-date">2026.05.10 · 시리즈 2/3</div>
         <h1>객체 헤더와 락 진화</h1>
         <p class="subtitle">
-          Mark Word, Biased / Lightweight / Heavyweight Lock.
-          synchronized가 왜 Java 6 이후로 빨라졌는가.
+          synchronized의 락 정보가 객체의 어디에 어떻게 저장되는지. 그리고 왜 락이 4단계로 진화했는지 봐요.
         </p>
       </header>
 
@@ -29,289 +28,541 @@
         <ol>
           <li><a href="./01-synchronized의-정체.html">synchronized의 정체</a></li>
           <li class="current">객체 헤더와 락 진화</li>
-          <li><a href="./03-synchronized와-메모리-가시성.html">synchronized와 메모리 가시성 — JMM과 happens-before</a></li>
+          <li><a href="./03-synchronized와-메모리-가시성.html">메모리 가시성과 happens-before</a></li>
         </ol>
       </nav>
 
       <section class="post-body">
 
-        <h2>객체 헤더의 구조</h2>
-
-        <pre><code>HotSpot JVM의 객체는 메모리에 다음 구조로 저장:
-
-  ┌─────────────────────────────┐
-  │ Object Header               │
-  │  - Mark Word    (8 bytes)   │  ← ★ 락 정보가 여기
-  │  - Klass Pointer (4-8 bytes)│  ← 클래스 메타데이터
-  ├─────────────────────────────┤
-  │ Instance Fields             │
-  │  - 필드 1                    │
-  │  - 필드 2                    │
-  │  ...                        │
-  ├─────────────────────────────┤
-  │ Padding (8-byte 정렬)        │
-  └─────────────────────────────┘
-
-총 헤더 크기: 12 또는 16 bytes (압축 옵션, JVM 설정에 따라)
-모든 객체가 이 헤더를 가짐 (작은 객체일수록 헤더 비중 큼)</code></pre>
-
-        <h2>Mark Word의 다목적성</h2>
-
-        <pre><code>Mark Word는 64비트 (64bit JVM 기준)
-하나의 메모리 슬롯이지만 여러 상태에서 다른 의미로 사용됨:
-
-상태             Mark Word의 비트 활용 (64bit JVM, 개념적)
-─────────────────────────────────────────────────────────────
-No Lock          | hashCode (31bits) | age | unused | 0 01 |   ← 일반
-Biased Lock      | thread ID | epoch | age | 1 01 |              ← 특정 스레드 점유
-Lightweight Lock | pointer to Lock Record (스택 포인터)            ← 스핀
-Heavyweight Lock | pointer to ObjectMonitor                        ← OS 락
-GC Marked        | GC 마킹 정보                                    ← GC 중
-
-→ 같은 메모리 위치가 객체 상태에 따라 다른 의미
-→ 마지막 비트 패턴으로 현재 상태 식별</code></pre>
+        <h2>객체 헤더가 어디에 있나요</h2>
 
         <p>
-          Mark Word는 메모리 절약을 위해 한 워드를 여러 용도로 쓴다.
-          락 상태에 따라 비트 패턴이 달라지고, JVM이 그 패턴을 보고 분기.
+          1편에서 "모든 자바 객체는 모니터 락을 하나씩 가진다"고 했어요. 그게 어디에 어떻게 저장되는지 봐요.
+          모든 객체는 메모리에 다음 구조로 저장돼요.
         </p>
 
-        <h2>왜 락에 단계가 있나 — 비용의 문제</h2>
+        <figure>
+          <svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="객체 메모리 레이아웃">
+            <defs>
+              <style>
+                .header-box { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .field-box { fill: #f9fafb; stroke: #4e5968; stroke-width: 1; }
+                .padding-box { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1; stroke-dasharray: 3,3; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
 
-        <pre><code>Heavyweight Lock (옛날 synchronized):
-  락 획득 = OS 커널 호출 (mutex 시스템 콜)
-  락 대기 = 스레드를 suspend, 컨텍스트 스위칭
-  → 한 번의 락 획득에 수 마이크로초
+            <text x="20" y="22" class="header">JAVA OBJECT 메모리 레이아웃 (HotSpot 64bit)</text>
 
-문제:
-  많은 코드가 synchronized를 쓰지만 실제로 경합 없음
-  - 단일 스레드만 그 코드 실행
-  - 또는 한 스레드가 오랫동안 점유
+            <rect x="20" y="40" width="560" height="40" rx="4" class="header-box"/>
+            <text x="40" y="58" class="label">Object Header</text>
+            <text x="40" y="74" class="small">Mark Word (8B) + Klass Pointer (4~8B, 압축 옵션)</text>
 
-이런 케이스에 매번 OS 락을 잡는 건 낭비
-→ "경합이 없거나 적을 때는 가볍게, 경합이 심할 때만 무겁게"
-→ 락의 단계화 (Java 6, 2006)</code></pre>
+            <rect x="20" y="90" width="560" height="40" rx="4" class="field-box"/>
+            <text x="40" y="108" class="label">Instance Fields</text>
+            <text x="40" y="124" class="small">사용자 정의 필드들 (int, Object refs 등)</text>
 
-        <h2>락 진화 단계</h2>
+            <rect x="20" y="140" width="560" height="32" rx="4" class="padding-box"/>
+            <text x="40" y="160" class="label">Padding</text>
+            <text x="40" y="174" class="small" fill="#d97c1c">8byte 정렬을 위한 여백</text>
 
-        <pre><code>1. No Lock (락 없음)
-   → 누구도 안 잡고 있음
+            <text x="20" y="200" class="small">★ 락 정보는 Object Header의 Mark Word에 저장돼요</text>
+          </svg>
+          <figcaption>HotSpot 64bit JVM의 객체 메모리 레이아웃</figcaption>
+        </figure>
 
-2. Biased Lock (편향 락)
-   → 한 스레드가 단독으로 사용 중
-   → 락 획득 비용 거의 0
+        <p>
+          모든 객체는 헤더 + 필드 + 패딩으로 구성돼요. 헤더 안의 <strong>Mark Word</strong>가 락 정보를 저장하는 자리예요.
+          크기는 64bit JVM에서 8바이트, 32bit에서 4바이트.
+        </p>
 
-3. Lightweight Lock (경량 락)
-   → 다른 스레드가 락 획득 시도 (편향 깨짐)
-   → CAS로 빠르게 락 시도, 실패하면 잠깐 스핀
+        <p>
+          이 헤더는 작은 객체일수록 부담이 커요. 빈 객체도 16바이트 정도 차지.
+          그래서 객체를 너무 많이 만들면 헤더만으로 메모리가 부족해질 수 있어요.
+        </p>
 
-4. Heavyweight Lock (중량 락)
-   → 경합이 지속됨 → OS 락으로 승급
-   → 스레드 suspend, 컨텍스트 스위칭
+        <h2>Mark Word의 다중 의미</h2>
 
-진화 방향: 1 → 2 → 3 → 4
-역방향(de-bias)도 일부 가능하지만 비용이 더 듦</code></pre>
+        <p>
+          Mark Word는 한 워드(8바이트)지만 여러 용도로 쓰여요. 객체 상태에 따라 그 안의 비트가 다른 의미로 해석돼요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>객체 상태</th><th>Mark Word 내용</th><th>마지막 비트</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>No Lock (일반)</td>
+              <td>identity hashCode + age + ...</td>
+              <td>01</td>
+            </tr>
+            <tr>
+              <td>Biased Lock</td>
+              <td>점유 스레드 ID + epoch + age + ...</td>
+              <td>101</td>
+            </tr>
+            <tr>
+              <td>Lightweight Lock</td>
+              <td>스레드 스택의 Lock Record 포인터</td>
+              <td>00</td>
+            </tr>
+            <tr>
+              <td>Heavyweight Lock</td>
+              <td>ObjectMonitor 포인터</td>
+              <td>10</td>
+            </tr>
+            <tr>
+              <td>GC Marked</td>
+              <td>GC 마킹 정보</td>
+              <td>11</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          같은 메모리 위치가 객체 상태에 따라 다른 의미. JVM이 마지막 비트 패턴을 보고 현재 상태를 식별해요.
+          메모리를 절약하기 위한 영리한 트릭이에요.
+        </p>
+
+        <h2>왜 락에 단계가 있나요</h2>
+
+        <p>
+          가장 단순한 락 구현은 OS의 mutex를 그대로 쓰는 거예요. 시스템 콜로 락을 잡고 풀고. 하지만 비싸요.
+        </p>
+
+        <ul>
+          <li>매 락 획득에 시스템 콜 (커널 모드 진입)</li>
+          <li>경합 시 스레드 suspend → 컨텍스트 스위칭</li>
+          <li>한 번에 수 마이크로초 비용</li>
+        </ul>
+
+        <p>
+          그런데 자바 코드의 많은 synchronized는 실제 경합이 거의 없어요. 단일 스레드만 그 코드를 실행하거나, 한 스레드가 오래 점유하는 패턴.
+          이런 경우에 매번 OS mutex를 호출하는 건 큰 낭비예요.
+        </p>
+
+        <p>
+          그래서 자바 6 (2006)에서 락 단계화가 도입됐어요. <strong>경합 정도에 맞는 가장 가벼운 메커니즘</strong>을 골라 쓰자는 아이디어.
+        </p>
+
+        <h2>4단계 락 진화</h2>
+
+        <p>
+          락은 다음 순서로 무거워져요. 가벼운 단계로 시작하고, 경합이 심해지면 한 단계씩 올라가요.
+        </p>
+
+        <ol>
+          <li><strong>No Lock</strong>: 누구도 잡지 않은 상태</li>
+          <li><strong>Biased Lock (편향)</strong>: 한 스레드만 점유 중. 거의 무비용</li>
+          <li><strong>Lightweight Lock (경량)</strong>: 가벼운 경합. CAS로 처리</li>
+          <li><strong>Heavyweight Lock (중량)</strong>: 심한 경합. OS mutex 사용</li>
+        </ol>
+
+        <p>
+          하나씩 자세히 봐요.
+        </p>
 
         <h2>1. Biased Lock — 편향 락</h2>
 
-        <pre><code>아이디어: "어차피 한 스레드만 쓰는 락이 대부분"
+        <p>
+          핵심 아이디어. "어차피 한 스레드만 쓰는 락이 대부분"이라는 관찰. StringBuilder, ArrayList 같은 단일 스레드 객체가 그렇거든요.
+        </p>
 
-처음 락 획득:
-  Mark Word에 "이 스레드가 점유" 기록 (Thread ID 저장)
-  락 비트 = 101 (bias 패턴)
+        <h3>동작</h3>
 
-같은 스레드가 다시 락 획득:
-  Mark Word의 Thread ID와 자기 ID 비교 (한 번의 비교)
-  같으면 그냥 통과 — CAS도 안 함
-  → 거의 비용 없음
+        <p>
+          처음 어떤 스레드가 락을 잡으면 Mark Word에 그 스레드 ID를 기록. 락 비트도 101로 변경.
+          같은 스레드가 다시 락을 잡으려 하면 Mark Word의 ID가 자기 ID와 일치하는지 확인. 일치하면 그냥 통과. <strong>CAS도 안 함</strong>.
+        </p>
 
-다른 스레드가 락 시도:
-  편향 깨짐 (revoke biased lock)
-  → 일종의 stop-the-world 짧게 발생
-  → Lightweight Lock으로 승급</code></pre>
+        <p>
+          비용이 거의 0. 락 획득과 해제가 단순한 비교 한 번.
+        </p>
 
-        <h3>Biased Lock의 문제와 폐지</h3>
+        <h3>편향 깨짐 (Revoke)</h3>
 
-        <pre><code>왜 좋았나:
-  단일 스레드 락 획득 비용을 사실상 0으로
-  StringBuilder, ArrayList 등 단일 스레드 사용에 큰 이득
-  레거시 자바 코드의 "방어적 synchronized"에 효과적
+        <p>
+          다른 스레드가 같은 락을 시도하면 편향이 깨져요. JVM이 짧은 stop-the-world를 발생시켜 안전한 상태에서 Lightweight Lock으로 전환.
+          이 revoke 비용이 의외로 커요.
+        </p>
 
-왜 폐기되었나 (JEP 374, Java 15에서 deprecate, Java 18에서 제거 검토):
-  1. revoke 비용이 큼 — 짧은 stop-the-world
-  2. 모던 JVM의 다른 최적화로 이득 줄어듦
-  3. 코드 복잡도 — JVM 내부 유지보수 부담
-  4. ConcurrentHashMap 등 동시성 컬렉션 보편화로 단일 스레드 가정이 깨지는 경우 많아짐
+        <h3>Java 15+에서의 deprecate</h3>
 
-  → Java 15+: 기본 비활성화 (-XX:+UseBiasedLocking 옵션으로 활성화 가능)
-  → Java 21+: 더 깊은 제거 진행
+        <p>
+          처음엔 좋은 최적화였지만 Java 15에서 deprecate됐어요(JEP 374). 이유가 여러 가지.
+        </p>
 
-현재 추세:
-  Lightweight Lock과 Heavyweight Lock 두 단계 위주
-  Biased Lock은 레거시 환경에만 의미</code></pre>
+        <ul>
+          <li>revoke의 짧은 stop-the-world 비용이 누적되면 부담</li>
+          <li>모던 자바 코드는 ConcurrentHashMap 같은 동시성 컬렉션이 많아져 단일 스레드 가정이 자주 깨짐</li>
+          <li>JVM 내부 코드 복잡도 부담</li>
+          <li>다른 최적화(escape analysis 등)로 이득이 줄어듦</li>
+        </ul>
+
+        <p>
+          Java 15+에선 기본 비활성. 활성화하려면 <code>-XX:+UseBiasedLocking</code> 옵션 필요.
+          Java 18부터는 더 깊이 제거 진행 중. 이 글을 쓰는 시점(Java 21)에선 사실상 사라진 것으로 봐도 돼요.
+        </p>
 
         <h2>2. Lightweight Lock — 경량 락</h2>
 
-        <pre><code>아이디어: "경합이 짧으면 OS 락 안 쓰고 CAS로 처리"
+        <p>
+          경합이 짧을 거라 예상되는 자리. OS mutex 안 쓰고 CAS로 락을 잡고 풉니다.
+        </p>
 
-획득:
-  1. 스레드의 스택에 Lock Record 공간 할당
-  2. 객체의 Mark Word를 Lock Record에 백업
-  3. CAS로 Mark Word를 Lock Record 포인터로 교체
-     - 성공: 락 획득 완료
-     - 실패: 다른 스레드가 이미 점유 → Heavyweight 승급 또는 스핀
+        <h3>동작</h3>
 
-해제:
-  1. CAS로 Mark Word를 원래 값(백업)으로 복원
-     - 성공: 정상 해제
-     - 실패: 누군가 Heavyweight으로 승급 → 별도 처리
+        <ol>
+          <li>락 잡는 스레드의 스택에 <strong>Lock Record</strong>라는 작은 공간 할당</li>
+          <li>객체의 Mark Word를 그 Lock Record에 백업</li>
+          <li>CAS로 Mark Word를 Lock Record 포인터로 교체</li>
+          <li>성공이면 락 획득. 실패면 다른 스레드가 이미 잡고 있다는 뜻</li>
+        </ol>
 
-특징:
-  락 획득/해제가 CAS 한 번
-  성공하면 매우 빠름 (< 100 nanosec)
-  단, 다른 스레드와 경합 시 효율 떨어짐</code></pre>
+        <p>
+          해제는 반대로. CAS로 Mark Word를 백업해둔 원래 값으로 복원.
+          한 번의 CAS로 끝나는 매우 가벼운 락이에요.
+        </p>
 
-        <h3>스핀 락 (Spin Lock) — Lightweight의 보조</h3>
+        <h3>경합 시 spin</h3>
 
-        <pre><code>경합이 잠깐일 거라 예상되면:
-  CAS 실패 시 즉시 OS 락으로 가지 않고
-  잠깐 동안 (수 사이클) busy-wait하며 다시 CAS 시도
-  → 컨텍스트 스위칭 비용보다 싸면 이득
+        <p>
+          CAS가 실패해도 즉시 OS mutex로 가지 않고, 잠깐 spin(busy-wait)을 해요.
+          경합이 매우 짧으면 spin이 컨텍스트 스위칭보다 싸거든요.
+        </p>
 
-JVM의 Adaptive Spinning:
-  과거에 그 락에서 스핀이 성공했는지 추적
-  성공 이력 있으면 다음에도 스핀 시도
-  실패 누적이면 스핀 안 하고 즉시 Heavyweight</code></pre>
+        <p>
+          JVM의 <strong>Adaptive Spinning</strong>이 영리해요. 과거에 그 락에서 spin이 성공했던 이력을 추적해서, 성공 가능성이 높으면 더 길게 spin.
+          실패가 누적되면 spin 안 하고 즉시 Heavyweight으로 전환.
+        </p>
 
         <h2>3. Heavyweight Lock — 중량 락</h2>
 
-        <pre><code>아이디어: "경합이 진짜 심함, OS에 맡기자"
+        <p>
+          경합이 정말 심한 자리. 더 spin하느니 OS에 맡기는 게 효율적인 시점.
+        </p>
 
-ObjectMonitor 구조 (HotSpot 내부):
-  - _owner: 현재 락 보유 스레드
-  - _EntryList: 락 대기 중인 스레드 큐
-  - _WaitSet: wait()로 대기 중인 스레드
-  - _recursions: 재진입 카운트
+        <h3>ObjectMonitor</h3>
 
-획득:
-  CAS로 _owner를 자기 스레드로 설정 시도
-  실패 시:
-    → _EntryList에 자기 자신 등록
-    → OS의 mutex로 suspend (block)
-    → 다른 스레드가 release하면 OS가 깨워줌
+        <p>
+          Heavyweight Lock으로 전환되면 JVM이 <strong>ObjectMonitor</strong>라는 자료구조를 만들어요. 그 안에 다음 정보가 들어가요.
+        </p>
 
-해제:
-  _owner를 null로
-  _EntryList에서 한 스레드 깨움 (선택은 unfair, OS 의존)
+        <ul>
+          <li><code>_owner</code>: 현재 락 보유 스레드</li>
+          <li><code>_EntryList</code>: 락 대기 중인 스레드 큐</li>
+          <li><code>_WaitSet</code>: <code>wait()</code>로 대기 중인 스레드</li>
+          <li><code>_recursions</code>: 재진입 카운트</li>
+        </ul>
 
-특징:
-  안정적 (어떤 경합 상황에도 작동)
-  비용 큼 (시스템 콜 + 컨텍스트 스위칭)
-  대기 시 CPU 사용 안 함 (block 상태)</code></pre>
+        <h3>동작</h3>
 
-        <h2>전체 진화 그림</h2>
+        <ol>
+          <li>CAS로 <code>_owner</code>를 자기 스레드로 설정 시도</li>
+          <li>실패하면 <code>_EntryList</code>에 자기를 등록</li>
+          <li>OS mutex로 suspend (block 상태)</li>
+          <li>다른 스레드가 락을 풀면 OS가 깨워줌</li>
+        </ol>
 
-        <pre><code>새 객체 생성:
-  Mark Word: No Lock 상태
+        <p>
+          시스템 콜 + 컨텍스트 스위칭 비용이 들어가요. 한 번에 수 마이크로초.
+          단, 대기 시 CPU를 안 쓰니 spin과 다르게 절약 효과는 있어요.
+        </p>
 
-스레드 A가 처음 synchronized 진입:
-  → Biased Lock으로 변환 (Thread A의 ID 기록)
-  → A가 다시 진입해도 거의 무비용
+        <h2>비용 측정 — 실제 얼마나 차이나는가</h2>
 
-스레드 B가 같은 락 진입 시도:
-  → Biased 해제 (revoke) → Lightweight Lock으로
-  → B와 A 모두 CAS 기반으로 락 시도
+        <p>
+          이 4단계가 실측에 어떻게 나타나는지 직접 측정해봤어요. 카운터 한 개를 락으로 보호하면서 5백만 번 increment.
+          스레드 수를 늘리면서 경합 정도를 변화시켰어요. (Java 21, M-series Mac)
+        </p>
 
-경합 지속:
-  → CAS 반복 실패 / 스핀 한계 도달
-  → Heavyweight Lock으로 승급
-  → ObjectMonitor 사용, OS 큐로
+        <h3>단일 스레드 — 경합 없는 baseline</h3>
 
-시간 흘러 경합 사라짐:
-  → 다음 GC cycle에 락 상태 재평가 가능 (deflation)
-  → No Lock으로 복귀 가능
+        <table>
+          <thead>
+            <tr><th>패턴</th><th>처리 시간</th><th>처리량 (ops/s)</th><th>락 없음 대비</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>락 없음</td>
+              <td>1 ms</td>
+              <td>5,000M</td>
+              <td>1.0x (기준)</td>
+            </tr>
+            <tr>
+              <td>synchronized</td>
+              <td>12 ms</td>
+              <td>417M</td>
+              <td>12x</td>
+            </tr>
+            <tr>
+              <td>ReentrantLock</td>
+              <td>25 ms</td>
+              <td>200M</td>
+              <td>25x</td>
+            </tr>
+          </tbody>
+        </table>
 
-핵심:
-  대부분 락은 Lightweight 또는 Biased에서 끝남
-  Heavyweight까지 가는 건 진짜 경합 심한 락만</code></pre>
+        <p>
+          경합 없는 단일 스레드에서도 락은 12배 정도 비용이에요. 5백만 번 시도면 미세한 차이가 누적.
+          그래도 synchronized가 ReentrantLock보다 2배 가까이 빠르네요. JVM의 lock 단계화 최적화 덕분.
+        </p>
 
-        <h2>측정 — 단계별 비용</h2>
+        <h3>경합 점진 증가</h3>
 
-        <pre><code>대략적 비용 비교 (현대 CPU, 단일 락 획득 한 번):
+        <table>
+          <thead>
+            <tr><th>스레드 수</th><th>synchronized</th><th>ReentrantLock</th><th>관찰</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1 스레드</td>
+              <td>417M ops/s</td>
+              <td>200M ops/s</td>
+              <td>synchronized 우세</td>
+            </tr>
+            <tr>
+              <td>2 스레드</td>
+              <td>43M ops/s</td>
+              <td>35M ops/s</td>
+              <td>synchronized 약간 우세</td>
+            </tr>
+            <tr>
+              <td>4 스레드</td>
+              <td>32M ops/s</td>
+              <td>134M ops/s</td>
+              <td>ReentrantLock 우세</td>
+            </tr>
+            <tr>
+              <td>16 스레드</td>
+              <td>148M ops/s</td>
+              <td>134M ops/s</td>
+              <td>비슷</td>
+            </tr>
+          </tbody>
+        </table>
 
-No Lock:                 0 ns
-Biased Lock:             ~5 ns   (Thread ID 비교만)
-Lightweight Lock (성공): ~20-50 ns (CAS 한 번)
-Lightweight Lock (스핀): ~100-500 ns
-Heavyweight Lock:        ~1000+ ns (시스템 콜)
+        <p>
+          몇 가지 흥미로운 관찰이 보여요.
+        </p>
 
-→ 같은 synchronized 키워드라도 상황에 따라 100~1000배 비용 차이</code></pre>
+        <ul>
+          <li>단일 스레드에서는 synchronized가 2배 빠름 (lightweight CAS의 효율)</li>
+          <li>2 스레드 가벼운 경합도 synchronized 우세</li>
+          <li>4 스레드에서 갑자기 ReentrantLock이 4배 빠름. 이 자리는 synchronized의 spin 비용이 누적되는 영역</li>
+          <li>16 스레드 심한 경합에선 다시 비슷. 둘 다 결국 OS mutex 기반 처리</li>
+        </ul>
 
-        <h2>실무 영향 — 어떻게 락을 짧게 유지하는가</h2>
+        <p>
+          중요한 건 단순 비교가 어렵다는 점이에요. <strong>경합 정도와 패턴에 따라 답이 달라요</strong>. 일반론으로 "X가 더 빠르다"고 말하기 힘들어요.
+        </p>
 
-        <pre><code>락 진화 단계는 대부분 JVM이 알아서 함.
-개발자가 신경 쓸 것:
+        <h3>1 스레드에서 락이 12배 비싸다는 의미</h3>
 
-1. 임계 영역을 짧게
-   - 락 안에서 I/O 호출 X
-   - 락 안에서 외부 메서드 호출 최소화 (Lock 외부에서 인자 다 준비)
+        <p>
+          무서운 숫자처럼 보이지만 절대값을 보면 다른 그림이에요. 5백만 번 increment에 12ms.
+          한 번 락 획득 + 해제에 약 2.4 nanosecond. 매우 빠른 거죠.
+        </p>
 
-2. 락 단위를 작게
-   - 큰 객체 통째로 잡기보다 필요한 부분만
-   - "Stripe Lock" 패턴 (ConcurrentHashMap이 사용)
+        <p>
+          실무에서 synchronized 비용이 문제가 되는 자리는 <strong>경합이 심한 핫 키</strong> 또는 <strong>매우 짧은 임계 영역의 반복</strong> 정도예요.
+          일반 비즈니스 로직은 락 비용이 무시 가능한 수준.
+        </p>
 
-3. 락 경합 자체를 줄이기
-   - ThreadLocal로 스레드별 격리
-   - 불변 객체 사용으로 동기화 불필요
-   - CAS 기반 자료구조 (Atomic, ConcurrentMap)
+        <h2>전체 진화 흐름</h2>
 
-4. 스레드별 워크로드 분산
-   - 같은 락에 많은 스레드가 몰리지 않도록 구조 설계</code></pre>
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="락 진화">
+            <defs>
+              <style>
+                .state { fill: #f9fafb; stroke: #4e5968; stroke-width: 1.2; }
+                .biased { fill: #f0f9f4; stroke: #2e7d32; stroke-width: 1.5; }
+                .lightweight { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .heavyweight { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.5; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .arrow { stroke: #6b7684; stroke-width: 1.5; fill: none; marker-end: url(#a-lock); }
+                .cost { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #c4302b; font-weight: 600; }
+              </style>
+              <marker id="a-lock" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+            </defs>
+
+            <text x="20" y="22" class="header">락 진화 — 경합 정도에 따라 단계 상승</text>
+
+            <rect x="20" y="50" width="120" height="50" rx="6" class="state"/>
+            <text x="80" y="72" text-anchor="middle" class="label">No Lock</text>
+            <text x="80" y="88" text-anchor="middle" class="small">~0 ns</text>
+
+            <line x1="140" y1="75" x2="180" y2="75" class="arrow"/>
+
+            <rect x="180" y="50" width="120" height="50" rx="6" class="biased"/>
+            <text x="240" y="72" text-anchor="middle" class="label">Biased</text>
+            <text x="240" y="88" text-anchor="middle" class="small">~5 ns (Java 15- only)</text>
+
+            <line x1="300" y1="75" x2="340" y2="75" class="arrow"/>
+
+            <rect x="340" y="50" width="120" height="50" rx="6" class="lightweight"/>
+            <text x="400" y="72" text-anchor="middle" class="label">Lightweight</text>
+            <text x="400" y="88" text-anchor="middle" class="small">~20 ns</text>
+
+            <line x1="460" y1="75" x2="500" y2="75" class="arrow"/>
+
+            <rect x="490" y="50" width="100" height="50" rx="6" class="heavyweight"/>
+            <text x="540" y="72" text-anchor="middle" class="label">Heavyweight</text>
+            <text x="540" y="88" text-anchor="middle" class="small">~1000+ ns</text>
+
+            <text x="20" y="140" class="header">단계별 트리거</text>
+
+            <text x="40" y="166" class="small">• No → Biased: 첫 스레드의 첫 락 (Java 15- only)</text>
+            <text x="40" y="186" class="small">• Biased → Lightweight: 다른 스레드가 락 시도 (revoke)</text>
+            <text x="40" y="206" class="small">• Lightweight → Heavyweight: CAS 실패 + spin 한계</text>
+            <text x="40" y="226" class="small">• Heavyweight: OS mutex 사용 (블록/언블록)</text>
+
+            <text x="20" y="262" class="cost">대부분 락은 Lightweight에서 끝나요. Heavyweight는 진짜 경합 심한 자리만.</text>
+          </svg>
+          <figcaption>락 진화 — No Lock → Biased → Lightweight → Heavyweight</figcaption>
+        </figure>
+
+        <h2>실무 영향 — 어떻게 쓰면 좋은가요</h2>
+
+        <p>
+          이 진화 메커니즘이 실무 코드에 주는 함의를 정리해볼게요.
+        </p>
+
+        <h3>1. 임계 영역을 짧게</h3>
+
+        <p>
+          락 안에서 I/O, 외부 호출, 큰 DB 쿼리 같은 무거운 작업 금지. 임계 영역이 길수록 다른 스레드 대기가 누적되고, Heavyweight으로 빨리 승급해요.
+        </p>
+
+        <pre><code class="language-java">// 안 좋음
+synchronized (lock) {
+    User user = userRepository.findById(id);   // DB 조회 (수 ms)
+    user.update(data);
+    userRepository.save(user);
+}
+
+// 좋음
+User user = userRepository.findById(id);      // 락 밖에서
+user.update(data);
+synchronized (lock) {
+    state.put(user.getId(), user);             // 락 안은 메모리 작업만
+}
+userRepository.save(user);                     // 락 밖에서</code></pre>
+
+        <h3>2. 락 단위를 작게</h3>
+
+        <p>
+          하나의 큰 락보다 여러 개의 작은 락이 좋아요. ConcurrentHashMap이 버킷 단위 락(bin-level locking)으로 동시성을 살린 게 같은 원리.
+          여러 자원을 보호한다면 자원별 락 분리 검토.
+        </p>
+
+        <h3>3. 락 자체를 줄이기</h3>
+
+        <p>
+          가능하면 락 없이 처리하는 패턴 검토.
+        </p>
+
+        <ul>
+          <li>불변 객체 — 동기화 불필요</li>
+          <li>ThreadLocal — 스레드별 격리로 공유 자체 회피</li>
+          <li>Atomic 클래스 — CAS 기반, 락 없음</li>
+          <li>ConcurrentHashMap, BlockingQueue — 자료구조가 동시성 처리</li>
+        </ul>
+
+        <h3>4. 측정 후 결정</h3>
+
+        <p>
+          synchronized vs ReentrantLock 같은 선택은 일반론으로 답하기 어려워요. 위 벤치마크에서도 4스레드와 16스레드의 결과가 달랐듯이.
+          실제 워크로드 패턴으로 측정한 뒤 결정하는 게 안전해요.
+        </p>
+
+        <h2>VM 옵션으로 락 관찰하기</h2>
+
+        <p>
+          JVM의 락 동작을 실제로 관찰할 수 있는 옵션이 있어요. 디버깅 시 유용해요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>옵션</th><th>의미</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>-XX:+UseBiasedLocking</code></td>
+              <td>Biased Lock 활성 (Java 15+ 기본 비활성)</td>
+            </tr>
+            <tr>
+              <td><code>-XX:BiasedLockingStartupDelay=0</code></td>
+              <td>Biased Lock 시작 지연 제거</td>
+            </tr>
+            <tr>
+              <td><code>-XX:+PrintBiasedLockingStatistics</code></td>
+              <td>Biased Lock 통계 출력</td>
+            </tr>
+            <tr>
+              <td><code>-XX:+PrintCompilation</code></td>
+              <td>JIT 컴파일 진행 로그</td>
+            </tr>
+          </tbody>
+        </table>
 
         <h2>면접 단골 질문</h2>
 
-        <h3>Q. synchronized의 락 정보는 어디에 저장되나?</h3>
+        <h3>Q. synchronized의 락 정보는 어디에 저장되나요?</h3>
 
         <p>
-          객체 헤더의 Mark Word에 저장. 64비트 슬롯 하나가 락 상태에 따라 다른 의미로 쓰임 —
-          No Lock일 땐 hashCode 등, Biased일 땐 Thread ID, Lightweight일 땐 Lock Record 포인터,
-          Heavyweight일 땐 ObjectMonitor 포인터.
+          객체 헤더의 Mark Word에 저장돼요. 64bit JVM에서 8바이트 슬롯이고, 객체 상태에 따라 다른 의미로 해석돼요.
+          No Lock일 땐 hashCode, Biased일 땐 스레드 ID, Lightweight일 땐 Lock Record 포인터, Heavyweight일 땐 ObjectMonitor 포인터.
+          마지막 비트 패턴으로 현재 상태를 식별해요.
         </p>
 
-        <h3>Q. Biased / Lightweight / Heavyweight Lock의 차이는?</h3>
+        <h3>Q. 4단계 락의 차이는요?</h3>
 
         <p>
-          비용 순으로 단계화. Biased는 한 스레드 점유 시 거의 무비용,
-          Lightweight는 CAS로 짧은 경합 처리, Heavyweight는 OS mutex로 무거운 경합 처리.
-          JVM이 경합 상황 따라 자동으로 단계 상승.
+          비용이 점점 커지는 단계예요.
+          Biased는 한 스레드 점유 시 거의 무비용 (Java 15+에서 deprecate).
+          Lightweight는 가벼운 경합을 CAS로 처리.
+          Heavyweight는 OS mutex로 진짜 경합 처리. 컨텍스트 스위칭 발생.
+          JVM이 경합 상황에 따라 자동으로 단계 상승. 대부분 락은 Lightweight에서 끝나요.
         </p>
 
-        <h3>Q. Java 15에서 Biased Lock이 왜 deprecate되었나?</h3>
+        <h3>Q. Java 15에서 Biased Lock이 deprecate된 이유는요?</h3>
 
         <p>
-          revoke 비용(짧은 stop-the-world), 코드 복잡도 부담, 모던 자바의 동시성 컬렉션 보편화로
-          이득이 줄어듦. 단일 스레드 가정이 깨지는 케이스가 많아져서 비용 대비 효과가 줄었다는 판단.
+          revoke의 stop-the-world 비용이 누적되면 부담이고, 모던 자바 코드는 ConcurrentHashMap 같은 동시성 컬렉션이 보편화되어 단일 스레드 가정이 자주 깨져요.
+          또 JVM 내부 코드 복잡도와 다른 최적화로 인해 이득이 줄어든 것도 이유.
+          현재(Java 21)에는 사실상 사라진 것으로 봐도 돼요.
         </p>
 
-        <h3>Q. 임계 영역을 어떻게 빨리 만드나?</h3>
+        <h3>Q. 임계 영역을 짧게 유지해야 하는 이유는요?</h3>
 
         <p>
-          락 안에서 I/O / 외부 호출 안 하기, 락 단위 작게(필드 단위), 락 자체를 줄이기(불변 객체, ThreadLocal, CAS 기반 자료구조).
-          JVM의 락 진화는 자동이지만 임계 영역의 길이는 개발자 책임.
+          락 보유 시간이 길수록 다른 스레드 대기가 누적되어 처리량이 떨어져요. 락이 빨리 Heavyweight으로 승급되어 OS mutex 비용도 누적.
+          또 락 안에서 외부 호출하다가 응답 안 오면 락이 영원히 안 풀리는 위험도 있어요.
+          락 안은 메모리 작업만, 무거운 작업은 락 밖에서 처리하는 게 원칙이에요.
         </p>
 
         <h2>한 줄 정리</h2>
 
-        <pre><code>객체 헤더의 Mark Word에 락 정보가 다목적으로 저장.
-synchronized는 4단계 락 진화: No Lock → Biased → Lightweight → Heavyweight.
+        <p>
+          synchronized의 락 정보는 객체 헤더의 Mark Word에 압축되어 저장돼요.
+          경합 정도에 따라 No Lock → Biased → Lightweight → Heavyweight 4단계로 자동 진화. 대부분 락은 Lightweight에서 끝나요.
+          Java 15+에서 Biased는 deprecate되어 사실상 3단계예요.
+          실무에서는 임계 영역을 짧게 유지하고, 경합이 심하면 락 단위를 작게 분리하는 게 핵심 원칙이에요.
+        </p>
 
-진화 의미:
-  대부분 락은 Lightweight 또는 Biased에서 끝남 — 매우 빠름
-  진짜 경합 심한 락만 Heavyweight (OS mutex) — 비싼 처리
-
-Java 15+에서 Biased Lock은 기본 비활성화 (deprecate).
-
-다음 편: synchronized가 단순 mutex가 아니라 메모리 가시성까지 보장하는 이유 — JMM과 happens-before.</code></pre>
+        <p>
+          다음 편에서는 synchronized의 다른 면 — 메모리 가시성과 happens-before 관계로 들어가요.
+          락이 단순한 mutex 이상의 역할을 한다는 게 보일 거예요.
+        </p>
 
       </section>
     </article>
@@ -323,4 +574,3 @@ Java 15+에서 Biased Lock은 기본 비활성화 (deprecate).
   <script src="../../assets/toc.js"></script>
 </body>
 </html>
-</content>

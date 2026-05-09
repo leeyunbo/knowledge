@@ -15,11 +15,10 @@
 
     <article>
       <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 1/3</div>
+        <div class="post-date">2026.05.10 · 시리즈 1/3</div>
         <h1>synchronized의 정체</h1>
         <p class="subtitle">
-          모든 자바 객체에 숨어있는 모니터 락. 임계 영역과 mutual exclusion.
-          한 줄짜리 키워드 뒤에 어떤 메커니즘이 있는가.
+          모든 자바 객체에 숨어있는 모니터 락. 한 줄짜리 키워드 뒤에 어떤 메커니즘이 있는지부터 시작해봐요.
         </p>
       </header>
 
@@ -28,288 +27,455 @@
         <div class="series-title">synchronized & 모니터 락</div>
         <ol>
           <li class="current">synchronized의 정체</li>
-          <li><a href="./02-객체-헤더와-락-진화.html">객체 헤더와 락 진화 — Biased / Lightweight / Heavyweight</a></li>
-          <li><a href="./03-synchronized와-메모리-가시성.html">synchronized와 메모리 가시성 — JMM과 happens-before</a></li>
+          <li><a href="./02-객체-헤더와-락-진화.html">객체 헤더와 락 진화</a></li>
+          <li><a href="./03-synchronized와-메모리-가시성.html">메모리 가시성과 happens-before</a></li>
         </ol>
       </nav>
 
       <section class="post-body">
 
-        <h2>풀고자 하는 문제 — Race Condition</h2>
-
-        <pre><code>// 의도: 카운터 증가
-private int count = 0;
-
-public void increment() {
-    count++;   // ★ 여러 스레드가 동시에 호출하면?
-}
-
-// count++ 의 정체:
-//   1. count 메모리에서 읽기 (load)
-//   2. +1 (compute)
-//   3. 다시 메모리에 쓰기 (store)
-// → 세 단계 사이에 다른 스레드가 끼어들 수 있음</code></pre>
-
-        <h3>실제 발생하는 race</h3>
-
-        <pre><code>스레드 A와 B가 거의 동시에 increment() 호출:
-
-Step      A의 동작              B의 동작              count 메모리
-───────────────────────────────────────────────────────────────
-1         load (0 읽음)                                0
-2                              load (0 읽음)           0
-3         compute (0+1=1)                              0
-4                              compute (0+1=1)         0
-5         store (1 씀)                                 1
-6                              store (1 씀)            1   ← ★
-
-기대: count = 2
-결과: count = 1 (한 번 증가가 사라짐)</code></pre>
+        <h2>풀려는 문제 — Race Condition</h2>
 
         <p>
-          이런 현상을 race condition이라 한다. 임계 영역(critical section)이
-          원자적이지 않아 데이터가 깨지는 것.
-          synchronized는 이걸 막는 가장 기본적인 도구.
+          가장 단순한 카운터 코드부터 시작해볼게요. 여러 스레드가 같은 카운터를 증가시키는 시나리오예요.
         </p>
 
-        <h2>synchronized의 두 가지 사용</h2>
+        <pre><code class="language-java">class Counter {
+    private int count = 0;
 
-        <h3>1. 메서드에 붙이기</h3>
+    public void increment() {
+        count++;
+    }
+}</code></pre>
 
-        <pre><code>public synchronized void increment() {
-    count++;
+        <p>
+          코드는 한 줄짜리지만 <code>count++</code>가 단일 연산이 아니에요. 자바 바이트코드 수준에서 세 단계로 분해돼요.
+        </p>
+
+        <ol>
+          <li><strong>load</strong>: 메모리에서 현재 count 값 읽기</li>
+          <li><strong>compute</strong>: +1 계산</li>
+          <li><strong>store</strong>: 새 값을 메모리에 쓰기</li>
+        </ol>
+
+        <p>
+          여러 스레드가 동시에 호출하면 이 세 단계 사이에 다른 스레드가 끼어들 수 있어요.
+          두 스레드가 같은 시점에 0을 읽고, 각자 1을 만들어 쓰면 결과는 1. 한 번의 증가가 사라지는 거예요.
+        </p>
+
+        <h3>실제로 깨지는 동작</h3>
+
+        <p>
+          이게 추상적이지 않은 진짜 문제인지 보여주는 짧은 데모예요.
+          1000 스레드가 각각 1000번 increment 한다고 해볼게요. 기대값은 1,000,000.
+        </p>
+
+        <pre><code class="language-java">Counter c = new Counter();
+ExecutorService pool = Executors.newFixedThreadPool(1000);
+CountDownLatch latch = new CountDownLatch(1000);
+
+for (int i = 0; i &lt; 1000; i++) {
+    pool.submit(() -&gt; {
+        for (int j = 0; j &lt; 1000; j++) c.increment();
+        latch.countDown();
+    });
 }
+latch.await();
+System.out.println(c.getCount());   // 매번 다른 값. 보통 70만~80만대</code></pre>
 
-→ 메서드 진입할 때 'this'의 락을 획득
-→ 다른 스레드는 같은 인스턴스의 다른 synchronized 메서드도 호출 못 함
-→ 메서드 종료 시 락 해제
+        <p>
+          돌릴 때마다 결과가 다르게 나와요. 1,000,000이 나오는 일은 거의 없어요.
+          이걸 race condition(경쟁 상태)이라 부르고, <code>count++</code>가 일어나는 코드를 임계 영역(critical section)이라고 해요.
+          synchronized는 이 문제를 막는 가장 기본적인 도구예요.
+        </p>
 
-static 메서드는 'this'가 없으므로:
-public static synchronized void doSomething() { ... }
-→ 클래스 객체 (Class 객체) 의 락을 획득</code></pre>
+        <h2>synchronized의 두 가지 사용법</h2>
 
-        <h3>2. 블록에 붙이기 (락 객체 명시)</h3>
+        <h3>방법 1 — 메서드에 붙이기</h3>
 
-        <pre><code>private final Object lock = new Object();
+        <pre><code class="language-java">public synchronized void increment() {
+    count++;
+}</code></pre>
+
+        <p>
+          가장 단순한 형태. 메서드 진입 시 <code>this</code>의 모니터 락을 획득하고, 종료 시 해제해요.
+          같은 인스턴스의 다른 synchronized 메서드를 다른 스레드가 호출하려 하면 그 락에서 대기.
+        </p>
+
+        <p>
+          static 메서드에 붙이면 <code>this</code>가 없으니 클래스 객체(Class)의 락을 사용해요.
+        </p>
+
+        <pre><code class="language-java">public static synchronized void doSomething() {
+    // Counter.class의 모니터 락 획득
+}</code></pre>
+
+        <h3>방법 2 — 블록에 붙이기</h3>
+
+        <pre><code class="language-java">private final Object lock = new Object();
 
 public void increment() {
     synchronized (lock) {
         count++;
     }
-}
+}</code></pre>
 
-→ lock 객체의 모니터 락을 획득
-→ 임계 영역만 좁게 잡음 (메서드 일부만 보호)
-→ 락 객체를 분리해 다른 락과 독립 운용
+        <p>
+          명시적으로 락 객체를 지정하는 방식. 임계 영역을 좁게 잡을 수 있고, 락 객체를 분리해 다른 락과 독립 운용 가능해요.
+          더 유연하고 권장되는 형태예요.
+        </p>
 
-권장:
-  - 외부에서 접근 가능한 객체로 락 잡지 말기 (this 등)
-  - private final로 전용 락 객체 만들기
-  - 클래스 락 잡으려면 ClassName.class</code></pre>
+        <h3>왜 블록이 더 권장되나요</h3>
+
+        <ul>
+          <li><strong>임계 영역 최소화</strong>: 메서드 일부만 보호. 락 보유 시간이 짧을수록 처리량이 높아요</li>
+          <li><strong>외부 노출 회피</strong>: <code>this</code>는 외부에서도 접근 가능. 누군가 <code>synchronized(myInstance)</code>로 락을 잡으면 의도치 않은 경합 발생</li>
+          <li><strong>전용 락 객체</strong>: <code>private final Object lock</code>으로 외부에서 접근 불가능한 락 사용 권장</li>
+          <li><strong>여러 락 분리 가능</strong>: 한 클래스 안에서 다른 자원을 다른 락으로 보호 가능</li>
+        </ul>
 
         <h2>모니터 락 — 모든 객체에 내장된 mutex</h2>
 
-        <pre><code>Java의 모든 객체는 본질적으로 모니터(monitor) 하나를 가짐
-  - 객체 헤더의 Mark Word에 락 정보 저장 (다음 편에서 자세히)
-  - intrinsic lock 또는 monitor lock이라 부름
+        <p>
+          synchronized의 핵심 메커니즘은 <strong>모니터 락(monitor lock)</strong>이에요. 자바의 모든 객체는 본질적으로 모니터를 하나씩 가지고 있어요.
+        </p>
 
-모니터의 두 부분:
-  1. Mutex (상호 배제) — 한 번에 한 스레드만 진입
-  2. Condition Variable — wait/notify로 조건 대기 (별도 주제)
+        <p>
+          모니터는 1973년 Per Brinch Hansen과 Tony Hoare가 제안한 동시성 추상화예요. 두 부분으로 구성돼요.
+        </p>
 
-모니터는 1973년 Per Brinch Hansen, Tony Hoare가 제안한 동시성 추상화
-Java가 이를 객체에 직접 통합한 게 synchronized</code></pre>
+        <ul>
+          <li><strong>Mutex (상호 배제)</strong>: 한 번에 한 스레드만 진입 가능</li>
+          <li><strong>Condition Variable</strong>: <code>wait/notify</code>로 조건 대기 (별도 주제)</li>
+        </ul>
 
-        <h3>synchronized의 동작 흐름</h3>
+        <p>
+          자바는 이 모니터 추상화를 모든 객체에 직접 통합했어요. 그래서 어느 객체든 synchronized의 락 객체로 사용 가능. 별도의 락 객체 클래스가 필요 없어요.
+        </p>
 
-        <pre><code>synchronized (obj) { 임계영역 }
+        <p>
+          이 모니터 락이 객체의 어디에 어떻게 저장되는지는 다음 편의 주제예요. 객체 헤더의 Mark Word라는 자리에 압축되어 들어가요.
+        </p>
 
-내부 동작:
-  1. obj의 모니터 락 획득 시도
-     - 다른 스레드가 잡고 있으면 대기
-     - 비어있으면 획득
-  2. 임계 영역 실행
-  3. 임계 영역 종료 시 락 해제
-     - 정상 종료든 예외든 항상 해제 (try-finally 같은 효과)
-  4. 대기하던 스레드 중 하나가 깨어남</code></pre>
+        <h3>JVM 바이트코드로 보는 synchronized</h3>
 
-        <h2>JVM 바이트코드 — monitorenter / monitorexit</h2>
+        <p>
+          synchronized 블록이 JVM 바이트코드 수준에서 어떻게 표현되는지 보면 메커니즘이 더 분명해져요.
+        </p>
 
-        <pre><code>synchronized (lock) {
+        <pre><code class="language-java">synchronized (lock) {
     count++;
-}
+}</code></pre>
 
-컴파일 후 바이트코드:
-  aload_1               // lock 객체 스택에
-  monitorenter          // 락 획득
-  // count++ 코드
-  aload_1
-  monitorexit           // 락 해제
-  // 예외 발생 시도 monitorexit 호출 (예외 핸들러로)
+        <p>
+          이 코드를 컴파일하면 다음 바이트코드가 나와요.
+        </p>
 
-→ JVM 명령어 두 개로 락 획득/해제 구현
-→ 자바 코드 수준의 키워드가 직접 바이트코드 명령어로 매핑</code></pre>
+        <pre><code class="language-text">aload_1               // lock 객체 스택에 로드
+monitorenter          // 락 획득
+// count++ 코드
+aload_1
+monitorexit           // 락 해제</code></pre>
 
-        <h3>synchronized 메서드의 차이</h3>
+        <p>
+          JVM 명령어 두 개(<code>monitorenter</code>, <code>monitorexit</code>)가 락 획득과 해제를 처리해요.
+          예외 발생 시에도 monitorexit가 호출되도록 try-finally 같은 핸들러가 자동으로 추가돼요.
+        </p>
 
-        <pre><code>public synchronized void increment() { count++; }
-
-바이트코드:
-  메서드에 ACC_SYNCHRONIZED 플래그만 표시
-  → JVM이 메서드 진입/종료 시 자동으로 락 처리
-  → monitorenter/monitorexit 명령어 명시 안 됨
-
-블록 synchronized와 효과는 동일하지만 메커니즘 약간 다름</code></pre>
+        <p>
+          synchronized 메서드의 경우는 약간 달라요. 메서드 자체에 <code>ACC_SYNCHRONIZED</code> 플래그만 표시되고, JVM이 메서드 진입/종료 시 자동으로 락을 처리해요.
+          명시적인 monitorenter/monitorexit 명령어는 안 들어가지만 효과는 동일해요.
+        </p>
 
         <h2>재진입성 (Reentrancy)</h2>
 
-        <pre><code>public synchronized void outer() {
-    inner();   // ← 같은 락을 다시 잡으려 함
+        <p>
+          중요한 성질 하나. 자바의 모니터 락은 <strong>재진입 가능</strong>해요. 같은 스레드가 이미 가지고 있는 락을 다시 잡아도 통과돼요.
+        </p>
+
+        <pre><code class="language-java">public synchronized void outer() {
+    inner();   // 같은 락(this)을 다시 잡아야 하지만 같은 스레드라 통과
 }
 
 public synchronized void inner() {
-    ...
-}
-
-→ outer가 'this' 락 획득
-→ inner도 'this' 락 획득 시도
-→ 이미 자기가 잡고 있는 락이라 즉시 통과 (재진입 허용)
-
-이게 안 되면 데드락 (자기가 자기를 막음)
-ReentrantLock도 같은 이유로 "재진입 가능" 강조</code></pre>
+    // 작업
+}</code></pre>
 
         <p>
-          Java의 모니터 락은 기본적으로 재진입 가능. 같은 스레드가 같은 락을 여러 번 잡아도 OK.
-          진입 카운트를 내부적으로 유지해서, 같은 횟수만큼 해제해야 락이 풀린다.
+          재진입성이 없으면 어떻게 될까요? <code>outer</code>가 <code>this</code> 락을 잡고 들어왔는데, <code>inner</code>도 같은 락을 잡으려 하면
+          자기가 자기를 막는 상황. 영원히 대기하는 데드락이 발생해요.
         </p>
 
-        <h2>락의 단위 — 무엇을 보호하나</h2>
+        <p>
+          그래서 모니터 락은 진입 카운트를 내부적으로 유지해요. 같은 스레드가 N번 잡으면 카운트가 N. 같은 횟수만큼 풀어야 락이 진짜 해제돼요.
+          ReentrantLock의 이름도 같은 이유예요.
+        </p>
 
-        <pre><code>synchronized는 객체 단위로 락을 잡음
-  → 같은 객체의 synchronized 메서드/블록은 직렬화
-  → 다른 객체의 synchronized는 독립
+        <h2>락의 단위 — 무엇을 보호하나요</h2>
 
-예시:
-  Counter c1 = new Counter();
-  Counter c2 = new Counter();
+        <p>
+          synchronized는 <strong>객체 단위</strong>로 락을 잡아요. 같은 객체의 synchronized 메서드들은 서로 직렬화되지만, 다른 객체는 독립적이에요.
+        </p>
 
-  // 스레드 A: c1.increment() 호출
-  // 스레드 B: c2.increment() 호출 → 동시 실행 가능 (다른 락)
+        <pre><code class="language-java">Counter c1 = new Counter();
+Counter c2 = new Counter();
 
-  // 스레드 A: c1.increment() 호출
-  // 스레드 B: c1.decrement() 호출 → 직렬화 (같은 'this' 락)</code></pre>
+// 스레드 A: c1.increment()
+// 스레드 B: c2.increment()  → 동시 실행 가능 (다른 객체, 다른 락)
 
-        <h3>락 단위의 함정</h3>
+// 스레드 A: c1.increment()
+// 스레드 B: c1.decrement()  → 직렬화 (같은 'this' 락)</code></pre>
 
-        <pre><code class="language-java">// 잘못된 패턴: 다른 락 객체로 보호하면 동시성 보장 안 됨
-private Object lockA = new Object();
-private Object lockB = new Object();
-private int count = 0;
+        <h3>흔한 실수 — 잘못된 락 단위</h3>
 
-public void increment() {
-    synchronized (lockA) {
-        count++;
+        <p>
+          같은 데이터를 보호하는데 다른 락을 쓰면 동시성 보장이 깨져요.
+        </p>
+
+        <pre><code class="language-java">// 잘못된 패턴
+class Counter {
+    private final Object lockA = new Object();
+    private final Object lockB = new Object();
+    private int count = 0;
+
+    public void increment() {
+        synchronized (lockA) { count++; }
     }
-}
 
-public void decrement() {
-    synchronized (lockB) {
-        count--;
+    public void decrement() {
+        synchronized (lockB) { count--; }
     }
-}
+}</code></pre>
 
-→ A와 B 락이 별개라 동시 진입 가능
-→ count가 깨질 수 있음
+        <p>
+          increment와 decrement가 다른 락이라 동시 진입 가능. count가 깨질 수 있어요.
+          한 데이터를 보호하는 모든 임계 영역은 <strong>같은 락</strong>으로 보호해야 해요. 기본 원칙이에요.
+        </p>
 
-같은 데이터를 보호하는 모든 임계 영역은 같은 락으로 보호해야 함</code></pre>
+        <h3>여러 락으로 분리하는 패턴</h3>
+
+        <p>
+          반대로 정말 다른 자원이라면 다른 락으로 분리하는 게 처리량에 좋아요.
+        </p>
+
+        <pre><code class="language-java">class TwoCounters {
+    private final Object readerLock = new Object();
+    private final Object writerLock = new Object();
+    private int reads = 0;
+    private int writes = 0;
+
+    public void recordRead() {
+        synchronized (readerLock) { reads++; }
+    }
+
+    public void recordWrite() {
+        synchronized (writerLock) { writes++; }
+    }
+}</code></pre>
+
+        <p>
+          read 카운터와 write 카운터를 다른 락으로 두면 두 스레드가 동시에 각각 갱신 가능.
+          ConcurrentHashMap의 버킷 단위 락(bin-level locking)도 같은 사고방식의 확장이에요.
+        </p>
 
         <h2>synchronized vs ReentrantLock</h2>
 
-        <pre><code>synchronized:
-  ✓ 키워드 — 코드 간결
-  ✓ 자동 해제 (스코프 빠지면)
-  ✓ JVM이 최적화 (다음 편의 biased/lightweight)
-  ✗ 타임아웃 X
-  ✗ 인터럽트 X (락 대기 중)
-  ✗ tryLock X
-  ✗ 공정성 X
+        <p>
+          자바 5에서 도입된 <code>java.util.concurrent.locks.ReentrantLock</code>은 더 정교한 락 도구예요. synchronized와 어떻게 다른지 정리해볼게요.
+        </p>
 
-ReentrantLock:
-  ✓ tryLock(timeout) — 타임아웃 가능
-  ✓ lockInterruptibly() — 인터럽트 가능
-  ✓ Condition으로 정교한 대기 큐
-  ✓ 공정성(fair) 모드 옵션
-  ✗ 명시적 lock/unlock — try-finally 잊으면 위험
+        <table>
+          <thead>
+            <tr><th>측면</th><th>synchronized</th><th>ReentrantLock</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>형태</td>
+              <td>키워드, 자동 해제</td>
+              <td>명시적 lock/unlock 호출</td>
+            </tr>
+            <tr>
+              <td>JVM 최적화</td>
+              <td>O (biased/lightweight 등)</td>
+              <td>제한적</td>
+            </tr>
+            <tr>
+              <td>tryLock</td>
+              <td>X</td>
+              <td>O (timeout 가능)</td>
+            </tr>
+            <tr>
+              <td>인터럽트 가능 락 대기</td>
+              <td>X</td>
+              <td>O (lockInterruptibly)</td>
+            </tr>
+            <tr>
+              <td>공정성(fair) 모드</td>
+              <td>X</td>
+              <td>O (생성자 옵션)</td>
+            </tr>
+            <tr>
+              <td>Condition</td>
+              <td>1개 (wait/notify)</td>
+              <td>여러 개 가능 (newCondition)</td>
+            </tr>
+            <tr>
+              <td>실수 위험</td>
+              <td>낮음 (자동 해제)</td>
+              <td>높음 (try-finally 필수)</td>
+            </tr>
+          </tbody>
+        </table>
 
-언제 무엇:
-  단순 임계 영역 → synchronized
-  타임아웃, 인터럽트, 공정성 필요 → ReentrantLock</code></pre>
+        <h3>각각 어떤 자리에 어울리나요</h3>
 
-        <h2>synchronized의 한계 — 다음 편에서 풀어갈 주제</h2>
+        <p>
+          단순한 임계 영역이면 synchronized가 좋아요. 코드 간결하고 자동 해제, JVM이 알아서 최적화해요.
+          타임아웃, 인터럽트 가능 대기, 공정성 같은 정교한 기능이 필요하면 ReentrantLock.
+          단, ReentrantLock은 try-finally로 unlock을 반드시 호출해야 해서 실수 위험이 있어요.
+        </p>
 
-        <pre><code>1. 성능: 락 경쟁 시 OS 수준 wait/notify로 빠짐 (느림)
-   → Java 6에서 biased lock, lightweight lock 도입
-   → 다음 편에서 진화 과정
+        <pre><code class="language-java">// ReentrantLock 표준 패턴
+ReentrantLock lock = new ReentrantLock();
+lock.lock();
+try {
+    // 작업
+} finally {
+    lock.unlock();   // 반드시 호출
+}</code></pre>
 
-2. 공정성: 어떤 스레드가 먼저 깨어날지 보장 X
-   → ReentrantLock의 fair 모드가 답
+        <h2>java.util.concurrent와의 관계</h2>
 
-3. 메모리 가시성:
-   → synchronized는 자동으로 메모리 배리어 효과
-   → JMM, happens-before와 어떻게 연결되나
-   → 3편 주제
+        <p>
+          synchronized는 자바의 가장 오래된 동시성 도구예요(자바 1.0). j.u.c 패키지의 거의 모든 락 도구가 synchronized 시대의 한계를 풀려는 시도예요.
+        </p>
 
-4. 데드락: 두 락을 다른 순서로 잡으면 발생
-   → Deadlock 시리즈에서 deep dive</code></pre>
+        <ul>
+          <li><strong>ReentrantLock</strong>: synchronized + tryLock/timeout/공정성</li>
+          <li><strong>ReadWriteLock</strong>: 읽기는 동시에, 쓰기는 단독</li>
+          <li><strong>StampedLock</strong>: optimistic read 추가</li>
+          <li><strong>AtomicXXX</strong>: 단일 변수 락 없이 CAS로</li>
+          <li><strong>ConcurrentHashMap</strong>: 자료구조 자체가 동시성</li>
+        </ul>
+
+        <p>
+          이런 도구들이 등장한 뒤로 synchronized 사용 빈도가 줄었지만, 여전히 가장 단순한 임계 영역에는 표준 도구예요.
+          JVM이 워낙 최적화가 잘 되어 있어 일반 워크로드에서는 ReentrantLock과 성능 차이가 거의 없어요.
+        </p>
+
+        <h2>흔한 함정 — 어떤 객체로 락 잡을까</h2>
+
+        <h3>함정 1 — String literal로 락</h3>
+
+        <pre><code class="language-java">// 매우 위험
+synchronized ("LOCK") {
+    // ...
+}</code></pre>
+
+        <p>
+          String literal은 String pool에서 공유돼요. 다른 코드가 같은 문자열로 락 잡으면 의도치 않게 같은 락 공유.
+          전혀 무관한 코드가 서로 막아버리는 사고 발생.
+        </p>
+
+        <h3>함정 2 — Integer/Boolean 박싱 객체</h3>
+
+        <pre><code class="language-java">// 위험
+private Integer counter = 0;
+
+synchronized (counter) {
+    counter++;   // counter 참조가 바뀜
+    // 다른 스레드는 옛날 Integer로 락 잡고 있을 수 있음
+}</code></pre>
+
+        <p>
+          counter++ 결과 새 Integer 객체가 생성되어 변수 참조가 바뀌어요. 다음 스레드는 새 객체로 락을 잡으니 보호가 안 돼요.
+          또 작은 Integer는 캐시되어 공유될 위험도 있어요.
+        </p>
+
+        <h3>함정 3 — 변경되는 필드로 락</h3>
+
+        <pre><code class="language-java">// 위험
+class Container {
+    private List&lt;String&gt; data = new ArrayList&lt;&gt;();
+
+    public void operation() {
+        synchronized (data) {
+            // ...
+        }
+    }
+
+    public void replace() {
+        data = new ArrayList&lt;&gt;();   // 락 객체가 바뀜
+    }
+}</code></pre>
+
+        <p>
+          data를 락으로 쓰는데 그 참조가 바뀔 수 있으면 의미 없어요. 락은 final 필드로 두는 게 원칙.
+        </p>
+
+        <h3>권장 패턴 — private final Object</h3>
+
+        <pre><code class="language-java">class SafeCounter {
+    private final Object lock = new Object();   // ← 권장
+    private int count = 0;
+
+    public void increment() {
+        synchronized (lock) {
+            count++;
+        }
+    }
+}</code></pre>
+
+        <p>
+          private final Object 패턴이 가장 안전해요. 외부 노출 없음, 변경 불가, 의도가 명확.
+        </p>
 
         <h2>면접 단골 질문</h2>
 
-        <h3>Q. synchronized는 어떻게 동작하나?</h3>
+        <h3>Q. synchronized는 어떻게 동작하나요?</h3>
 
         <p>
-          모든 자바 객체에 내장된 모니터 락을 사용. 메서드 또는 블록에 붙이면 진입 시 락 획득,
-          종료 시 해제. JVM 바이트코드의 <code>monitorenter</code>/<code>monitorexit</code> 명령어로 구현.
-          같은 락에 대한 임계 영역들은 직렬화되어 race condition 방지.
+          모든 자바 객체에 내장된 모니터 락을 사용해요. 메서드 또는 블록에 붙이면 진입 시 락 획득, 종료 시 해제.
+          JVM 바이트코드 수준에서 monitorenter/monitorexit 명령어로 구현돼요.
+          같은 락에 대한 임계 영역들은 직렬화되어 race condition을 막아요.
         </p>
 
-        <h3>Q. synchronized 메서드와 블록의 차이?</h3>
+        <h3>Q. synchronized 메서드와 블록의 차이는요?</h3>
 
         <p>
-          메서드는 <code>this</code>(static이면 클래스 객체) 락을 자동 사용, 메서드 전체가 임계 영역.
-          블록은 명시한 락 객체로 좁은 영역만 보호. 블록이 더 유연해서 권장 — 외부 노출 안 된 private 락 객체 사용.
+          메서드는 this(static이면 클래스 객체) 락을 자동 사용, 메서드 전체가 임계 영역이에요.
+          블록은 명시한 락 객체로 좁은 영역만 보호. 블록이 더 유연하고 권장돼요.
+          private final Object를 락으로 쓰면 외부 노출 없이 안전하게 사용 가능.
         </p>
 
-        <h3>Q. 재진입성이란?</h3>
+        <h3>Q. 재진입성이 뭔가요?</h3>
 
         <p>
-          같은 스레드가 이미 잡고 있는 락을 다시 잡을 수 있는 성질.
-          Java 모니터 락은 기본적으로 재진입 가능. 진입 카운트를 유지해서 같은 횟수만큼 풀어야 해제.
-          재진입 안 되면 자기가 자기를 막아 데드락이 됨.
+          같은 스레드가 이미 잡고 있는 락을 다시 잡을 수 있는 성질이에요. 자바 모니터 락은 기본 재진입 가능.
+          진입 카운트를 유지해서 같은 횟수만큼 풀어야 해제돼요.
+          재진입 안 되면 자기가 자기를 막아 데드락 발생. ReentrantLock도 같은 이유로 재진입 보장.
         </p>
 
-        <h3>Q. synchronized와 ReentrantLock 중 무엇을 쓸까?</h3>
+        <h3>Q. synchronized로 String literal에 락 잡으면 안 되나요?</h3>
 
         <p>
-          단순 임계 영역엔 synchronized — 코드 간결하고 자동 해제.
-          타임아웃, 인터럽트 가능 락 대기, 공정성, Condition을 통한 정교한 신호가 필요하면 ReentrantLock.
-          ReentrantLock은 try-finally로 unlock을 반드시 호출해야 해서 실수 위험.
+          매우 위험해요. String literal은 String pool에서 공유되어 다른 무관한 코드가 같은 문자열로 락 잡으면 충돌.
+          전역 락처럼 동작해서 처리량 폭락. Integer 같은 작은 박싱 객체도 캐시 공유로 비슷한 위험.
+          항상 private final Object로 전용 락 객체를 만들어 쓰는 게 안전해요.
         </p>
 
         <h2>한 줄 정리</h2>
 
-        <pre><code>synchronized = "이 임계 영역은 한 스레드만 진입"
+        <p>
+          synchronized는 자바의 가장 기본적인 임계 영역 도구예요. 모든 객체에 내장된 모니터 락을 사용해 한 번에 한 스레드만 진입 보장.
+          블록 형태에 private final Object 락이 권장 패턴이에요. 재진입 가능하고, JVM이 최적화를 잘 해줘서 일반 워크로드에 충분.
+          정교한 기능(timeout, 공정성)이 필요하면 ReentrantLock을 검토.
+        </p>
 
-메커니즘:
-  - 모든 객체에 내장된 monitor lock 사용
-  - JVM의 monitorenter / monitorexit 명령어
-  - 재진입 가능 (같은 스레드는 통과)
-  - 같은 락의 임계 영역들은 직렬화
-
-함정:
-  - 락 단위 잘못 잡으면 보호 무효
-  - 외부 노출 락 객체 잡으면 외부에서 락 영향 가능
-
-다음 편: 그 락이 객체 헤더의 어디에 어떻게 표시되는지, biased/lightweight/heavyweight 진화 과정.</code></pre>
+        <p>
+          다음 편에서는 그 모니터 락이 객체의 어디에 어떻게 저장되는지, 어떻게 진화해왔는지 들어가요.
+          Mark Word, biased lock, lightweight lock, heavyweight lock의 4단계 메커니즘이에요.
+        </p>
 
       </section>
     </article>

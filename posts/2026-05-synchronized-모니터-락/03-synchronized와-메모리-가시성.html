@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>synchronized와 메모리 가시성 (3) · bok's notes</title>
+  <title>메모리 가시성과 happens-before (3) · bok's notes</title>
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="../../assets/style.css">
@@ -15,11 +15,10 @@
 
     <article>
       <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 3/3</div>
-        <h1>synchronized와 메모리 가시성</h1>
+        <div class="post-date">2026.05.10 · 시리즈 3/3</div>
+        <h1>메모리 가시성과 happens-before</h1>
         <p class="subtitle">
-          synchronized가 단순 mutex가 아닌 이유. CPU 캐시와 컴파일러 재정렬을 다스리는
-          메모리 배리어, 그리고 JMM의 happens-before 규칙.
+          synchronized는 단순한 mutex가 아니에요. CPU 캐시와 컴파일러 재정렬을 다스리는 메모리 도구이기도 해요. 그 다른 면을 봐요.
         </p>
       </header>
 
@@ -29,200 +28,20 @@
         <ol>
           <li><a href="./01-synchronized의-정체.html">synchronized의 정체</a></li>
           <li><a href="./02-객체-헤더와-락-진화.html">객체 헤더와 락 진화</a></li>
-          <li class="current">synchronized와 메모리 가시성</li>
+          <li class="current">메모리 가시성과 happens-before</li>
         </ol>
       </nav>
 
       <section class="post-body">
 
-        <h2>가시성 문제 — 락만으로는 부족한 이유</h2>
-
-        <pre><code class="language-java">// flag 하나로 thread B를 멈추려는 시도
-class Worker {
-    boolean running = true;
-
-    void run() {
-        while (running) {
-            // 작업
-        }
-    }
-
-    void stop() {
-        running = false;
-    }
-}
-
-// 스레드 A: worker.stop() 호출
-// 스레드 B: worker.run() 실행 중
-
-기대: B가 running = false를 보고 멈춤
-실제: B가 영원히 멈추지 않을 수 있음 (★ 가시성 문제)</code></pre>
-
-        <h3>왜 가시성 문제가 생기나</h3>
-
-        <pre><code>현대 CPU의 메모리 모델:
-  각 코어가 자기 캐시(L1/L2)를 가짐
-  메모리 쓰기는 일단 캐시에 → 나중에 메인 메모리로 flush
-  메모리 읽기는 캐시에서 → 다른 코어의 변경이 안 보일 수 있음
-
-스레드 A (코어 1):
-  running = false
-  → 자기 캐시에는 false
-  → 메인 메모리는 아직 true (write-back 전)
-
-스레드 B (코어 2):
-  while (running) 검사
-  → 자기 캐시에 있는 옛 값 true
-  → 메인 메모리도 아직 true
-  → 영원히 true로 보임
-
-추가로:
-  컴파일러의 재정렬 — 코드 순서가 실행 순서와 다를 수 있음
-  CPU의 명령어 재정렬 — out-of-order execution
-  → "당연한 순서"가 보장 안 됨</code></pre>
+        <h2>가시성 문제 — mutex만으로는 부족해요</h2>
 
         <p>
-          그래서 멀티스레드 프로그래밍은 단순히 "원자성"만 보장한다고 끝나는 게 아니라
-          <strong>"가시성(visibility)"과 "순서(ordering)"</strong>도 보장해야 한다.
-          synchronized는 이 셋을 모두 다룬다.
+          한 가지 시나리오로 시작해볼게요. 한 스레드가 다른 스레드를 멈추게 하는 단순한 코드예요.
         </p>
 
-        <h2>JMM (Java Memory Model)</h2>
-
-        <pre><code>JMM = Java가 메모리 동작에 대해 약속하는 규칙
-  - JLS Chapter 17 (Java Language Specification)
-  - 어떤 쓰기가 어떤 읽기에서 보이는지 규정
-  - happens-before 관계로 표현
-
-목적:
-  - 다양한 CPU 아키텍처(x86, ARM)에서 일관된 동작 보장
-  - 컴파일러/JIT의 최적화를 허용하면서 멀티스레드 안전성 유지
-  - 개발자가 정해진 규칙만 지키면 정확한 동작 보장</code></pre>
-
-        <h2>happens-before 관계</h2>
-
-        <pre><code>A happens-before B:
-  A의 결과가 B에서 보이는 것이 보장된다는 의미
-  단순한 시간적 선후가 아니라 "보장된 가시성과 순서"
-
-규칙들 (JLS 17.4.5):
-  1. Program Order: 같은 스레드 안에서 코드 순서대로 happens-before
-  2. Monitor Lock: unlock(M) happens-before 다음 lock(M)
-  3. volatile: write(v) happens-before 후속 read(v)
-  4. Thread Start: Thread.start() happens-before 그 스레드의 모든 동작
-  5. Thread Join: 스레드의 모든 동작 happens-before 그 스레드의 join() 반환
-  6. 전이성: A hb B, B hb C → A hb C
-
-핵심: synchronized는 규칙 2를 통해 가시성 보장
-  - 스레드 A가 unlock하면서 자기 변경사항을 메인 메모리에 flush
-  - 스레드 B가 같은 락 lock하면서 메인 메모리에서 다시 읽음
-  → A의 변경이 B에 보임</code></pre>
-
-        <h2>synchronized가 보장하는 것 — 세 가지</h2>
-
-        <h3>1. 원자성 (Atomicity)</h3>
-
-        <pre><code>임계 영역 안의 코드는 한 스레드만 실행
-  → count++ 같은 read-modify-write가 인터럽트되지 않음
-  → 1편의 race condition 해결</code></pre>
-
-        <h3>2. 가시성 (Visibility)</h3>
-
-        <pre><code>락 진입 시:
-  - 다른 스레드가 unlock으로 flush한 변경사항이 보임
-  - 캐시 무효화 (invalidate) 발생
-  - 메인 메모리에서 최신 값 다시 읽음
-
-락 해제 시:
-  - 임계 영역 안의 모든 변경사항이 메인 메모리로 flush
-  - 다른 스레드가 다음에 같은 락 잡으면 그 변경 보임
-
-결과:
-  while (running) 패턴도 synchronized로 보호하면 정상 작동</code></pre>
-
-        <h3>3. 순서 (Ordering)</h3>
-
-        <pre><code>임계 영역의 코드 순서는 보장됨
-  - 컴파일러/CPU가 임계 영역 밖으로 코드를 옮길 수 없음
-  - "락 안의 동작"과 "락 밖의 동작" 사이에 메모리 배리어가 박힘
-
-이게 없으면:
-  락 해제 직전의 쓰기가 락 해제 후로 재정렬될 수 있음
-  → 다른 스레드가 락 잡았을 때 그 쓰기가 안 보일 수 있음
-  synchronized가 이걸 막음</code></pre>
-
-        <h2>메모리 배리어 (Memory Barrier)</h2>
-
-        <pre><code>JVM이 synchronized 안팎에 자동으로 삽입하는 CPU 명령어:
-
-monitorenter (락 획득):
-  → Acquire Barrier 효과
-  → 락 안의 읽기/쓰기를 락 밖으로 못 옮기게 함
-  → 캐시 무효화 → 메인 메모리에서 다시 읽음
-
-monitorexit (락 해제):
-  → Release Barrier 효과
-  → 락 안의 읽기/쓰기를 락 밖으로 못 옮기게 함
-  → 모든 쓰기를 메인 메모리로 flush
-
-x86 CPU에선:
-  - 강력한 메모리 모델 — 대부분 자동 보장
-  - mfence 같은 명령어로 강제
-
-ARM CPU에선:
-  - 약한 메모리 모델 — 명시적 배리어 필요
-  - dmb (Data Memory Barrier) 명령어 삽입
-
-→ 같은 자바 코드도 CPU에 따라 JVM이 삽입하는 명령어가 다름
-→ JMM은 그 차이를 추상화</code></pre>
-
-        <h2>volatile과의 비교</h2>
-
-        <pre><code>synchronized:
-  - 원자성 + 가시성 + 순서 모두 보장
-  - 비용: 락 진입/해제
-
-volatile:
-  - 가시성 + 순서만 보장 (원자성 X)
-  - 비용: 메모리 배리어 한 번 (락 없음)
-
-언제 어느 것:
-  단일 변수 읽기/쓰기 + 원자성 불필요 → volatile
-    예: boolean flag, 진행률 정수
-  여러 변수 묶음 / 원자성 필요 → synchronized
-    예: count++, 복합 객체 갱신
-
-함정:
-  volatile int count;
-  count++   // ★ 가시성은 보장되지만 원자성 X — race condition 그대로
-  → AtomicInteger 또는 synchronized로 가야 함</code></pre>
-
-        <h2>위 코드 다시 — 올바르게 만들기</h2>
-
-        <pre><code class="language-java">// 방법 1: synchronized
-class Worker {
-    private boolean running = true;
-    private final Object lock = new Object();
-
-    void run() {
-        while (true) {
-            synchronized (lock) {
-                if (!running) break;
-            }
-            // 작업
-        }
-    }
-
-    void stop() {
-        synchronized (lock) {
-            running = false;
-        }
-    }
-}
-
-// 방법 2: volatile (이 케이스엔 더 적합)
-class Worker {
-    private volatile boolean running = true;
+        <pre><code class="language-java">class Worker {
+    boolean running = true;
 
     void run() {
         while (running) {
@@ -236,94 +55,573 @@ class Worker {
 }</code></pre>
 
         <p>
-          단순 boolean flag는 volatile이 더 가볍고 자연스럽다.
-          synchronized는 더 강한 보장이 필요할 때 (여러 필드 묶음, 복합 연산).
+          기대는 단순해요. 한 스레드가 <code>worker.run()</code>을 실행 중이고, 다른 스레드가 <code>worker.stop()</code>을 호출하면 멈춤.
+          그런데 실제로 돌리면 worker가 영원히 멈추지 않을 수 있어요.
+          mutex(상호 배제) 문제가 아니라 <strong>메모리 가시성</strong> 문제예요.
         </p>
 
-        <h2>Double-Checked Locking — JMM 함정의 고전 예제</h2>
+        <h2>왜 가시성 문제가 생기나요</h2>
 
-        <pre><code>// 잘못된 패턴 (Java 5 이전)
-class Singleton {
+        <p>
+          현대 CPU의 메모리 모델이 단순하지 않아요. 두 가지 요인이 가시성을 깨요.
+        </p>
+
+        <h3>요인 1 — CPU 캐시</h3>
+
+        <p>
+          각 코어가 자기만의 캐시(L1, L2)를 가져요. 메모리 쓰기는 일단 캐시에 머물고, 나중에 메인 메모리로 flush.
+          그 사이에 다른 코어는 자기 캐시의 옛 값을 계속 봐요.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CPU 캐시 가시성">
+            <defs>
+              <style>
+                .core { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .ram { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .cache { fill: #f9fafb; stroke: #4e5968; stroke-width: 1; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">CPU 캐시로 인한 가시성 문제</text>
+
+            <rect x="40" y="40" width="160" height="80" rx="6" class="core"/>
+            <text x="120" y="60" text-anchor="middle" class="label">Core 0</text>
+            <rect x="60" y="72" width="120" height="36" rx="3" class="cache"/>
+            <text x="120" y="88" text-anchor="middle" class="small">L1 캐시</text>
+            <text x="120" y="103" text-anchor="middle" class="small" fill="#c4302b">running = false</text>
+
+            <rect x="400" y="40" width="160" height="80" rx="6" class="core"/>
+            <text x="480" y="60" text-anchor="middle" class="label">Core 1</text>
+            <rect x="420" y="72" width="120" height="36" rx="3" class="cache"/>
+            <text x="480" y="88" text-anchor="middle" class="small">L1 캐시</text>
+            <text x="480" y="103" text-anchor="middle" class="small">running = true</text>
+
+            <rect x="200" y="140" width="200" height="40" rx="4" class="ram"/>
+            <text x="300" y="158" text-anchor="middle" class="label">메인 메모리 (RAM)</text>
+            <text x="300" y="174" text-anchor="middle" class="small">running = true (아직 flush 안 됨)</text>
+          </svg>
+          <figcaption>Core 0이 false로 썼지만 Core 1은 자기 캐시의 true를 계속 봄</figcaption>
+        </figure>
+
+        <h3>요인 2 — 컴파일러 재정렬</h3>
+
+        <p>
+          JIT 컴파일러는 성능을 위해 코드를 재정렬해요. 단일 스레드 의미만 보존하면 자유롭게 가능.
+        </p>
+
+        <pre><code class="language-java">// 원본 코드
+while (running) {
+    // 작업
+}
+
+// JIT 최적화 후 (가상 변환)
+boolean cached = running;
+while (cached) {
+    // 작업 (running을 다시 안 읽음)
+}</code></pre>
+
+        <p>
+          JIT가 "running이 루프 안에서 안 바뀌니 한 번만 읽고 캐시하자"라고 판단하면, 메모리가 갱신되어도 그 변수는 영원히 옛 값.
+          단일 스레드 의미는 보존되지만 멀티스레드에선 깨져요.
+        </p>
+
+        <p>
+          그래서 멀티스레드 코드는 <strong>원자성(atomicity)</strong> + <strong>가시성(visibility)</strong> + <strong>순서(ordering)</strong> 셋을 모두 다뤄야 안전해요.
+          synchronized는 이 셋을 모두 보장해요.
+        </p>
+
+        <h2>JMM — Java Memory Model</h2>
+
+        <p>
+          자바가 다양한 CPU 아키텍처에서 일관된 동작을 약속하기 위해 정의한 메모리 모델이에요. JLS(Java Language Specification) 17장에 명세되어 있어요.
+        </p>
+
+        <p>
+          JMM이 답하려는 질문은 단순해요. <strong>"어떤 쓰기가 어떤 읽기에서 보이는가"</strong>.
+          이걸 형식적으로 표현하기 위한 도구가 <strong>happens-before 관계</strong>예요.
+        </p>
+
+        <h2>happens-before 관계</h2>
+
+        <p>
+          A happens-before B라고 하면 두 가지가 동시에 성립해요.
+        </p>
+
+        <ul>
+          <li><strong>가시성</strong>: A의 모든 메모리 효과가 B에서 보임</li>
+          <li><strong>순서</strong>: A는 B보다 먼저 일어난 것으로 간주됨</li>
+        </ul>
+
+        <p>
+          중요한 건 단순한 시간적 선후가 아니라는 거예요. 물리적 시계로 A가 먼저 일어났더라도 happens-before 관계가 없으면 B에서 A의 결과가 안 보일 수 있어요.
+          반대로 happens-before 관계가 성립하면 어떤 환경에서도 가시성과 순서가 보장돼요.
+        </p>
+
+        <h2>happens-before가 성립하는 6가지 규칙</h2>
+
+        <p>
+          JLS 17.4.5가 정의하는 핵심 규칙들이에요.
+        </p>
+
+        <h3>1. Program Order (프로그램 순서)</h3>
+
+        <p>
+          같은 스레드 안에서 코드 순서대로 happens-before. 가장 기본적인 보장이에요.
+        </p>
+
+        <pre><code class="language-java">// 같은 스레드에서
+x = 1;        // ①
+y = 2;        // ②
+// ① happens-before ②</code></pre>
+
+        <h3>2. Monitor Lock (모니터 락)</h3>
+
+        <p>
+          한 모니터의 unlock은 그 모니터의 다음 lock보다 happens-before. <strong>synchronized가 가시성을 보장하는 근거</strong>가 이 규칙이에요.
+        </p>
+
+        <pre><code class="language-java">// Thread A
+synchronized (lock) {
+    x = 1;
+}   // unlock — A가 쓴 모든 변경이 메모리에 flush
+
+// Thread B
+synchronized (lock) {   // lock — 메모리에서 새로 읽음
+    int v = x;          // A의 x = 1이 보장됨
+}</code></pre>
+
+        <p>
+          synchronized가 단순한 mutex 이상으로 동작하는 이유가 여기예요. 락을 잡고 푸는 행위 자체에 메모리 가시성이 묶여 있어요.
+        </p>
+
+        <h3>3. Volatile Variable (volatile 변수)</h3>
+
+        <p>
+          volatile 변수의 write는 그 변수의 다음 read보다 happens-before. 그래서 위의 worker 시나리오는 <code>volatile boolean running</code>으로 풀려요.
+        </p>
+
+        <h3>4. Thread Start (스레드 시작)</h3>
+
+        <p>
+          <code>Thread.start()</code>를 호출한 스레드의 모든 동작은 새 스레드의 모든 동작보다 happens-before.
+          그래서 새 스레드가 부모의 변수를 별도 동기화 없이 볼 수 있어요.
+        </p>
+
+        <pre><code class="language-java">data = "ready";              // ①
+new Thread(() -&gt; {
+    System.out.println(data); // ② "ready" 보장
+}).start();</code></pre>
+
+        <h3>5. Thread Join (스레드 종료 대기)</h3>
+
+        <p>
+          한 스레드의 모든 동작은 다른 스레드의 그 스레드에 대한 <code>join()</code> 반환 이후 동작보다 happens-before.
+        </p>
+
+        <pre><code class="language-java">Thread t = new Thread(() -&gt; {
+    result = compute();
+});
+t.start();
+t.join();
+System.out.println(result);   // 자식 스레드의 결과 보장</code></pre>
+
+        <h3>6. Transitivity (전이성)</h3>
+
+        <p>
+          A happens-before B이고 B happens-before C면 A happens-before C. 위 규칙들을 조합해 더 복잡한 관계를 정당화해요.
+        </p>
+
+        <h2>synchronized의 진짜 힘 — 일반 변수도 보장</h2>
+
+        <p>
+          synchronized의 가시성 보장은 락 변수에만 한정되지 않아요. <strong>락 안에서 만진 모든 일반 변수</strong>의 가시성까지 보장해요.
+          Program Order + Monitor Lock + Transitivity의 결합이에요.
+        </p>
+
+        <pre><code class="language-java">// Thread A
+data = computeData();      // ① 일반 변수 쓰기
+synchronized (lock) {
+    state = "ready";       // ② 락 안의 쓰기
+}                          // ③ unlock
+
+// Thread B
+synchronized (lock) {      // ④ lock
+    if ("ready".equals(state)) {
+        use(data);          // ⑤ A가 ①에서 쓴 data가 보장됨
+    }
+}</code></pre>
+
+        <p>
+          관계를 따라가면 ① → ② → ③ → ④ → ⑤. 전이성으로 ① happens-before ⑤가 성립.
+          A가 락 잡기 전에 쓴 일반 변수까지 B에서 안전하게 볼 수 있어요.
+        </p>
+
+        <h2>synchronized가 보장하는 3가지</h2>
+
+        <p>
+          synchronized가 단순한 mutex가 아니라 다음 셋을 모두 보장해요.
+        </p>
+
+        <h3>1. 원자성 (Atomicity)</h3>
+
+        <p>
+          임계 영역의 코드는 한 스레드만 실행. <code>count++</code> 같은 read-modify-write가 인터럽트되지 않음.
+          1편의 race condition을 풀어주는 부분이에요.
+        </p>
+
+        <h3>2. 가시성 (Visibility)</h3>
+
+        <p>
+          락 진입 시 다른 스레드가 unlock으로 flush한 변경사항이 보임. 캐시 무효화 → 메인 메모리에서 다시 읽음.
+          락 해제 시 임계 영역 안 모든 변경이 메인 메모리로 flush.
+        </p>
+
+        <h3>3. 순서 (Ordering)</h3>
+
+        <p>
+          임계 영역의 코드 순서가 보장됨. 컴파일러나 CPU가 임계 영역 안의 코드를 락 밖으로 옮길 수 없어요.
+          "락 안의 동작"과 "락 밖의 동작" 사이에 메모리 배리어가 박혀요.
+        </p>
+
+        <h2>메모리 배리어 (Memory Barrier)</h2>
+
+        <p>
+          synchronized의 가시성/순서 보장은 결국 CPU 명령어 수준의 <strong>메모리 배리어</strong>로 구현돼요.
+          JVM이 monitorenter/monitorexit 시점에 자동으로 삽입.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>이벤트</th><th>배리어 효과</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>monitorenter (락 획득)</td>
+              <td>Acquire 배리어. 락 밖 코드를 안으로 못 옮기게 + 캐시 무효화</td>
+            </tr>
+            <tr>
+              <td>monitorexit (락 해제)</td>
+              <td>Release 배리어. 락 안 코드를 밖으로 못 옮기게 + 메인 메모리 flush</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          x86 CPU는 강한 메모리 모델이라 자동으로 보장되는 부분이 많아요. ARM 같은 약한 모델에서는 명시적 dmb 같은 명령어가 삽입돼요.
+          JMM이 이런 CPU 차이를 추상화해서 자바 개발자는 happens-before만 의식하면 되는 거예요.
+        </p>
+
+        <h2>volatile과 synchronized의 비교</h2>
+
+        <p>
+          비슷해 보이지만 보장 범위가 달라요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>측면</th><th>volatile</th><th>synchronized</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>원자성</td>
+              <td>X (단순 read/write만)</td>
+              <td>O (임계 영역 전체)</td>
+            </tr>
+            <tr>
+              <td>가시성</td>
+              <td>O</td>
+              <td>O</td>
+            </tr>
+            <tr>
+              <td>순서</td>
+              <td>O</td>
+              <td>O</td>
+            </tr>
+            <tr>
+              <td>비용</td>
+              <td>매우 가벼움 (배리어 1번)</td>
+              <td>락 + 배리어</td>
+            </tr>
+            <tr>
+              <td>여러 변수 묶음</td>
+              <td>X</td>
+              <td>O</td>
+            </tr>
+            <tr>
+              <td>적합한 자리</td>
+              <td>boolean flag, 단일 변수 read/write</td>
+              <td>복합 연산, 여러 변수 보호</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>volatile이 부족한 자리</h3>
+
+        <pre><code class="language-java">volatile int count = 0;
+
+void increment() {
+    count++;   // race condition. volatile은 원자성 보장 안 함
+}</code></pre>
+
+        <p>
+          <code>count++</code>는 read-modify-write라서 volatile로는 안전 못 해요. 가시성은 보장되지만 원자성이 빠져요.
+          이런 경우는 <code>AtomicInteger</code> 또는 synchronized로 가야 해요.
+        </p>
+
+        <h3>volatile로 충분한 자리</h3>
+
+        <pre><code class="language-java">// 원래 worker 시나리오
+class Worker {
+    private volatile boolean running = true;   // ← volatile 추가
+
+    void run() {
+        while (running) { /* 작업 */ }
+    }
+
+    void stop() {
+        running = false;
+    }
+}</code></pre>
+
+        <p>
+          단순 boolean flag라 read/write가 원자적. 가시성만 추가하면 됨.
+          이런 경우는 synchronized보다 volatile이 가볍고 의도가 명확해요.
+        </p>
+
+        <h2>Double-Checked Locking — 고전 함정</h2>
+
+        <p>
+          싱글턴을 lazy하게 만들면서 락 비용을 최소화하려는 패턴. 1990년대부터 유명한데 잘못 구현하면 깨져요.
+        </p>
+
+        <h3>Java 5 이전 — 깨진 구현</h3>
+
+        <pre><code class="language-java">class Singleton {
     private static Singleton instance;
 
     public static Singleton getInstance() {
-        if (instance == null) {                   // ① 첫 검사
+        if (instance == null) {
             synchronized (Singleton.class) {
-                if (instance == null) {            // ② 다시 검사
-                    instance = new Singleton();    // ③ 생성
+                if (instance == null) {
+                    instance = new Singleton();
                 }
             }
         }
         return instance;
     }
+}</code></pre>
+
+        <p>
+          의도는 명확해요. 첫 호출만 락 잡고, 이후엔 락 없이 빠르게 read.
+          그런데 Java 5 이전에는 이 코드가 깨졌어요. 객체 생성 과정의 재정렬 때문.
+        </p>
+
+        <h3>객체 생성의 분해</h3>
+
+        <p>
+          <code>instance = new Singleton()</code>은 단일 연산이 아니에요. 세 단계로 분해돼요.
+        </p>
+
+        <ol>
+          <li>메모리 할당</li>
+          <li>생성자 호출 (필드 초기화)</li>
+          <li><code>instance</code> 변수에 참조 대입</li>
+        </ol>
+
+        <p>
+          컴파일러가 1 → 3 → 2 순서로 재정렬할 수 있어요. 이때 다른 스레드가 첫 번째 <code>if (instance == null)</code> 검사에서
+          참조는 있지만 생성자가 끝나지 않은 객체를 보게 돼요. 반쯤 만들어진 객체 사용 → 미정의 동작.
+        </p>
+
+        <h3>Java 5+ 해결 — volatile</h3>
+
+        <pre><code class="language-java">class Singleton {
+    private static volatile Singleton instance;   // ← volatile 추가
+
+    public static Singleton getInstance() {
+        if (instance == null) {
+            synchronized (Singleton.class) {
+                if (instance == null) {
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}</code></pre>
+
+        <p>
+          한 글자 추가. <code>instance</code>에 대한 쓰기가 volatile write가 되고, 그 이전의 모든 작업(생성자 안의 필드 초기화)이 다른 스레드의 volatile read에서 모두 보여요.
+          재정렬도 차단되니 반쯤 만들어진 객체를 보는 일이 사라져요.
+        </p>
+
+        <h3>더 단순한 대안 — 정적 내부 클래스</h3>
+
+        <pre><code class="language-java">class Singleton {
+    private Singleton() {}
+
+    private static class Holder {
+        private static final Singleton INSTANCE = new Singleton();
+    }
+
+    public static Singleton getInstance() {
+        return Holder.INSTANCE;
+    }
+}</code></pre>
+
+        <p>
+          JVM의 클래스 로딩 메커니즘이 thread-safe해요. Holder 클래스는 <code>getInstance()</code>가 처음 호출될 때만 로드되고 INSTANCE가 초기화돼요.
+          DCL의 미묘한 함정 없이 같은 lazy 초기화 + thread-safety. 새 코드라면 이쪽이 권장돼요.
+        </p>
+
+        <h2>final 필드의 가시성 — 짚어둘 만한 디테일</h2>
+
+        <p>
+          한 가지 자주 잊히는 부분. <strong>final 필드는 생성자 안에서 쓴 값이 별도 동기화 없이 다른 스레드에 안전하게 보여요</strong>.
+          immutable 객체를 안전하게 공유할 수 있는 보장이에요.
+        </p>
+
+        <pre><code class="language-java">class Config {
+    final String url;
+    final int timeout;
+
+    Config(String url, int timeout) {
+        this.url = url;
+        this.timeout = timeout;
+    }
 }
 
-문제:
-  ③의 객체 생성은 다음 단계로 분해될 수 있음:
-    a. 메모리 할당
-    b. 생성자 호출 (필드 초기화)
-    c. instance 변수에 참조 대입
+// Thread A
+Config c = new Config("https://...", 5000);
+sharedRef = c;   // 다른 스레드와 공유
 
-  컴파일러/CPU 재정렬: a → c → b 가능
-  스레드 A가 a → c 실행 (instance 참조는 있는데 b는 안 됨)
-  스레드 B가 ①에서 instance != null 보고 통과
-  반쯤 만들어진 객체 사용 → 미정의 동작
+// Thread B
+if (sharedRef != null) {
+    System.out.println(sharedRef.url);   // 안전. 쓰레기 값 안 봄
+}</code></pre>
 
-해결 (Java 5+):
-  private static volatile Singleton instance;
-  → volatile이 ③ 안에서 재정렬 못 하게 함
-  → 다른 스레드는 완전히 만들어진 객체만 봄
+        <p>
+          단, 한 가지 함정이 있어요. <strong>생성자 안에서 <code>this</code>가 외부로 escape하면 이 보장이 깨져요</strong>.
+        </p>
 
-→ JMM의 약속 없이 멀티스레드 코드를 짜는 게 얼마나 위험한지 보여주는 예
-→ "Double-Checked Locking is broken" (Java Memory Model 이전)</code></pre>
+        <pre><code class="language-java">class Listener {
+    final String name;
+
+    Listener(String name, EventBus bus) {
+        bus.register(this);   // ★ 위험. 생성자 안에서 this escape
+        this.name = name;
+    }
+}</code></pre>
+
+        <p>
+          다른 스레드가 EventBus를 통해 이 객체에 접근할 때 name이 아직 null일 수 있어요. final 보장이 무너져요.
+          생성자 안에서 자기를 다른 객체에 등록하는 패턴은 피해야 해요.
+        </p>
+
+        <h2>Sequential Consistency가 아닌 이유</h2>
+
+        <p>
+          가끔 받는 질문. "JMM이 모든 스레드가 같은 명령어 순서를 보게 하면 안 되나요?"
+          이론적으로는 sequential consistency라고 부르는 더 강한 모델이에요. 그런데 자바는 이걸 채택하지 않았어요.
+        </p>
+
+        <p>
+          이유는 성능. sequential consistency를 보장하려면 CPU와 컴파일러의 최적화 자유를 크게 제약해야 하고, 매 메모리 접근에 비싼 배리어가 필요해요.
+          현실 워크로드의 99%는 그런 강한 보장이 필요 없어요.
+        </p>
+
+        <p>
+          JMM은 더 약한 모델 — happens-before 관계로 명시된 부분만 보장. 개발자가 동기화 도구(synchronized, volatile)를 적절히 쓰면 정확성 보장.
+          그 외 부분은 CPU와 컴파일러에 자유를 주는 거래예요.
+        </p>
+
+        <p>
+          단, 이 약한 모델 때문에 멀티스레드 코드는 명시적인 동기화가 필수예요. 그렇지 않으면 어떤 결과가 나올지 보장 안 돼요. 데이터 레이스(data race)라 불리는 상태.
+        </p>
+
+        <h2>실무 가이드</h2>
+
+        <h3>1. 공유 변수에는 항상 동기화</h3>
+
+        <p>
+          여러 스레드가 접근하는 변수에는 반드시 synchronized, volatile, Atomic 중 하나로 동기화. 그렇지 않으면 어떤 결과가 나올지 보장 안 돼요.
+          "내 코드에서는 잘 되는데 운영에서 가끔 깨진다"는 거의 모두 이 누락이 원인.
+        </p>
+
+        <h3>2. immutable이 가장 안전</h3>
+
+        <p>
+          공유 객체를 immutable로 만들면 동기화 자체가 필요 없어요. final 필드 + 생성자에서만 초기화 + setter 없음.
+          가능하면 mutable 공유를 피하는 게 가장 좋은 방법.
+        </p>
+
+        <h3>3. happens-before 머릿속에 그리기</h3>
+
+        <p>
+          멀티스레드 코드를 짤 때 "여기 쓴 값이 저기서 보일 수 있나?"를 happens-before 관계로 검증하는 습관.
+          synchronized, volatile, Thread.start, Thread.join이 다리를 놓는 도구예요. 다리가 없으면 가시성 보장 없음.
+        </p>
+
+        <h3>4. 도구 선택 우선순위</h3>
+
+        <ol>
+          <li>가능하면 immutable로 (동기화 불필요)</li>
+          <li>단일 변수 read/write만 → volatile</li>
+          <li>단일 변수 read-modify-write → Atomic</li>
+          <li>여러 변수 묶음 또는 복합 연산 → synchronized</li>
+          <li>정교한 락 기능 필요 → ReentrantLock</li>
+          <li>고수준 자료구조로 충분 → ConcurrentHashMap, BlockingQueue 등</li>
+        </ol>
 
         <h2>면접 단골 질문</h2>
 
-        <h3>Q. synchronized가 보장하는 것은?</h3>
+        <h3>Q. synchronized가 보장하는 것은요?</h3>
 
         <p>
-          세 가지: 원자성(임계 영역 한 스레드만 실행), 가시성(락 진입 시 다른 스레드의 변경 보임),
-          순서(임계 영역 코드가 락 밖으로 재정렬 안 됨). 단순 mutex 이상의 보장.
+          세 가지예요. 원자성(임계 영역의 한 스레드만 실행), 가시성(락 진입 시 다른 스레드의 변경 보임), 순서(임계 영역 코드가 락 밖으로 재정렬 안 됨).
+          단순한 mutex 이상의 보장이에요. JMM의 happens-before 관계 중 Monitor Lock 규칙이 이걸 형식적으로 정의해요.
         </p>
 
-        <h3>Q. happens-before가 뭔가?</h3>
+        <h3>Q. happens-before가 뭔가요?</h3>
 
         <p>
-          JMM의 핵심 개념. "A의 결과가 B에서 보이는 것이 보장됨"이라는 관계.
-          같은 스레드 안의 코드 순서, monitor unlock → 다음 lock, volatile write → read 등이 happens-before 관계 형성.
-          이 규칙들 통해 멀티스레드 가시성을 명시적으로 보장.
+          JMM의 핵심 개념이에요. "A happens-before B"는 A의 결과가 B에서 보이는 것이 보장된다는 형식적 관계예요.
+          단순한 시간적 선후가 아니라 보장된 가시성과 순서를 의미.
+          Program Order, Monitor Lock, Volatile, Thread Start/Join, Transitivity 6가지 규칙으로 이 관계를 만들 수 있어요.
         </p>
 
-        <h3>Q. volatile과 synchronized의 차이?</h3>
+        <h3>Q. volatile과 synchronized는 어떻게 다른가요?</h3>
 
         <p>
-          volatile은 가시성+순서만 보장하고 원자성은 X. synchronized는 원자성+가시성+순서 모두 보장.
-          단일 boolean flag엔 volatile이 가볍고 적합, count++ 같은 복합 연산엔 synchronized 또는 Atomic 필요.
+          volatile은 가시성과 순서만 보장하고 원자성은 X. 단순 read/write에만 안전. <code>count++</code> 같은 복합 연산은 깨져요.
+          synchronized는 셋 다 보장. 임계 영역 전체가 atomic하고, 여러 변수의 일관성도 보장.
+          단순 boolean flag면 volatile, 복합 연산이나 여러 변수면 synchronized 또는 Atomic이에요.
         </p>
 
-        <h3>Q. 메모리 배리어는 무엇인가?</h3>
+        <h3>Q. Double-Checked Locking이 왜 깨졌나요?</h3>
 
         <p>
-          CPU 명령어 재정렬을 막고 캐시-메인메모리 동기화를 강제하는 CPU 명령어.
-          JVM이 synchronized 진입/해제 시점에 자동 삽입. x86은 강한 메모리 모델이라 자동 보장 많지만 ARM은 명시적 배리어 필요.
-          JMM이 이런 CPU 차이를 추상화.
+          객체 생성이 단일 연산이 아니라 [메모리 할당 → 생성자 호출 → 참조 대입] 세 단계로 분해되고, 이게 재정렬되면 다른 스레드가 반쯤 만들어진 객체를 볼 수 있어요.
+          Java 5+에서 instance 필드에 volatile을 붙여 재정렬을 막아서 풀어요.
+          더 단순한 대안은 정적 내부 클래스(Holder pattern)로, JVM의 클래스 로딩 메커니즘이 thread-safe라 자연스럽게 lazy + 안전.
         </p>
 
         <h2>한 줄 정리</h2>
 
-        <pre><code>synchronized = 원자성 + 가시성 + 순서 보장 (mutex 이상)
-  → 락 획득 시 캐시 무효화 / 해제 시 메인 메모리 flush
-  → 자동 메모리 배리어 삽입
+        <p>
+          synchronized는 mutex 이상이에요. 원자성 + 가시성 + 순서를 모두 보장.
+          가시성은 JMM의 Monitor Lock 규칙으로 정의되고, 락 안에서 만진 모든 변수의 가시성이 다른 스레드에 전파돼요.
+          단순 flag는 volatile, 복합 연산은 synchronized나 Atomic. immutable이 가능하면 동기화 자체가 필요 없어 가장 좋아요.
+        </p>
 
-JMM = Java의 메모리 동작 약속
-  → happens-before 관계로 가시성과 순서 정의
-  → 다양한 CPU 아키텍처를 추상화
-
-volatile = 가시성+순서만, 원자성 X
-  → 단일 flag엔 적합, 복합 연산엔 부족
-
-synchronized 시리즈 끝.
-다음: volatile & JMM 단독 시리즈에서 happens-before 더 깊이 + ReentrantLock 등 j.u.c 락 도구.</code></pre>
+        <p>
+          synchronized 시리즈는 여기까지예요.
+          한 키워드 뒤에 모니터 락, Mark Word, 락 진화 4단계, JMM과 happens-before, 메모리 배리어가 다 들어있는 게 보였길 바라요.
+        </p>
 
       </section>
     </article>
@@ -335,4 +633,3 @@ synchronized 시리즈 끝.
   <script src="../../assets/toc.js"></script>
 </body>
 </html>
-</content>
