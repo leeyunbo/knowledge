@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ConcurrentHashMap의 정체와 진화 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 1/3</div>
+        <h1>ConcurrentHashMap의 정체와 진화</h1>
+        <p class="subtitle">
+          멀티스레드 환경에서 가장 자주 쓰이는 Map. HashMap, Hashtable과 어떻게 다른지부터 시작해볼게요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">ConcurrentHashMap</div>
+        <ol>
+          <li class="current">정체와 진화</li>
+          <li><a href="./02-내부-동작.html">Java 8 내부 동작 — fine-grained locking + CAS</a></li>
+          <li><a href="./03-실무-패턴.html">실무 사용 패턴과 함정</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>출발점: 세 Map의 비교</h2>
+
+        <p>
+          자바에서 Map을 멀티스레드 환경에 쓰려고 하면 세 가지 선택지가 떠올라요.
+          <code>HashMap</code>, <code>Hashtable</code>, 그리고 <code>ConcurrentHashMap</code>이에요.
+          이름은 비슷하지만 동시성 처리 방식이 완전히 달라요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th></th><th>HashMap</th><th>Hashtable</th><th>ConcurrentHashMap</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Thread-safe</td>
+              <td>아니에요</td>
+              <td>네</td>
+              <td>네</td>
+            </tr>
+            <tr>
+              <td>동시성 메커니즘</td>
+              <td>없음</td>
+              <td>전체 메서드에 synchronized</td>
+              <td>fine-grained locking + CAS</td>
+            </tr>
+            <tr>
+              <td>null key/value</td>
+              <td>둘 다 허용</td>
+              <td>둘 다 금지</td>
+              <td>둘 다 금지</td>
+            </tr>
+            <tr>
+              <td>동시 읽기</td>
+              <td>안전 보장 안 됨</td>
+              <td>한 번에 한 스레드만</td>
+              <td>여러 스레드 동시 가능</td>
+            </tr>
+            <tr>
+              <td>도입 시기</td>
+              <td>Java 1.2</td>
+              <td>Java 1.0 (legacy)</td>
+              <td>Java 5</td>
+            </tr>
+            <tr>
+              <td>현재 권장</td>
+              <td>단일 스레드</td>
+              <td>레거시 (사용 X)</td>
+              <td>멀티 스레드</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>HashMap이 멀티스레드에서 깨지는 이유</h2>
+
+        <p>
+          HashMap은 동시성 안전을 보장하지 않아요. 여러 스레드가 동시에 put/remove를 호출하면 다음 같은 문제가 생길 수 있어요.
+        </p>
+
+        <ul>
+          <li>두 스레드가 동시에 같은 버킷에 쓰면 한 쪽 데이터가 사라질 수 있어요</li>
+          <li>resize가 동시에 일어나면 내부 자료구조가 깨져요</li>
+          <li>Java 7까지는 더 무서운 일이 있었는데, resize 도중 LinkedList가 순환 참조를 만들어 무한 루프가 발생했어요</li>
+        </ul>
+
+        <p>
+          단일 스레드 환경에서는 빠르고 좋지만, 동시성이 필요하다면 <strong>절대 그냥 쓰면 안 돼요</strong>.
+          여러 스레드가 read만 한다 해도 다른 스레드가 한 번이라도 put하면 모든 스레드의 read가 의도와 다르게 동작할 수 있어요.
+        </p>
+
+        <h2>Hashtable의 단순한 해결책</h2>
+
+        <p>
+          Java 1.0 시절의 <code>Hashtable</code>은 가장 단순한 방법으로 동시성을 풀었어요.
+          모든 메서드에 <code>synchronized</code>를 붙이는 거예요.
+        </p>
+
+        <pre><code class="language-java">public class Hashtable&lt;K,V&gt; {
+    public synchronized V get(Object key) { ... }
+    public synchronized V put(K key, V value) { ... }
+    public synchronized V remove(Object key) { ... }
+    // 모든 메서드에 synchronized
+}</code></pre>
+
+        <p>
+          확실하게 안전해요. 그런데 비용이 너무 커요.
+          한 스레드가 put을 하는 동안 다른 스레드는 get조차 못 해요.
+          멀티코어 시대의 처리량을 살리지 못하는 구조예요.
+        </p>
+
+        <p>
+          그래서 Hashtable은 현재 <strong>레거시</strong>로 분류돼요.
+          새 코드에서 쓸 일은 거의 없고, 멀티스레드가 필요하면 ConcurrentHashMap을 쓰면 돼요.
+        </p>
+
+        <h2>ConcurrentHashMap의 등장</h2>
+
+        <p>
+          Java 5에서 등장한 <code>ConcurrentHashMap</code>은 한 가지 핵심 아이디어를 가져요.
+          <strong>전체 Map에 락을 걸지 말고, 일부 영역에만 걸자</strong>는 거예요.
+        </p>
+
+        <p>
+          왜 이게 의미가 있을까요? 두 스레드가 다른 키에 접근한다면 사실 충돌할 일이 없거든요.
+          그런데 Hashtable은 어차피 전체 락을 걸어서, 무관한 키들끼리도 서로를 기다려요.
+          ConcurrentHashMap은 이걸 고치는 데 집중했어요.
+        </p>
+
+        <h2>Java 7까지: Segment Locking</h2>
+
+        <p>
+          Java 5 ~ 7의 ConcurrentHashMap은 Map을 <strong>Segment</strong>라는 작은 영역으로 나눴어요.
+          기본 16개. 각 Segment가 자기만의 락을 갖고, 한 Segment 안의 작업만 그 락으로 보호돼요.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Segment Locking 그림">
+            <defs>
+              <style>
+                .segment { fill: #f9fafb; stroke: #4e5968; stroke-width: 1; }
+                .seg-locked { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.5; }
+                .seg-free { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">JAVA 7까지: SEGMENT 16개</text>
+
+            <g>
+              <rect x="20" y="40" width="60" height="50" rx="4" class="seg-locked"/>
+              <text x="50" y="62" text-anchor="middle" class="label">Seg 0</text>
+              <text x="50" y="78" text-anchor="middle" class="small" fill="#c4302b">T1 작업중</text>
+
+              <rect x="90" y="40" width="60" height="50" rx="4" class="seg-free"/>
+              <text x="120" y="62" text-anchor="middle" class="label">Seg 1</text>
+
+              <rect x="160" y="40" width="60" height="50" rx="4" class="seg-locked"/>
+              <text x="190" y="62" text-anchor="middle" class="label">Seg 2</text>
+              <text x="190" y="78" text-anchor="middle" class="small" fill="#c4302b">T2 작업중</text>
+
+              <rect x="230" y="40" width="60" height="50" rx="4" class="seg-free"/>
+              <text x="260" y="62" text-anchor="middle" class="label">Seg 3</text>
+
+              <rect x="300" y="40" width="60" height="50" rx="4" class="seg-free"/>
+              <text x="330" y="62" text-anchor="middle" class="label">Seg 4</text>
+
+              <rect x="370" y="40" width="60" height="50" rx="4" class="seg-locked"/>
+              <text x="400" y="62" text-anchor="middle" class="label">Seg 5</text>
+              <text x="400" y="78" text-anchor="middle" class="small" fill="#c4302b">T3 작업중</text>
+
+              <rect x="440" y="40" width="60" height="50" rx="4" class="seg-free"/>
+              <text x="470" y="62" text-anchor="middle" class="label">Seg 6</text>
+
+              <rect x="510" y="40" width="60" height="50" rx="4" class="seg-free"/>
+              <text x="540" y="62" text-anchor="middle" class="label">Seg 7</text>
+            </g>
+
+            <text x="20" y="130" class="small">서로 다른 Segment에 접근하는 T1, T2, T3는 동시에 진행돼요.</text>
+            <text x="20" y="150" class="small">같은 Segment에 두 스레드가 들어오면 그 Segment의 락에서 대기.</text>
+            <text x="20" y="180" class="header" fill="#1b64da">결과: 동시성 ↑ (보통 16배), 락 경합 ↓</text>
+          </svg>
+          <figcaption>Java 7의 Segment Locking — Map을 16조각으로 나누고 각 조각만 락 처리</figcaption>
+        </figure>
+
+        <h3>왜 16개?</h3>
+
+        <p>
+          기본값이 16이었던 이유는 단순해요. 너무 적으면 락 경합이 심해지고, 너무 많으면 메모리 오버헤드가 커요.
+          16이 합리적인 균형점이었어요.
+          생성자에서 <code>concurrencyLevel</code>로 조정할 수도 있었어요.
+        </p>
+
+        <h3>한계</h3>
+
+        <p>
+          Segment Locking은 의미 있는 진전이었지만 완벽하지 않았어요.
+        </p>
+
+        <ul>
+          <li>같은 Segment에 들어가는 다른 키들끼리는 여전히 락 경합이 있었어요</li>
+          <li>Segment 자체가 메모리 오버헤드를 만들었어요. 키가 적은 Map이라도 16개 Segment 구조 유지</li>
+          <li>모든 작업이 락 기반이라 read도 가끔 영향을 받았어요</li>
+        </ul>
+
+        <h2>Java 8의 큰 변화</h2>
+
+        <p>
+          Java 8에서 ConcurrentHashMap은 거의 다시 만들어졌어요. 핵심 변화는 두 가지예요.
+        </p>
+
+        <h3>변화 1: Segment를 버렸어요</h3>
+
+        <p>
+          Segment 추상화를 없애고, HashMap처럼 단일 배열 구조로 돌아왔어요.
+          대신 락의 단위를 더 작게 만들었어요. 버킷 단위로요.
+        </p>
+
+        <h3>변화 2: 락 + CAS의 조합</h3>
+
+        <p>
+          쓰기 작업에 따라 두 가지 방식을 골라 써요.
+        </p>
+
+        <ul>
+          <li><strong>버킷이 비어있으면</strong>: CAS로 첫 노드를 시도. 성공하면 락 자체가 필요 없어요</li>
+          <li><strong>버킷이 비어있지 않으면</strong>: 그 버킷의 첫 노드에 <code>synchronized</code> 적용. 다른 버킷은 영향 없음</li>
+        </ul>
+
+        <p>
+          결과적으로 락의 영역이 Segment 단위에서 <strong>버킷 단위</strong>로 작아졌어요.
+          Segment 16개에서 버킷 수십~수백 개로 갔으니, 락 경합 가능성이 훨씬 줄어든 거죠.
+        </p>
+
+        <h3>읽기는 락 없음</h3>
+
+        <p>
+          가장 큰 진전은 read였어요. <code>get</code> 같은 읽기 작업에는 락이 전혀 없어요.
+          내부 노드의 <code>val</code>과 <code>next</code> 필드가 <code>volatile</code>로 선언돼 있어서 가시성이 보장되거든요.
+          이 덕분에 읽기 작업은 사실상 동시성 비용이 0에 가까워졌어요.
+        </p>
+
+        <h2>비교 정리</h2>
+
+        <table>
+          <thead>
+            <tr><th></th><th>Hashtable</th><th>ConcurrentHashMap (Java 7)</th><th>ConcurrentHashMap (Java 8+)</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>락 단위</td>
+              <td>전체 Map</td>
+              <td>Segment (16조각)</td>
+              <td>버킷 (작게는 Node 1개)</td>
+            </tr>
+            <tr>
+              <td>읽기 락</td>
+              <td>있음</td>
+              <td>일부 있음</td>
+              <td>없음 (volatile만 사용)</td>
+            </tr>
+            <tr>
+              <td>쓰기 락</td>
+              <td>전체 락</td>
+              <td>Segment 락</td>
+              <td>버킷 synchronized + CAS</td>
+            </tr>
+            <tr>
+              <td>동시 읽기</td>
+              <td>1</td>
+              <td>여러 스레드 (다른 Segment)</td>
+              <td>완전 동시</td>
+            </tr>
+            <tr>
+              <td>동시 쓰기</td>
+              <td>1</td>
+              <td>최대 16</td>
+              <td>버킷 수만큼</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>그럼 항상 ConcurrentHashMap을 쓰면 되나요?</h2>
+
+        <p>
+          멀티스레드 환경이라면 거의 그래요. 하지만 단일 스레드라면 HashMap이 살짝 더 빨라요.
+          ConcurrentHashMap은 동시성을 위한 추가 비용 (volatile 접근, CAS 시도)이 있거든요.
+          경합이 없는 환경에서는 그 비용이 의미 없는 오버헤드가 될 수 있어요.
+        </p>
+
+        <p>
+          그래도 차이는 크지 않아요. 의심스럽다면 ConcurrentHashMap을 기본 선택으로 가도 안전해요.
+          특히 Spring Bean 같이 여러 스레드가 같은 객체를 공유하는 환경이면 ConcurrentHashMap이 답이에요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. HashMap을 멀티스레드에서 그냥 쓰면 안 되나요?</h3>
+
+        <p>
+          안 돼요. 동시 put/remove에서 데이터가 사라지거나, resize 도중 자료구조가 깨질 수 있어요.
+          Java 7까지는 resize 중 LinkedList가 순환 참조를 만들어 무한 루프가 발생하는 무서운 버그도 있었어요.
+          멀티스레드 환경에서 Map이 필요하면 ConcurrentHashMap을 쓰는 게 정답이에요.
+        </p>
+
+        <h3>Q. Hashtable과 ConcurrentHashMap의 차이는요?</h3>
+
+        <p>
+          Hashtable은 모든 메서드에 synchronized를 붙여 전체 락을 걸어요. 한 스레드가 작업하는 동안 다른 모든 스레드가 대기해요.
+          ConcurrentHashMap은 락의 영역을 매우 작게 가져가요. Java 8부터는 버킷 단위 락 + CAS 조합으로,
+          서로 다른 버킷의 작업은 동시 진행이 가능해요. 처리량 차이가 매우 커요.
+        </p>
+
+        <h3>Q. Java 7과 Java 8의 ConcurrentHashMap이 다른가요?</h3>
+
+        <p>
+          많이 달라요. Java 7은 Segment 16개로 Map을 나눠서 각 Segment에 락을 걸었어요.
+          Java 8은 Segment 추상화를 없애고 HashMap처럼 단일 배열 구조로 돌아온 뒤, 락의 단위를 버킷으로 더 작게 만들었어요.
+          빈 버킷에는 CAS, 비어있지 않으면 그 버킷의 첫 노드에 synchronized. 읽기는 락이 아예 없고요.
+        </p>
+
+        <h3>Q. ConcurrentHashMap의 read는 락이 없는데 어떻게 안전한가요?</h3>
+
+        <p>
+          내부 Node의 <code>val</code>과 <code>next</code> 필드가 <code>volatile</code>로 선언돼 있어서 가시성이 보장돼요.
+          한 스레드가 쓴 값은 다른 스레드가 즉시 볼 수 있어요. 그래서 read는 락 없이도 정확한 값을 읽을 수 있어요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          ConcurrentHashMap은 멀티스레드용 Map의 표준 답이에요.
+          Hashtable처럼 전체 락을 걸지 않고, 락의 영역을 매우 작게 잡아서 동시성을 살려요.
+          Java 7의 Segment 16조각에서 Java 8의 버킷 단위 + CAS로 진화하면서 거의 lock-free read에 가까워졌어요.
+        </p>
+
+        <p>
+          다음 편에서는 Java 8의 내부 구조를 더 자세히 들여다봐요. 버킷 단위 락이 정확히 어떻게 동작하는지, CAS와 어떻게 결합되는지요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

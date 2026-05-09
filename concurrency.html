@@ -444,7 +444,7 @@
             <div class="progress-fill" id="progressFill" style="width: 0%"></div>
           </div>
           <div class="progress-meta">
-            <span id="progressText">6 / 23 켜짐</span>
+            <span id="progressText">7 / 23 켜짐</span>
             <span id="progressPct">0%</span>
           </div>
         </div>
@@ -537,12 +537,13 @@
               <text class="node-label" y="34">Atomic*</text>
             </g>
           </a>
-          <a class="node group-B" data-state="locked" data-id="7" data-title="7. 동시성 컬렉션" data-desc="ConcurrentHashMap의 세그먼트/CAS, CopyOnWriteArrayList, ConcurrentLinkedQueue." href="#">
-            <g transform="translate(630,540)">
+          <a class="node group-B" data-state="done" data-id="7" data-title="7. ConcurrentHashMap" data-desc="버킷 단위 락 + CAS, weak consistency, compute 류 메서드." href="./posts/2026-05-concurrenthashmap/01-정체와-진화.html">
+            <g transform="translate(630,540)" style="--ring-delay: 1.8s;">
+              <circle class="node-ring" />
               <path class="node-glow" d="M -22,0 L 22,0 M 0,-22 L 0,22" />
               <circle class="node-circle" r="14" />
               <text class="node-num" dy="3">7</text>
-              <text class="node-label" y="34">Concurrent 컬렉션</text>
+              <text class="node-label" y="34">ConcurrentHashMap</text>
             </g>
           </a>
 

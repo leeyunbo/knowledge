@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실무 사용 패턴과 함정 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 3/3</div>
+        <h1>실무 사용 패턴과 함정</h1>
+        <p class="subtitle">
+          ConcurrentHashMap을 잘 쓰는 패턴들. 그리고 모르고 쓰면 멀티스레드 안전이 깨지는 함정들이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">ConcurrentHashMap</div>
+        <ol>
+          <li><a href="./01-정체와-진화.html">정체와 진화</a></li>
+          <li><a href="./02-내부-동작.html">Java 8 내부 동작</a></li>
+          <li class="current">실무 사용 패턴과 함정</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>가장 흔한 함정 — get 후 put</h2>
+
+        <p>
+          ConcurrentHashMap을 쓰는데 멀티스레드 안전이 깨지는 가장 흔한 패턴이에요. 코드부터 보세요.
+        </p>
+
+        <pre><code class="language-java">// 위험한 패턴
+ConcurrentHashMap&lt;String, Integer&gt; counter = new ConcurrentHashMap&lt;&gt;();
+
+Integer current = counter.get("hits");   // 1
+if (current == null) {
+    counter.put("hits", 1);              // 2
+} else {
+    counter.put("hits", current + 1);    // 3
+}</code></pre>
+
+        <p>
+          뭐가 문제일까요? 1번과 2번 또는 1번과 3번 사이에 다른 스레드가 끼어들 수 있어요.
+          두 스레드가 동시에 1번을 실행하면 둘 다 같은 current를 읽고, 둘 다 +1을 한 같은 값을 put해요.
+          한 번의 increment가 사라지는 거예요.
+        </p>
+
+        <p>
+          ConcurrentHashMap이 보장하는 건 <strong>한 메서드 호출의 원자성</strong>이지, 여러 호출의 묶음이 아니에요.
+          여러 단계를 묶으려면 한 메서드 안에서 처리해야 해요.
+        </p>
+
+        <h2>해결 — compute 류 메서드</h2>
+
+        <p>
+          Java 8이 추가한 메서드들이 정확히 이 문제를 풀어요.
+          여러 단계 작업을 한 호출로 묶어서 원자적으로 처리해줘요.
+        </p>
+
+        <h3>compute</h3>
+
+        <pre><code class="language-java">// 안전한 패턴
+counter.compute("hits", (k, v) -&gt; v == null ? 1 : v + 1);</code></pre>
+
+        <p>
+          이 한 줄이 원자적으로 실행돼요.
+          내부적으로 그 키의 버킷에 락을 걸고, 람다를 실행한 뒤, 결과를 저장해요.
+          여러 스레드가 동시에 호출해도 정확한 카운트가 보장돼요.
+        </p>
+
+        <h3>computeIfAbsent</h3>
+
+        <pre><code class="language-java">// "키가 없을 때만" 새 값 추가
+ConcurrentHashMap&lt;String, List&lt;String&gt;&gt; cache = new ConcurrentHashMap&lt;&gt;();
+
+List&lt;String&gt; list = cache.computeIfAbsent("key", k -&gt; new ArrayList&lt;&gt;());
+list.add("item");</code></pre>
+
+        <p>
+          캐시처럼 "있으면 그대로, 없으면 새로 만들어 추가" 패턴에 적합해요.
+          람다는 키가 없을 때만 실행돼요. 여러 스레드가 동시에 호출해도 람다는 한 번만 실행되는 게 보장돼요.
+        </p>
+
+        <h3>computeIfPresent</h3>
+
+        <pre><code class="language-java">// "키가 있을 때만" 값 변경
+counter.computeIfPresent("hits", (k, v) -&gt; v + 1);</code></pre>
+
+        <p>
+          반대 패턴이에요. 키가 있을 때만 값을 변경하고, 없으면 아무것도 안 해요.
+          람다가 null을 반환하면 키가 삭제되니 주의해야 해요.
+        </p>
+
+        <h3>merge</h3>
+
+        <pre><code class="language-java">// 더 깔끔한 카운터 패턴
+counter.merge("hits", 1, Integer::sum);</code></pre>
+
+        <p>
+          "키가 없으면 두 번째 인자(1)를 넣고, 있으면 람다(Integer::sum)로 합쳐서 갱신"이에요.
+          카운터 패턴에 가장 간결하고 안전한 메서드예요.
+        </p>
+
+        <h2>네 메서드 비교</h2>
+
+        <table>
+          <thead>
+            <tr><th>메서드</th><th>키 없을 때</th><th>키 있을 때</th><th>적합한 사용</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>compute</code></td>
+              <td>람다 호출 (v=null)</td>
+              <td>람다 호출 (v=현재값)</td>
+              <td>둘 다 처리해야 할 때</td>
+            </tr>
+            <tr>
+              <td><code>computeIfAbsent</code></td>
+              <td>람다 호출, 결과 저장</td>
+              <td>아무것도 안 함</td>
+              <td>캐시 lazy 초기화</td>
+            </tr>
+            <tr>
+              <td><code>computeIfPresent</code></td>
+              <td>아무것도 안 함</td>
+              <td>람다 호출, 결과 저장</td>
+              <td>이미 있는 값만 갱신</td>
+            </tr>
+            <tr>
+              <td><code>merge</code></td>
+              <td>두 번째 인자 저장</td>
+              <td>람다로 두 값 결합</td>
+              <td>카운터, 누적 합</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>람다 안에서 조심할 것</h2>
+
+        <p>
+          compute 류 메서드의 람다는 그 키의 버킷 락 안에서 실행돼요.
+          그래서 람다 안에서 너무 무거운 작업이나 다른 락이 필요한 작업을 하면 위험해요.
+        </p>
+
+        <h3>피해야 할 패턴</h3>
+
+        <ul>
+          <li>람다 안에서 다른 ConcurrentHashMap 메서드 호출 (특히 같은 Map의 다른 키)</li>
+          <li>람다 안에서 외부 API/DB 호출 (락 보유 시간이 길어져요)</li>
+          <li>람다 안에서 또 다른 락 획득 (데드락 위험)</li>
+          <li>람다 안에서 무거운 계산 (CPU 시간이 락에 묶여요)</li>
+        </ul>
+
+        <h3>권장 패턴</h3>
+
+        <pre><code class="language-java">// 무거운 작업은 람다 밖에서
+String key = "user-123";
+User newUser = fetchFromDB(key);   // 무거운 작업, 람다 밖에서
+
+cache.computeIfAbsent(key, k -&gt; newUser);   // 람다는 가볍게</code></pre>
+
+        <p>
+          단, 이 패턴은 "다른 스레드가 이미 fetchFromDB를 호출했을 수도" 있다는 점에서 약점이 있어요.
+          진짜 lazy 초기화가 필요하면 람다 안에서 호출해야 하고, 그 경우엔 호출이 한 번만 일어난다는 보장을 받는 대신 락 시간이 길어져요.
+          상황에 따라 트레이드오프를 선택해야 해요.
+        </p>
+
+        <h2>size()를 신뢰하지 마세요</h2>
+
+        <p>
+          2편에서 언급했지만 다시 강조해요. <code>size()</code>는 정확한 시점의 값이 아니에요.
+          호출 도중 다른 스레드가 put/remove를 하면 그 변경이 반영될지 보장되지 않아요.
+        </p>
+
+        <pre><code class="language-java">// 위험한 패턴
+if (map.size() &lt; MAX_SIZE) {
+    map.put(key, value);
+}</code></pre>
+
+        <p>
+          이 코드도 size 확인과 put 사이에 다른 스레드가 put을 할 수 있어서 MAX_SIZE를 넘길 수 있어요.
+          크기 제한이 진짜 필요하면 <code>Caffeine</code>이나 <code>Guava Cache</code> 같은 전용 라이브러리를 쓰는 게 안전해요.
+        </p>
+
+        <h3>size를 안전하게 쓰는 패턴</h3>
+
+        <ul>
+          <li>모니터링/로깅에 대략적 값으로만 사용</li>
+          <li>"비어있는지" 확인은 <code>isEmpty()</code> 사용 (이건 비교적 정확해요)</li>
+          <li>크기 제한이 필요하면 별도 atomic counter나 LRU 캐시 라이브러리 사용</li>
+        </ul>
+
+        <h2>iterator의 weak consistency</h2>
+
+        <p>
+          ConcurrentHashMap의 <code>keySet()</code>, <code>values()</code>, <code>entrySet()</code>으로 받는 iterator는
+          <strong>weak consistency</strong>를 보장해요. 이게 무슨 뜻인지 정확히 알아둬야 해요.
+        </p>
+
+        <ul>
+          <li>iterator를 만든 시점의 스냅샷이 아니에요</li>
+          <li>순회 중 다른 스레드가 put/remove한 변경이 보일 수도, 안 보일 수도 있어요</li>
+          <li>예외(<code>ConcurrentModificationException</code>)는 절대 발생하지 않아요</li>
+        </ul>
+
+        <pre><code class="language-java">for (Map.Entry&lt;String, Integer&gt; entry : map.entrySet()) {
+    // 순회 중 다른 스레드가 변경해도 예외 없음
+    // 단, 그 변경이 이 iterator에 보일지는 보장 X
+}</code></pre>
+
+        <p>
+          이런 약한 일관성이 락 없는 순회를 가능하게 해줘요.
+          정확한 스냅샷이 필요하다면 별도로 복사본을 만들어서 순회해야 해요.
+        </p>
+
+        <h2>실무 패턴 1: 캐시</h2>
+
+        <pre><code class="language-java">@Service
+public class UserCache {
+
+    private final ConcurrentHashMap&lt;Long, User&gt; cache = new ConcurrentHashMap&lt;&gt;();
+    private final UserRepository repo;
+
+    public User get(Long id) {
+        return cache.computeIfAbsent(id, repo::findById);
+    }
+
+    public void invalidate(Long id) {
+        cache.remove(id);
+    }
+}</code></pre>
+
+        <p>
+          가장 흔한 패턴이에요. <code>computeIfAbsent</code>로 캐시 미스 시에만 DB 조회.
+          여러 스레드가 동시에 같은 ID를 요청해도 DB 조회는 한 번만 일어나요.
+        </p>
+
+        <p>
+          단, 이 단순한 캐시는 크기 제한, TTL, 통계 같은 고급 기능이 없어요.
+          진짜 운영 캐시가 필요하면 <strong>Caffeine</strong> 같은 전용 라이브러리를 쓰는 게 좋아요.
+        </p>
+
+        <h2>실무 패턴 2: 카운터</h2>
+
+        <pre><code class="language-java">// 페이지별 방문 횟수
+private final ConcurrentHashMap&lt;String, Long&gt; pageViews = new ConcurrentHashMap&lt;&gt;();
+
+public void trackVisit(String pageUrl) {
+    pageViews.merge(pageUrl, 1L, Long::sum);
+}
+
+public long getViews(String pageUrl) {
+    return pageViews.getOrDefault(pageUrl, 0L);
+}</code></pre>
+
+        <p>
+          <code>merge</code> 한 줄로 안전한 카운터가 돼요.
+          여러 페이지에 대한 카운트를 동시에 갱신해도 락 경합은 페이지별로만 일어나요.
+        </p>
+
+        <p>
+          더 high-throughput이 필요하면 키별로 <code>LongAdder</code>를 두는 패턴도 있어요.
+        </p>
+
+        <pre><code class="language-java">// 매우 높은 동시성에 적합
+private final ConcurrentHashMap&lt;String, LongAdder&gt; counts = new ConcurrentHashMap&lt;&gt;();
+
+public void increment(String key) {
+    counts.computeIfAbsent(key, k -&gt; new LongAdder()).increment();
+}
+
+public long get(String key) {
+    LongAdder adder = counts.get(key);
+    return adder == null ? 0 : adder.sum();
+}</code></pre>
+
+        <h2>실무 패턴 3: Set 만들기</h2>
+
+        <p>
+          <code>ConcurrentHashMap.newKeySet()</code>은 동시성 안전한 Set을 제공해요.
+        </p>
+
+        <pre><code class="language-java">Set&lt;String&gt; activeUsers = ConcurrentHashMap.newKeySet();
+
+activeUsers.add("alice");
+activeUsers.contains("alice");
+activeUsers.remove("alice");</code></pre>
+
+        <p>
+          내부적으로 ConcurrentHashMap을 활용한 Set이에요. 일반 HashSet의 멀티스레드 버전이라고 보면 돼요.
+          Java 8에서 추가됐고, 그 이전엔 <code>Collections.newSetFromMap</code>으로 비슷한 걸 만들었어요.
+        </p>
+
+        <h2>피해야 할 패턴 정리</h2>
+
+        <ul>
+          <li><strong>get → if → put</strong>: 여러 호출의 원자성이 보장되지 않아요. compute 류로 묶기</li>
+          <li><strong>size 기반 조건 검사 후 put</strong>: size가 정확하지 않아요. 별도 카운터나 캐시 라이브러리로</li>
+          <li><strong>람다 안에서 무거운 작업</strong>: 락 보유 시간이 길어져요. 락 밖에서 처리</li>
+          <li><strong>람다 안에서 다른 락 획득</strong>: 데드락 위험. 단일 락 안에서만 작업</li>
+          <li><strong>iterator로 정확한 스냅샷 가정</strong>: weak consistency만 보장. 정확한 스냅샷이 필요하면 복사</li>
+        </ul>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. ConcurrentHashMap을 쓰는데도 race condition이 생긴다면요?</h3>
+
+        <p>
+          가장 흔한 원인은 <code>get → if → put</code> 같은 여러 호출의 묶음이에요.
+          ConcurrentHashMap은 한 메서드 호출의 원자성만 보장해요.
+          여러 단계를 묶으려면 <code>compute</code>, <code>computeIfAbsent</code>, <code>merge</code> 같은 메서드를 써야 해요.
+          이 메서드들은 람다를 그 키의 락 안에서 실행하니까 원자적이에요.
+        </p>
+
+        <h3>Q. computeIfAbsent와 putIfAbsent의 차이는요?</h3>
+
+        <p>
+          <code>putIfAbsent(key, value)</code>는 value를 인자로 받아요. 이미 만들어져 있어야 해요.
+          <code>computeIfAbsent(key, lambda)</code>는 key가 없을 때만 람다를 실행해서 값을 만들어요.
+          무거운 객체 생성을 lazy하게 하고 싶을 때 computeIfAbsent가 더 적합해요. 키가 있으면 객체 생성 자체가 안 일어나거든요.
+        </p>
+
+        <h3>Q. size()를 신뢰해도 되나요?</h3>
+
+        <p>
+          정확한 값을 신뢰하면 안 돼요. ConcurrentHashMap의 size는 <code>LongAdder</code> 패턴으로 분산된 카운터를 합산해요.
+          호출 도중 다른 스레드의 변경이 반영될지 보장되지 않아요.
+          모니터링/로깅에 대략적 값으로만 쓰고, 정확한 크기 제한이 필요하면 Caffeine 같은 전용 캐시를 써야 해요.
+        </p>
+
+        <h3>Q. iterator로 순회하면서 다른 스레드가 변경하면요?</h3>
+
+        <p>
+          예외는 발생하지 않아요. 일반 HashMap의 iterator처럼 ConcurrentModificationException이 던져지지 않거든요.
+          대신 weak consistency를 따라요. 변경이 보일 수도 있고 안 보일 수도 있어요.
+          정확한 스냅샷이 필요하면 별도로 복사본을 만들어서 순회해야 해요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          ConcurrentHashMap의 핵심은 <strong>한 메서드 호출의 원자성</strong>만 보장한다는 거예요.
+          여러 단계 작업을 묶으려면 compute 류 메서드를 써야 하고, size는 정확하지 않다는 걸 항상 의식해야 해요.
+          람다는 락 안에서 실행되니 가볍게, 무거운 작업은 락 밖에서.
+          이 원칙들만 지키면 ConcurrentHashMap은 멀티스레드 환경의 가장 강력한 도구가 돼요.
+        </p>
+
+        <p>
+          ConcurrentHashMap 시리즈는 여기까지예요. 다음은 다른 주제로 넘어가요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
