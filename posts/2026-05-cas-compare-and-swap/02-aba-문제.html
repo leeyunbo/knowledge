@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ABA 문제와 해결 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 2/2</div>
+        <h1>ABA 문제와 AtomicStampedReference</h1>
+        <p class="subtitle">
+          CAS의 사각지대. 값이 잠깐 다른 값으로 갔다가 돌아왔을 때 변경을 감지 못하는 문제와 그 해결책이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CAS — Compare And Swap</div>
+        <ol>
+          <li><a href="./01-cas의-정체.html">CAS의 정체</a></li>
+          <li class="current">ABA 문제와 AtomicStampedReference</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>ABA 문제가 뭔가요</h2>
+
+        <p>
+          이름 그대로 값이 A에서 B로 갔다가 다시 A로 돌아오는 상황이에요.
+          CAS는 "현재 값이 A냐?"만 확인하기 때문에, 그 사이에 다른 스레드가 값을 바꿨다가 되돌려놨어도 알아차릴 수 없어요.
+        </p>
+
+        <h3>시나리오</h3>
+
+        <p>
+          간단한 예시로 따라가볼게요.
+        </p>
+
+        <pre><code class="language-java">AtomicReference&lt;Integer&gt; ref = new AtomicReference&lt;&gt;(10);
+
+// 스레드 1
+Integer expected = ref.get();   // 10 읽기
+// ... 잠깐 다른 일을 함
+
+// 그 사이 스레드 2와 3이
+ref.compareAndSet(10, 20);      // 10 → 20
+ref.compareAndSet(20, 10);      // 20 → 10 (다시 원래대로)
+
+// 스레드 1이 돌아와서
+ref.compareAndSet(expected, 30); // 현재 값 10 == 기대값 10 → 성공!</code></pre>
+
+        <p>
+          스레드 1 입장에서는 "내가 본 값이 그대로 있네, 안 바뀌었구나"라고 판단해요.
+          그런데 사실 그 사이 두 번이나 바뀌었다 돌아온 거죠. 이걸 모르고 진행하면 미묘한 버그가 생길 수 있어요.
+        </p>
+
+        <h2>왜 문제가 되나요</h2>
+
+        <p>
+          단순한 정수 카운터라면 ABA가 별 문제 안 돼요. 결국 같은 값이니까요.
+          진짜 문제는 <strong>참조형 자료구조</strong>에서 일어나요.
+        </p>
+
+        <h3>유명한 사례 — 락프리 스택</h3>
+
+        <pre><code class="language-java">class LockFreeStack&lt;T&gt; {
+    private final AtomicReference&lt;Node&lt;T&gt;&gt; head = new AtomicReference&lt;&gt;();
+
+    public void push(T value) {
+        Node&lt;T&gt; newHead = new Node&lt;&gt;(value);
+        Node&lt;T&gt; oldHead;
+        do {
+            oldHead = head.get();
+            newHead.next = oldHead;
+        } while (!head.compareAndSet(oldHead, newHead));
+    }
+
+    public T pop() {
+        Node&lt;T&gt; oldHead, newHead;
+        do {
+            oldHead = head.get();
+            if (oldHead == null) return null;
+            newHead = oldHead.next;
+        } while (!head.compareAndSet(oldHead, newHead));
+        return oldHead.value;
+    }
+}</code></pre>
+
+        <p>
+          평범한 락프리 스택이에요. 그런데 여기에 ABA 함정이 숨어 있어요.
+        </p>
+
+        <h3>ABA가 만드는 결함 시나리오</h3>
+
+        <p>
+          스택에 노드 A, B, C가 쌓여 있다고 해볼게요. <code>head → A → B → C</code> 순서예요.
+        </p>
+
+        <ol>
+          <li>스레드 1이 <code>pop()</code> 시작. <code>oldHead = A</code>, <code>newHead = B</code>로 읽음</li>
+          <li>스레드 1이 잠깐 멈춤 (스케줄링)</li>
+          <li>스레드 2가 빠르게 <code>pop()</code> 두 번 실행: A 제거, B 제거</li>
+          <li>스레드 2가 <code>push(A)</code>: A를 다시 head로 넣음. 이제 <code>head → A → C</code></li>
+          <li>스레드 1이 깨어나 CAS 실행: <code>head == A</code> 맞으니까 성공으로 처리됨</li>
+          <li>head가 newHead(=B)로 바뀜. 그런데 B는 이미 스택에서 빠진 노드</li>
+        </ol>
+
+        <p>
+          결과적으로 head가 사라진 노드 B를 가리키는 깨진 상태가 돼요.
+          스택 구조 자체가 망가져서 다음 작업부터 잘못된 결과가 나와요.
+          C 노드가 갑자기 사라지는 거예요.
+        </p>
+
+        <h2>해결 — 버전 스탬프 붙이기</h2>
+
+        <p>
+          아이디어는 단순해요. 값만 비교하지 말고 <strong>값 + 버전</strong>을 함께 비교하는 거예요.
+          값을 바꿀 때마다 버전을 1씩 증가시키면, 값이 같아도 버전이 다르면 변경을 감지할 수 있어요.
+        </p>
+
+        <h3>AtomicStampedReference</h3>
+
+        <p>
+          자바가 이 패턴을 위한 클래스를 제공해요.
+        </p>
+
+        <pre><code class="language-java">AtomicStampedReference&lt;Integer&gt; ref = new AtomicStampedReference&lt;&gt;(10, 0);
+
+int[] stampHolder = new int[1];
+Integer value = ref.get(stampHolder);
+int currentStamp = stampHolder[0];
+
+// 값과 stamp 둘 다 일치해야 성공
+boolean success = ref.compareAndSet(
+    value,           // 기대 값
+    20,              // 새 값
+    currentStamp,    // 기대 stamp
+    currentStamp + 1 // 새 stamp
+);</code></pre>
+
+        <p>
+          값을 바꿀 때마다 stamp(버전)도 함께 증가시켜요.
+          A → B → A로 돌아왔어도 stamp는 0 → 1 → 2로 올라가니까, 스레드 1이 갖고 있던 stamp 0과 다른 걸 보고 변경을 감지할 수 있어요.
+        </p>
+
+        <h3>그림으로</h3>
+
+        <figure>
+          <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ABA 해결">
+            <defs>
+              <style>
+                .state { fill: #f9fafb; stroke: #4e5968; stroke-width: 1.2; }
+                .original { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .changed { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .arrow { stroke: #6b7684; stroke-width: 1.2; fill: none; marker-end: url(#a-aba); }
+              </style>
+              <marker id="a-aba" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+            </defs>
+
+            <text x="20" y="22" class="header">기존 CAS — stamp 없음</text>
+            <rect x="20" y="32" width="100" height="40" rx="6" class="original"/>
+            <text x="70" y="58" text-anchor="middle" class="label">A</text>
+
+            <line x1="120" y1="52" x2="180" y2="52" class="arrow"/>
+            <rect x="180" y="32" width="100" height="40" rx="6" class="changed"/>
+            <text x="230" y="58" text-anchor="middle" class="label">B</text>
+
+            <line x1="280" y1="52" x2="340" y2="52" class="arrow"/>
+            <rect x="340" y="32" width="100" height="40" rx="6" class="original"/>
+            <text x="390" y="58" text-anchor="middle" class="label">A</text>
+
+            <text x="460" y="58" class="small" fill="#c4302b">CAS는 변경 감지 못함</text>
+
+            <text x="20" y="122" class="header">AtomicStampedReference — stamp 추가</text>
+            <rect x="20" y="132" width="100" height="50" rx="6" class="original"/>
+            <text x="70" y="152" text-anchor="middle" class="label">A</text>
+            <text x="70" y="170" text-anchor="middle" class="small">stamp: 0</text>
+
+            <line x1="120" y1="158" x2="180" y2="158" class="arrow"/>
+            <rect x="180" y="132" width="100" height="50" rx="6" class="changed"/>
+            <text x="230" y="152" text-anchor="middle" class="label">B</text>
+            <text x="230" y="170" text-anchor="middle" class="small">stamp: 1</text>
+
+            <line x1="280" y1="158" x2="340" y2="158" class="arrow"/>
+            <rect x="340" y="132" width="100" height="50" rx="6" class="changed"/>
+            <text x="390" y="152" text-anchor="middle" class="label">A</text>
+            <text x="390" y="170" text-anchor="middle" class="small">stamp: 2</text>
+
+            <text x="460" y="158" class="small" fill="#1b64da">stamp가 다르니</text>
+            <text x="460" y="172" class="small" fill="#1b64da">변경 감지 성공</text>
+          </svg>
+          <figcaption>버전 스탬프로 ABA 감지 — 값이 같아도 stamp가 다르면 변경됐다고 판단</figcaption>
+        </figure>
+
+        <h2>AtomicMarkableReference</h2>
+
+        <p>
+          비슷한 클래스가 하나 더 있어요. <code>AtomicMarkableReference</code>는 stamp 대신 <code>boolean</code> 플래그를 붙여요.
+          "삭제 표시" 같은 단순한 상태 변화를 표현할 때 쓰여요.
+        </p>
+
+        <pre><code class="language-java">AtomicMarkableReference&lt;Node&gt; ref = new AtomicMarkableReference&lt;&gt;(node, false);
+
+// 노드를 "삭제 예정"으로 표시
+ref.attemptMark(node, true);
+
+// 마킹된 노드는 다른 스레드가 보고 처리
+boolean[] markHolder = new boolean[1];
+Node current = ref.get(markHolder);
+if (markHolder[0]) {
+    // 삭제 처리
+}</code></pre>
+
+        <p>
+          락프리 LinkedList 같은 자료구조에서 노드 삭제를 두 단계로 처리할 때 자주 쓰여요.
+          버전 자체는 필요 없고 "지워질 예정" 같은 단순 상태만 필요한 경우에 stamp보다 가벼워요.
+        </p>
+
+        <h2>둘 중 무엇을 쓸지</h2>
+
+        <table>
+          <thead>
+            <tr><th>상황</th><th>적합한 도구</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>참조 자료구조의 ABA 방지</td>
+              <td><code>AtomicStampedReference</code></td>
+            </tr>
+            <tr>
+              <td>스택, 큐 같은 락프리 자료구조</td>
+              <td><code>AtomicStampedReference</code></td>
+            </tr>
+            <tr>
+              <td>"삭제 예정" 같은 단순 상태 표시</td>
+              <td><code>AtomicMarkableReference</code></td>
+            </tr>
+            <tr>
+              <td>2단계 노드 제거 (logical delete + physical remove)</td>
+              <td><code>AtomicMarkableReference</code></td>
+            </tr>
+            <tr>
+              <td>단일 정수 카운터</td>
+              <td>그냥 <code>AtomicLong</code> (ABA 무관)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실무에서 ABA를 만나기 어려운 이유</h2>
+
+        <p>
+          이론적으로는 무서운 문제처럼 들리지만, 실무에서 ABA로 인한 실제 사고는 생각보다 드물어요. 이유가 있어요.
+        </p>
+
+        <ul>
+          <li>대부분의 동시성 코드는 j.u.c의 검증된 클래스 (<code>ConcurrentHashMap</code>, <code>BlockingQueue</code> 등)를 써요</li>
+          <li>이 클래스들은 내부에서 이미 ABA를 적절히 처리해뒀어요</li>
+          <li>락프리 자료구조를 직접 만드는 자리가 일반 애플리케이션에는 거의 없어요</li>
+          <li>단순 카운터/플래그 같은 경우는 ABA가 발생해도 의미적 문제가 없어요</li>
+        </ul>
+
+        <p>
+          그래도 <code>AtomicReference</code>로 직접 락프리 자료구조를 만들거나, 참조형 값을 CAS로 갱신하는 코드를 짤 일이 있다면
+          ABA를 의식해야 해요. <code>AtomicStampedReference</code>가 그럴 때를 위한 도구예요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. ABA 문제가 뭔가요?</h3>
+
+        <p>
+          값이 A에서 B로 바뀌었다가 다시 A로 돌아왔을 때, CAS는 "현재 값이 A냐?"만 확인하기 때문에 변경을 감지하지 못하는 문제예요.
+          단순 카운터라면 의미상 문제 없지만, 참조형 자료구조에서는 사라진 노드를 가리키는 깨진 상태가 만들어질 수 있어요.
+        </p>
+
+        <h3>Q. ABA를 어떻게 해결하나요?</h3>
+
+        <p>
+          값에 버전 스탬프를 함께 붙여요. 자바의 <code>AtomicStampedReference</code>가 이 패턴을 제공해요.
+          값과 stamp를 둘 다 비교하기 때문에, 값이 같아도 stamp가 다르면 변경됐다고 판단해서 CAS가 실패해요.
+        </p>
+
+        <h3>Q. 실무에서 ABA를 자주 만나나요?</h3>
+
+        <p>
+          드물어요. 대부분의 동시성 코드는 j.u.c의 검증된 클래스를 사용하고, 그 안에서 이미 처리돼 있어요.
+          락프리 자료구조를 직접 구현할 때만 의식하면 돼요. 단순 카운터나 boolean flag면 ABA가 의미상 문제가 안 돼요.
+        </p>
+
+        <h3>Q. AtomicMarkableReference와 AtomicStampedReference의 차이는요?</h3>
+
+        <p>
+          AtomicStampedReference는 정수 stamp(버전)를 함께 다뤄요. ABA 방지가 주 용도예요.
+          AtomicMarkableReference는 boolean 플래그를 함께 다뤄요. "삭제 예정" 같은 단순 상태 표시에 적합하고, 락프리 LinkedList의 2단계 삭제에서 자주 쓰여요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          ABA 문제는 값이 잠깐 바뀌었다 돌아온 사이의 변경을 CAS가 감지 못하는 사각지대예요.
+          참조형 자료구조에서 깨진 상태를 만들 수 있고, <code>AtomicStampedReference</code>의 버전 스탬프로 해결해요.
+          j.u.c 클래스를 쓰면 거의 마주치지 않지만, 직접 락프리 자료구조를 만들 때는 반드시 의식해야 해요.
+        </p>
+
+        <p>
+          CAS 시리즈는 여기까지예요. 다음은 동시성 컬렉션의 핵심, ConcurrentHashMap의 내부로 들어가볼게요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
