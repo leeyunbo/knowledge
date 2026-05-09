@@ -29,6 +29,7 @@
           <li><a href="./01-정체와-진화.html">정체와 진화</a></li>
           <li class="current">Java 8 내부 동작</li>
           <li><a href="./03-실무-패턴.html">실무 사용 패턴과 함정</a></li>
+          <li><a href="./04-핫-키와-longadder.html">핫 키와 LongAdder, False Sharing</a></li>
         </ol>
       </nav>
 
@@ -107,6 +108,15 @@
           단, 락의 대상이 첫 노드이기 때문에 다른 버킷의 작업은 영향 받지 않아요.
         </p>
 
+        <h3>Bin-level Locking이라는 용어</h3>
+
+        <p>
+          이 패턴을 학계에서는 <strong>bin-level locking</strong>이라고 불러요.
+          Java 7의 segment locking이 16조각 고정 락이었다면, Java 8의 bin-level locking은 버킷 개수만큼(수천~수만) 락이 분산돼요.
+          락 단위가 작아질수록 동시성은 좋아지고, 락 객체 추가 비용은 줄어들어요.
+          첫 노드 자체를 모니터로 쓰니 별도 락 객체가 필요 없거든요.
+        </p>
+
         <h2>get은 어떻게 락 없이 안전한가요</h2>
 
         <p>
@@ -153,9 +163,61 @@
           이게 weak consistency라고 불리는 약속이에요.
         </p>
 
+        <h3>Weak Consistency의 3가지 contract</h3>
+
         <p>
-          이런 약한 일관성이 멀티스레드 환경에서 락 없이 read를 가능하게 해주는 핵심 디자인이에요.
-          정확한 시점의 스냅샷이 필요한 게 아니라면 충분한 보장이에요.
+          JDK가 j.u.c 패키지의 일관성 모델로 명시한 3가지 약속이에요.
+        </p>
+
+        <ol>
+          <li><strong>Atomic visibility (찢어진 상태 안 보임)</strong>: 읽는 노드는 항상 완전히 만들어진 상태. 반쯤 construct된 frankenstein 객체는 절대 안 보여요</li>
+          <li><strong>Iteration safety (CME 안 던짐)</strong>: 순회 중 다른 스레드가 put/remove해도 ConcurrentModificationException이 발생하지 않아요</li>
+          <li><strong>Best-effort freshness</strong>: iterator/get은 "만들어진 시점 또는 그 이후 어느 한 시점"의 상태를 반영. 시작 후 변경은 볼 수도 있고 안 볼 수도 있고, 둘 다 합법</li>
+        </ol>
+
+        <h3>Atomic visibility는 어떻게 가능한가요</h3>
+
+        <p>
+          두 가지 규칙으로 보장돼요.
+        </p>
+
+        <p>
+          <strong>규칙 A — publish 전에 완전히 construct.</strong>
+          새 노드를 만들 때 먼저 객체를 완성하고 그 다음에 공개해요. CAS나 volatile write로 공개되는 시점에는 이미 모든 필드가 채워진 상태.
+        </p>
+
+        <pre><code class="language-java">Node&lt;K,V&gt; newNode = new Node&lt;&gt;(hash, key, value, null);  // 1) 완성
+casTabAt(tab, i, null, newNode);                           // 2) 그 다음 공개</code></pre>
+
+        <p>
+          <strong>규칙 B — append는 tail의 next에 volatile write.</strong>
+          체인에 노드를 추가할 때 tail의 next 필드에 새 노드를 연결해요. next가 volatile이라 변경이 즉시 보여요.
+        </p>
+
+        <pre><code class="language-java">synchronized (head) {
+    // ... traverse to tail ...
+    tail.next = newNode;  // volatile write (next 필드가 volatile)
+}</code></pre>
+
+        <p>
+          reader가 tail까지 왔을 때 next 읽었더니 null이면 변경 전 상태, newNode면 완성된 새 노드 가리킴.
+          중간 상태는 없어요.
+        </p>
+
+        <h3>"약함"의 진짜 의미</h3>
+
+        <p>
+          강한 일관성(linearizable snapshot)이었다면 read 동안 write를 막거나(락), 스냅샷 복사하거나(CopyOnWrite), 버전 관리(MVCC)를 해야 해요.
+          모두 비싼 비용이에요.
+        </p>
+
+        <p>
+          Weak consistency는 <strong>각각의 read는 atomic하지만, 여러 read를 합친 전체 view는 일관된 시점이 아닐 수 있다</strong>로 양보한 거예요.
+          읽기는 락 없이도 안전하고, 약간의 정확성을 받아들이는 대신 매우 빠른 동시성을 얻어요.
+        </p>
+
+        <p>
+          정확한 스냅샷이 필요한 게 아니라면 충분한 보장이에요.
         </p>
 
         <h2>Treeify — HashMap과 같은 정책</h2>
