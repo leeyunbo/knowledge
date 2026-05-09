@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cache Stampede 방어 패턴 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 2/2</div>
+        <h1>Cache Stampede 방어 패턴</h1>
+        <p class="subtitle">
+          5가지 표준 방어 패턴. 각각의 장단점과 적합한 자리를 정리해봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Cache Stampede</div>
+        <ol>
+          <li><a href="./01-stampede의-정체.html">Stampede의 정체</a></li>
+          <li class="current">방어 패턴</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>방어 패턴 1 — Lock</h2>
+
+        <p>
+          가장 직관적인 답. cache miss 시 lock을 잡고 첫 요청만 DB 조회. 나머지는 대기 또는 stale 반환.
+        </p>
+
+        <pre><code class="language-java">public User getUser(Long id) {
+    String key = "user:" + id;
+    User cached = redis.get(key);
+    if (cached != null) return cached;
+
+    String lockKey = key + ":lock";
+    boolean acquired = redis.setIfAbsent(lockKey, "1", Duration.ofSeconds(10));
+
+    if (!acquired) {
+        // 다른 요청이 이미 처리 중
+        Thread.sleep(50);
+        return getUser(id);   // 재시도
+    }
+
+    try {
+        User user = userRepository.findById(id);
+        redis.set(key, user, Duration.ofMinutes(5));
+        return user;
+    } finally {
+        redis.delete(lockKey);
+    }
+}</code></pre>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: DB 호출 정확히 한 번, 단순한 의도</li>
+          <li><strong>단점</strong>: 락 보유자 다운 시 다른 요청 모두 대기, 락 시스템 필요, 분산 락 함정 그대로</li>
+          <li><strong>적합</strong>: 트래픽이 매우 높지 않은 critical 캐시</li>
+        </ul>
+
+        <h2>방어 패턴 2 — Probabilistic Early Expiration</h2>
+
+        <p>
+          더 영리한 답. TTL이 만료되기 전부터 일부 요청만 미리 캐시를 갱신해요.
+          확률적으로 일찍 만료된 것처럼 처리해서 stampede를 분산.
+        </p>
+
+        <pre><code class="language-java">public User getUser(Long id) {
+    String key = "user:" + id;
+    CachedItem item = redis.get(key);
+    if (item == null) {
+        return loadAndCache(id);   // miss
+    }
+
+    // 만료가 가까울수록 미리 갱신할 확률 증가
+    long now = System.currentTimeMillis();
+    long expiresAt = item.getExpiresAt();
+    long ttl = expiresAt - now;
+    long beta = 1000;   // 갱신 시작 윈도우 (ms)
+
+    double prob = -beta * Math.log(Math.random());
+    if (prob &gt; ttl) {
+        return loadAndCache(id);   // 일찍 갱신
+    }
+
+    return item.getValue();
+}</code></pre>
+
+        <p>
+          XFetch 알고리즘이라 불리는 패턴이에요. 만료 직전 일부 요청만 갱신하니 동시 cache miss 폭주가 자연스럽게 분산.
+        </p>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 락 없이 분산, 갱신이 점진적으로 일어남</li>
+          <li><strong>단점</strong>: 구현 약간 복잡, 갱신 비용이 약간 늘어남</li>
+          <li><strong>적합</strong>: 인기 키, 갱신 비용이 크지 않은 데이터</li>
+        </ul>
+
+        <h2>방어 패턴 3 — Refresh Ahead</h2>
+
+        <p>
+          만료 전에 백그라운드 잡으로 미리 갱신. 사용자 요청은 항상 cache hit.
+        </p>
+
+        <pre><code class="language-java">@Scheduled(fixedRate = 60_000)   // 1분마다
+public void refreshHotKeys() {
+    List&lt;Long&gt; hotUserIds = identifyHotKeys();
+    for (Long id : hotUserIds) {
+        User user = userRepository.findById(id);
+        redis.set("user:" + id, user, Duration.ofMinutes(10));
+    }
+}</code></pre>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 사용자 요청 latency 일정, stampede 발생 안 함</li>
+          <li><strong>단점</strong>: hot key 식별 필요, 안 인기 키도 갱신될 수 있음 (낭비)</li>
+          <li><strong>적합</strong>: 핵심 콘텐츠, hot key가 명확한 경우</li>
+        </ul>
+
+        <h2>방어 패턴 4 — TTL Jitter</h2>
+
+        <p>
+          모든 키의 TTL이 같은 시점에 만료되지 않도록 jitter(랜덤 오차)를 추가.
+        </p>
+
+        <pre><code class="language-java">public void cacheWithJitter(String key, Object value) {
+    long baseTtl = 300;   // 5분
+    long jitter = ThreadLocalRandom.current().nextLong(60);   // 0~60초
+    long actualTtl = baseTtl + jitter;
+
+    redis.set(key, value, Duration.ofSeconds(actualTtl));
+}</code></pre>
+
+        <p>
+          같은 시각에 채워진 1000개 키들이 5~6분 사이로 분산되어 만료. 한 시점에 100개씩만 만료되어 부하 분산.
+        </p>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 매우 단순, 추가 인프라 불필요</li>
+          <li><strong>단점</strong>: 한 키 만료의 stampede는 못 막음 (여러 키 만료의 동기화만 풀림)</li>
+          <li><strong>적합</strong>: 모든 캐싱 환경의 default. 항상 켜두는 게 좋음</li>
+        </ul>
+
+        <h2>방어 패턴 5 — Stale-While-Revalidate</h2>
+
+        <p>
+          만료된 캐시를 일단 반환하면서 백그라운드로 새로 가져와 갱신. 사용자는 stale data를 보지만 빠른 응답 받음.
+        </p>
+
+        <pre><code class="language-java">public User getUser(Long id) {
+    String key = "user:" + id;
+    CachedItem item = redis.get(key);
+
+    if (item == null) {
+        return loadAndCache(id);   // 진짜 miss
+    }
+
+    if (item.isStale()) {
+        // 백그라운드로 갱신 시작
+        scheduler.execute(() -&gt; loadAndCache(id));
+    }
+
+    return item.getValue();   // stale도 일단 반환
+}</code></pre>
+
+        <p>
+          HTTP의 <code>Cache-Control: stale-while-revalidate</code>와 같은 패턴이에요.
+          사용자 응답 latency 일정, 단 stale 윈도우 동안 옛 데이터 표시.
+        </p>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: latency 일정, stampede 자연스럽게 방어</li>
+          <li><strong>단점</strong>: stale 데이터 표시 (잠시), 일관성 약함</li>
+          <li><strong>적합</strong>: 약간의 stale을 허용할 수 있는 자원 (제품 카탈로그, 콘텐츠)</li>
+        </ul>
+
+        <h2>패턴 비교</h2>
+
+        <table>
+          <thead>
+            <tr><th>패턴</th><th>구현 복잡도</th><th>일관성</th><th>latency</th><th>stampede 방어</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Lock</td>
+              <td>중간</td>
+              <td>강함</td>
+              <td>락 대기 시 증가</td>
+              <td>강함</td>
+            </tr>
+            <tr>
+              <td>Probabilistic Early Expiration</td>
+              <td>중간</td>
+              <td>중간</td>
+              <td>일정</td>
+              <td>강함</td>
+            </tr>
+            <tr>
+              <td>Refresh Ahead</td>
+              <td>중간 (hot key 식별)</td>
+              <td>중간</td>
+              <td>일정</td>
+              <td>강함</td>
+            </tr>
+            <tr>
+              <td>TTL Jitter</td>
+              <td>매우 낮음</td>
+              <td>강함</td>
+              <td>일정</td>
+              <td>약함 (단일 키엔 효과 없음)</td>
+            </tr>
+            <tr>
+              <td>Stale-While-Revalidate</td>
+              <td>중간</td>
+              <td>약함 (stale 허용)</td>
+              <td>매우 일정</td>
+              <td>강함</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실무 조합 — 다층 방어</h2>
+
+        <p>
+          한 패턴만으로 모든 stampede를 막기 어려워요. 보통 여러 패턴을 조합해요.
+        </p>
+
+        <h3>일반 추천 조합</h3>
+
+        <ol>
+          <li><strong>TTL Jitter</strong>: 모든 캐시에 default로 적용</li>
+          <li><strong>Probabilistic Early Expiration 또는 Stale-While-Revalidate</strong>: 인기 키 처리</li>
+          <li><strong>Refresh Ahead</strong>: 핵심 hot key 미리 갱신</li>
+          <li><strong>Lock</strong>: critical하고 정확한 데이터에 backup으로</li>
+        </ol>
+
+        <h3>외부 도구 활용</h3>
+
+        <p>
+          Caffeine, Hazelcast 같은 캐시 라이브러리가 일부 패턴을 자동 제공해요.
+        </p>
+
+        <pre><code class="language-java">// Caffeine의 refreshAfterWrite — Refresh Ahead 자동
+LoadingCache&lt;Long, User&gt; cache = Caffeine.newBuilder()
+    .expireAfterWrite(Duration.ofMinutes(10))
+    .refreshAfterWrite(Duration.ofMinutes(5))   // 5분 후 백그라운드 갱신
+    .maximumSize(10000)
+    .build(this::loadUser);</code></pre>
+
+        <h2>장애 대비 — Cache 다운 시 fallback</h2>
+
+        <p>
+          cache 자체가 다운되면 모든 요청이 cache miss로 DB로 폭주. 이걸 막는 패턴도 필요해요.
+        </p>
+
+        <h3>Circuit Breaker</h3>
+
+        <p>
+          캐시 호출에 circuit breaker 적용. 캐시 fail이 누적되면 일정 시간 캐시 호출 자체를 차단하고 직접 DB로.
+          DB 부하가 동시 폭주하지 않도록 단계적 처리.
+        </p>
+
+        <h3>Local Cache Fallback</h3>
+
+        <p>
+          Redis 다운 시 in-memory fallback cache 사용. 일시적 stale은 허용.
+        </p>
+
+        <pre><code class="language-java">public User getUser(Long id) {
+    try {
+        return redisCache.get(id);
+    } catch (RedisException e) {
+        return localFallbackCache.get(id);   // Caffeine 로컬 캐시
+    }
+}</code></pre>
+
+        <h3>Rate Limiting</h3>
+
+        <p>
+          DB로 가는 요청 수에 직접 제한. 초당 N개만 허용, 나머지는 fail-fast.
+          stampede 자체를 막진 않지만 DB 보호 효과.
+        </p>
+
+        <h2>실전 시나리오 — 한정 세일</h2>
+
+        <p>
+          이커머스의 한정 세일 페이지. 인기 상품 정보가 캐시에 있고 5분 TTL.
+          세일 시작 시간에 트래픽 spike + 캐시 만료가 겹치면 stampede.
+        </p>
+
+        <h3>적용 패턴 조합</h3>
+
+        <ol>
+          <li>제품 정보 캐시에 TTL Jitter (5~6분 분산)</li>
+          <li>핵심 hot 제품은 Refresh Ahead로 1분마다 백그라운드 갱신</li>
+          <li>그 외 제품은 Stale-While-Revalidate로 stale 허용</li>
+          <li>DB 호출에 circuit breaker로 폭주 차단</li>
+          <li>관리자가 hot key 모니터링 후 미리 warming</li>
+        </ol>
+
+        <p>
+          이런 다층 방어가 큰 트래픽에서 안정성을 만들어요.
+        </p>
+
+        <h2>흔한 실수</h2>
+
+        <h3>1. TTL을 매우 길게 설정</h3>
+
+        <p>
+          stampede 무서워서 TTL을 12시간 같이 설정. stale 데이터 위험 커지고, 실제 변경된 데이터를 사용자가 못 봐요.
+          TTL을 늘리는 게 답이 아니에요. 만료 시 부하를 분산하는 패턴 적용이 답.
+        </p>
+
+        <h3>2. 락만 의존</h3>
+
+        <p>
+          모든 stampede를 lock 한 패턴으로 막으려는 시도. 락 시스템(Redis 등)이 hot spot 되어 자체 부하 발생.
+          또 락 보유자가 죽으면 다른 모든 요청 대기 → 다른 형태의 정지.
+          여러 패턴 조합이 필요해요.
+        </p>
+
+        <h3>3. Stale-While-Revalidate를 critical 데이터에</h3>
+
+        <p>
+          금융 잔액 같은 데이터에 SWR 적용하면 사용자가 옛 잔액 보고 잘못된 결정 가능.
+          stale 허용 가능한 데이터에만 적용해야 해요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Cache Stampede를 어떻게 막아요?</h3>
+
+        <p>
+          5가지 패턴을 조합해서 막아요. TTL Jitter는 항상 켜두고(만료 시점 분산),
+          인기 키는 Probabilistic Early Expiration(미리 갱신)이나 Stale-While-Revalidate(stale 반환 + 백그라운드 갱신).
+          핵심 hot key는 Refresh Ahead(백그라운드 잡으로 주기 갱신).
+          critical 데이터에는 Lock으로 정확한 한 번 조회 보장.
+          그리고 캐시 다운 시 circuit breaker로 DB 보호도 함께.
+        </p>
+
+        <h3>Q. Probabilistic Early Expiration이 뭐예요?</h3>
+
+        <p>
+          TTL이 만료되기 전부터 일부 요청만 확률적으로 미리 갱신하는 패턴이에요.
+          만료가 가까울수록 갱신 확률이 높아져요. 분산 갱신으로 stampede 자연스럽게 막아요.
+          XFetch 알고리즘이라 불리는데, 락 없이 처리할 수 있어 Lock 패턴보다 운영 단순해요.
+        </p>
+
+        <h3>Q. Stale-While-Revalidate는 언제 쓰면 안 되나요?</h3>
+
+        <p>
+          정확성이 critical한 데이터에는 부적합해요. 금융 잔액, 결제 상태, 재고 정확성 같은 자리.
+          stale 데이터를 잠시 보여주는 게 비즈니스적으로 받아들일 수 있는 자원에만 써요.
+          제품 카탈로그, 콘텐츠 메타데이터, 통계 같은 게 적합해요.
+        </p>
+
+        <h3>Q. TTL을 길게 늘리면 stampede가 안 생기나요?</h3>
+
+        <p>
+          오히려 stampede 자체는 줄어들지만 만료 시점에 한 번 발생하는 stampede의 규모가 더 커져요.
+          긴 시간 누적된 핫 키일수록 만료 순간 더 많은 요청이 몰리거든요.
+          또 stale 데이터 위험 증가하는 부작용. TTL을 늘리는 게 아니라 분산 패턴을 적용하는 게 답이에요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Cache Stampede는 5가지 패턴(Lock, Probabilistic Early Expiration, Refresh Ahead, TTL Jitter, Stale-While-Revalidate) 조합으로 막아요.
+          TTL Jitter는 default로 항상, 인기 키는 SWR이나 Probabilistic, hot key는 Refresh Ahead, critical은 Lock.
+          캐시 다운 fallback도 함께 설계하는 게 운영 안정성의 핵심이에요.
+        </p>
+
+        <p>
+          Cache Stampede 시리즈는 여기까지예요. 다음은 Kafka 보장 모델로 마지막 시리즈.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consumer 측 처리 (4) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 4/4</div>
+        <h1>Consumer 측 처리</h1>
+        <p class="subtitle">
+          Consumer가 외부 시스템과 인터랙션할 때의 보장 패턴. End-to-end EOS의 진짜 어려움이 여기예요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Kafka 보장 모델</div>
+        <ol>
+          <li><a href="./01-3가지-보장-모델.html">3가지 보장 모델</a></li>
+          <li><a href="./02-kafka-기본-보장.html">Kafka의 기본 보장</a></li>
+          <li><a href="./03-exactly-once.html">Exactly-Once Semantics</a></li>
+          <li class="current">Consumer 측 처리</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Consumer + 외부 시스템의 어려움</h2>
+
+        <p>
+          Kafka EOS는 Kafka 내부에서만 보장이에요. Consumer가 메시지 받아 외부 시스템(DB, API, 다른 메시지 큐)에 쓰는 경우, 그 인터랙션은 별개 문제.
+        </p>
+
+        <p>
+          시나리오 하나. Consumer가 메시지 받아 DB에 INSERT. 성공 후 offset commit.
+          INSERT와 commit 사이에 crash 발생하면? 재시작 시 같은 메시지 다시 받아 INSERT 또 시도. 중복 row 또는 unique constraint 위반.
+        </p>
+
+        <p>
+          이 문제는 Kafka가 풀어주지 않아요. <strong>Consumer 측에서 처리 패턴을 설계</strong>해야 해요.
+        </p>
+
+        <h2>패턴 1 — Idempotent 처리</h2>
+
+        <p>
+          가장 흔한 답. Consumer 처리를 idempotent하게 만들어서 같은 메시지가 여러 번 와도 결과가 같게.
+        </p>
+
+        <h3>방법 1 — Unique Constraint</h3>
+
+        <pre><code class="language-java">@KafkaListener(topics = "orders")
+public void onOrder(OrderCreatedEvent event) {
+    try {
+        orderRepository.save(new Order(event.getOrderId(), ...));
+    } catch (DuplicateKeyException e) {
+        // 이미 처리된 메시지, 무시
+        log.info("Duplicate event ignored: {}", event.getOrderId());
+    }
+}</code></pre>
+
+        <p>
+          DB의 PK 또는 UNIQUE 제약이 자동으로 중복을 막아줘요. 두 번째 메시지는 INSERT 실패로 처리되고 정상 진행.
+          단순하면서 견고해요.
+        </p>
+
+        <h3>방법 2 — Idempotency Key 테이블</h3>
+
+        <pre><code class="language-java">@KafkaListener(topics = "orders")
+@Transactional
+public void onOrder(OrderCreatedEvent event) {
+    String key = event.getEventId();   // unique event ID
+
+    if (idempotencyRepository.exists(key)) {
+        return;   // 이미 처리됨
+    }
+
+    processOrder(event);
+    idempotencyRepository.save(key);
+}</code></pre>
+
+        <p>
+          처리한 event ID를 별도 테이블에 저장. 처리 전 조회로 중복 검증.
+          Idempotency Key 시리즈에서 본 패턴.
+        </p>
+
+        <h3>방법 3 — UPSERT</h3>
+
+        <pre><code class="language-sql">INSERT INTO orders (id, status, total) VALUES (?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET status = ?, total = ?</code></pre>
+
+        <p>
+          MERGE/UPSERT 구문으로 INSERT 또는 UPDATE 자동 처리. 한 메시지 두 번 와도 같은 결과.
+          PostgreSQL, MySQL 8+ 모두 지원.
+        </p>
+
+        <h2>패턴 2 — Outbox 패턴</h2>
+
+        <p>
+          Producer 측에서 사용하는 패턴. DB 변경과 메시지 발행을 atomic하게 묶어요.
+        </p>
+
+        <h3>전형적 시나리오의 함정</h3>
+
+        <pre><code class="language-java">@Transactional
+public void createOrder(OrderRequest req) {
+    Order order = orderRepository.save(new Order(req));
+    kafkaTemplate.send("orders", new OrderCreatedEvent(order));
+    // ★ 트랜잭션 커밋 전 send → DB는 롤백, 메시지는 발행됨 (불일치)
+}</code></pre>
+
+        <p>
+          Spring의 @Transactional은 DB 트랜잭션. Kafka send는 그 안 아니에요.
+          DB 롤백 후 메시지만 살아남는 inconsistency 가능.
+        </p>
+
+        <h3>Outbox 패턴 적용</h3>
+
+        <pre><code class="language-java">@Transactional
+public void createOrder(OrderRequest req) {
+    Order order = orderRepository.save(new Order(req));
+    outboxRepository.save(new OutboxEvent("OrderCreated", order));
+    // 모두 같은 DB 트랜잭션
+}
+
+// 별도 worker가 outbox 폴링하며 Kafka에 발행
+@Scheduled(fixedRate = 1000)
+public void publishOutbox() {
+    List&lt;OutboxEvent&gt; pending = outboxRepository.findPending();
+    for (OutboxEvent event : pending) {
+        kafkaTemplate.send("orders", event);
+        outboxRepository.markPublished(event);
+    }
+}</code></pre>
+
+        <p>
+          DB와 outbox 변경을 한 트랜잭션에 묶고, 별도 worker가 outbox에서 메시지를 가져가 Kafka에 발행.
+          DB 롤백 시 outbox도 롤백되어 메시지 발행 안 됨. 일관성 보장.
+        </p>
+
+        <h3>Debezium + CDC</h3>
+
+        <p>
+          Outbox 폴링 대신 DB의 binlog를 읽어 자동 발행하는 방식. Change Data Capture(CDC) 패턴.
+          Debezium이 가장 흔한 구현체.
+        </p>
+
+        <ul>
+          <li>DB 변경 → binlog 기록</li>
+          <li>Debezium이 binlog 읽음</li>
+          <li>Kafka topic에 자동 발행</li>
+        </ul>
+
+        <p>
+          폴링 부하 없이 실시간 발행. 단, 운영 복잡도 큼. 큰 시스템에서 자주 사용.
+        </p>
+
+        <h2>패턴 3 — Manual Offset Management</h2>
+
+        <p>
+          처리와 offset commit을 같은 atomic boundary에 두는 패턴.
+        </p>
+
+        <h3>DB와 함께 commit</h3>
+
+        <pre><code class="language-java">@KafkaListener(topics = "orders")
+@Transactional
+public void onOrder(ConsumerRecord&lt;String, OrderEvent&gt; record,
+                     Acknowledgment ack) {
+
+    Order order = processEvent(record.value());
+    orderRepository.save(order);
+
+    ack.acknowledge();   // 처리와 같은 트랜잭션 안에서 commit
+}</code></pre>
+
+        <p>
+          Manual ack mode로 두고, 처리 성공 시에만 ack 호출. 트랜잭션 롤백되면 ack도 안 호출되어 메시지 다시 받음.
+        </p>
+
+        <h3>주의 — 진짜 atomic은 아니에요</h3>
+
+        <p>
+          이 패턴도 완벽한 atomic은 아니에요. DB commit 후 ack 직전 crash 시 중복 가능.
+          그래서 idempotent 처리와 함께 써야 진짜 안전.
+        </p>
+
+        <h2>패턴 4 — Consume → Transform → Produce</h2>
+
+        <p>
+          순수 Kafka 안에서 동작하는 stream processing. EOS가 가장 잘 동작하는 자리예요.
+        </p>
+
+        <pre><code class="language-java">// Kafka Streams 활용
+StreamsBuilder builder = new StreamsBuilder();
+
+builder.stream("input-topic")
+    .mapValues(value -&gt; transform(value))
+    .to("output-topic");
+
+Properties props = new Properties();
+props.put(StreamsConfig.PROCESSING_GUARANTEE_CONFIG, "exactly_once_v2");
+
+KafkaStreams streams = new KafkaStreams(builder.build(), props);
+streams.start();</code></pre>
+
+        <p>
+          Kafka Streams의 <code>processing.guarantee=exactly_once_v2</code> 설정 한 줄로 EOS.
+          내부적으로 transactional producer 활용.
+        </p>
+
+        <h2>전체 보장 매트릭스</h2>
+
+        <table>
+          <thead>
+            <tr><th>시나리오</th><th>패턴</th><th>보장</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Kafka 내부 stream processing</td>
+              <td>Kafka Streams + EOS</td>
+              <td>Exactly-once</td>
+            </tr>
+            <tr>
+              <td>Consumer → DB</td>
+              <td>Idempotent (UNIQUE 또는 idempotency key)</td>
+              <td>Effective exactly-once</td>
+            </tr>
+            <tr>
+              <td>Consumer → 외부 API</td>
+              <td>Idempotent API 호출 (Idempotency-Key 헤더)</td>
+              <td>Effective exactly-once</td>
+            </tr>
+            <tr>
+              <td>Producer (DB 변경 + 메시지)</td>
+              <td>Outbox 패턴</td>
+              <td>Atomic publish</td>
+            </tr>
+            <tr>
+              <td>Consumer + 여러 외부 시스템</td>
+              <td>SAGA 패턴</td>
+              <td>Eventually consistent</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실전 권장 패턴</h2>
+
+        <h3>일반 비즈니스 이벤트 처리</h3>
+
+        <ol>
+          <li>Producer는 Outbox 패턴 (DB와 일관성)</li>
+          <li>Kafka는 acks=all + idempotent producer + min.insync.replicas=2</li>
+          <li>Consumer는 idempotent 처리 (unique constraint 또는 idempotency key)</li>
+          <li>처리 후 manual offset commit</li>
+        </ol>
+
+        <p>
+          이 조합이 At-least-once + Consumer idempotency = Effective EOS의 표준 패턴.
+          Kafka EOS 풀세팅보다 단순하고 실무에서 더 흔해요.
+        </p>
+
+        <h3>고성능 stream processing</h3>
+
+        <ol>
+          <li>Kafka Streams 사용</li>
+          <li><code>processing.guarantee=exactly_once_v2</code></li>
+          <li>State store도 트랜잭션에 포함됨</li>
+          <li>외부 시스템 연동은 별도 idempotency 적용</li>
+        </ol>
+
+        <h3>금융/critical 데이터</h3>
+
+        <ol>
+          <li>Outbox 패턴으로 발행 일관성</li>
+          <li>EOS Kafka 설정</li>
+          <li>Consumer는 트랜잭션 + idempotency 이중 안전</li>
+          <li>각 단계 모니터링 (lag, error rate)</li>
+        </ol>
+
+        <h2>흔한 실수</h2>
+
+        <h3>1. EOS만 켜면 모든 게 EOS라고 생각</h3>
+
+        <p>
+          Kafka EOS는 Kafka 내부 한정. Consumer가 외부 시스템 만지는 순간 EOS 깨질 수 있어요.
+          Consumer 측 idempotency가 함께 있어야 진짜 end-to-end 안전.
+        </p>
+
+        <h3>2. Producer만 transaction</h3>
+
+        <p>
+          Producer가 transactional이라도 Consumer가 read_committed가 아니면 진행 중 transaction의 메시지를 읽어서 abort된 메시지도 처리.
+          isolation.level 설정 필수.
+        </p>
+
+        <h3>3. @Transactional 안에서 Kafka send</h3>
+
+        <p>
+          Spring @Transactional은 DB만 묶음. Kafka send는 그 안 아니에요.
+          DB 롤백 시 메시지만 발행되는 inconsistency. Outbox 패턴으로 풀어야 해요.
+        </p>
+
+        <h3>4. Consumer auto-commit + 처리 실패</h3>
+
+        <p>
+          enable.auto.commit=true면 메시지 처리 실패해도 offset이 자동 commit되어 메시지 손실.
+          critical 처리에는 manual commit 필수.
+        </p>
+
+        <h3>5. Idempotency 없이 At-least-once</h3>
+
+        <p>
+          At-least-once는 중복 가능성이 보장이에요. Consumer가 idempotent하지 않으면 중복 처리되어 비즈니스 사고.
+          At-least-once + idempotency가 짝꿍이에요.
+        </p>
+
+        <h2>모니터링 — 운영 메트릭</h2>
+
+        <ul>
+          <li><strong>Consumer lag</strong>: 처리 지연 측정. 일정 임계값 넘으면 alert</li>
+          <li><strong>Error rate</strong>: 처리 실패 비율</li>
+          <li><strong>Idempotency cache hit</strong>: 중복 메시지 빈도</li>
+          <li><strong>DB transaction commit rate</strong>: 처리 성공률</li>
+          <li><strong>Outbox queue 깊이</strong>: 발행 지연 감지</li>
+          <li><strong>Producer retry count</strong>: ack 실패 빈도</li>
+        </ul>
+
+        <p>
+          이 메트릭들로 시스템 건강도와 보장 동작 여부를 측정해요.
+          특히 idempotency cache hit이 갑자기 늘어나면 producer 재시도가 많거나 어떤 장애 신호.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Kafka Consumer가 외부 DB에 쓸 때 어떻게 EOS를 보장해요?</h3>
+
+        <p>
+          Kafka EOS는 Kafka 내부 한정이라 외부 DB 쓰기는 별도 처리 필요해요.
+          가장 흔한 방법은 Consumer 측 idempotency. UNIQUE 제약, idempotency_key 테이블, UPSERT 같은 패턴으로 같은 메시지가 여러 번 와도 결과가 같게.
+          DB 트랜잭션과 offset commit을 같은 메서드에 두면 일관성도 좋아요. At-least-once + idempotency = effective exactly-once.
+        </p>
+
+        <h3>Q. Outbox 패턴이 뭐예요?</h3>
+
+        <p>
+          Producer 측 일관성 패턴이에요. DB 변경과 Kafka 발행을 하나의 트랜잭션에 묶을 수 없으니, 메시지를 별도 outbox 테이블에 INSERT.
+          DB 트랜잭션 안에서 비즈니스 데이터와 outbox 모두 변경. 별도 worker가 outbox 폴링하며 Kafka에 발행.
+          DB 롤백 시 outbox도 롤백되어 메시지 발행 안 됨. 일관성 보장.
+          Debezium의 CDC와 결합하면 폴링 없이 자동 발행도 가능해요.
+        </p>
+
+        <h3>Q. @Transactional 안에서 Kafka send하면 안 되나요?</h3>
+
+        <p>
+          기본적으로 안 좋아요. Spring @Transactional은 DB 트랜잭션만 관리. Kafka send는 그 트랜잭션 안에 있지 않아 DB 롤백되어도 메시지는 발행됨.
+          inconsistency 발생. 이걸 풀려면 ChainedTransactionManager로 Kafka 트랜잭션을 함께 묶거나, Outbox 패턴으로 우회.
+          실무에서는 Outbox가 더 안전한 표준 답이에요.
+        </p>
+
+        <h3>Q. Kafka Streams의 EOS는 어떻게 다른가요?</h3>
+
+        <p>
+          Kafka Streams는 stream processing 라이브러리예요. processing.guarantee=exactly_once_v2 한 줄로 EOS 활성화.
+          내부적으로 transactional producer 사용. State store(상태 저장소)도 트랜잭션에 포함되어 stateful 처리도 EOS 보장.
+          순수 Kafka 안에서 read-process-write 사이클은 가장 잘 동작해요. 외부 시스템 연동은 여전히 별도 idempotency 필요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Consumer 측 처리는 EOS의 진짜 어려운 부분이에요. Kafka EOS는 Kafka 내부 한정이고, 외부 시스템 인터랙션은 별도 패턴 필요.
+          가장 흔한 답은 At-least-once + Consumer idempotency = Effective EOS.
+          Producer 측은 Outbox 패턴으로 DB와 발행 일관성 확보.
+          Kafka Streams는 내부 EOS가 가장 잘 동작하는 자리예요.
+        </p>
+
+        <p>
+          Kafka 시리즈는 여기까지예요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

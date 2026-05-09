@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3가지 메시지 보장 모델 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 1/4</div>
+        <h1>3가지 메시지 보장 모델</h1>
+        <p class="subtitle">
+          At-most-once, At-least-once, Exactly-once. 이름은 단순하지만 분산 메시징의 가장 깊은 주제예요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Kafka 보장 모델</div>
+        <ol>
+          <li class="current">3가지 보장 모델</li>
+          <li><a href="./02-kafka-기본-보장.html">Kafka의 기본 보장</a></li>
+          <li><a href="./03-exactly-once.html">Exactly-Once Semantics</a></li>
+          <li><a href="./04-consumer-측-처리.html">Consumer 측 처리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>메시지 보장이란</h2>
+
+        <p>
+          분산 메시징 시스템에서 메시지가 어떻게 전달될지에 대한 약속이에요.
+          누가 보낸 메시지가 받는 쪽에 정확히 한 번 전달될까요? 손실되거나 중복될 가능성은?
+          이런 질문에 답하는 게 메시지 보장 모델이에요.
+        </p>
+
+        <p>
+          분산 메시징은 기본적으로 어려워요. 네트워크 실패, 시스템 다운, 메시지 순서 등 모든 변수가 있어서 "정확히 한 번"을 보장하기가 본질적으로 어려워요.
+          그래서 어느 정도의 보장을 추구할지 명시적으로 결정해야 해요.
+        </p>
+
+        <h2>3가지 모델</h2>
+
+        <h3>1. At-most-once (최대 한 번)</h3>
+
+        <p>
+          메시지가 0번 또는 1번 전달돼요. 손실은 가능하지만 중복은 없어요.
+        </p>
+
+        <ul>
+          <li>Producer가 메시지 보내고 ack 안 기다림</li>
+          <li>Consumer가 메시지 받고 즉시 offset commit</li>
+          <li>장애 발생 시 메시지 손실 가능</li>
+        </ul>
+
+        <p>
+          가장 빠르지만 데이터 손실 위험. 손실이 허용되는 자리에만 적합해요.
+          예: 메트릭, 일부 로그, 분석 데이터.
+        </p>
+
+        <h3>2. At-least-once (최소 한 번)</h3>
+
+        <p>
+          메시지가 1번 이상 전달돼요. 손실은 없지만 중복 가능.
+        </p>
+
+        <ul>
+          <li>Producer가 ack 받을 때까지 재시도</li>
+          <li>Consumer가 메시지 처리 완료 후 offset commit</li>
+          <li>장애 시 같은 메시지 재처리 가능</li>
+        </ul>
+
+        <p>
+          가장 흔한 모델이에요. Kafka의 기본 동작도 이 모델.
+          중복 가능성은 consumer 측 idempotency로 처리하면 돼요.
+        </p>
+
+        <h3>3. Exactly-once (정확히 한 번)</h3>
+
+        <p>
+          메시지가 정확히 1번 전달돼요. 손실 없고 중복 없음.
+          이론적으로 가장 이상적이지만 실현이 매우 어려워요.
+        </p>
+
+        <ul>
+          <li>Producer 측 idempotent + transactional</li>
+          <li>Consumer 측 atomic 처리 (read + process + commit)</li>
+          <li>처리량과 latency 비용이 큼</li>
+        </ul>
+
+        <p>
+          Kafka 0.11(2017)부터 Idempotent Producer + Transactions로 EOS(Exactly-Once Semantics)를 지원해요.
+          단, 모든 자리에 적용 가능한 건 아니에요. 외부 시스템과의 인터랙션에는 한계가 있어요.
+        </p>
+
+        <h2>왜 Exactly-once가 어려운가요</h2>
+
+        <p>
+          단순한 시나리오 하나. Producer가 메시지를 Kafka에 보냈어요. Kafka가 받았는데 ack 응답이 네트워크에서 손실.
+          Producer는 응답 못 받았으니 timeout, 재시도. 같은 메시지 또 전송. → 중복.
+        </p>
+
+        <p>
+          반대도 가능. Producer가 ack 안 기다리고 다른 일 진행. 그런데 Kafka가 사실 메시지를 못 받았음. → 손실.
+        </p>
+
+        <p>
+          어떤 모델이든 trade-off가 있어요. <strong>중복을 막으면 손실 가능, 손실을 막으면 중복 가능</strong>이 분산 메시징의 본질적 제약.
+          Exactly-once는 이 제약을 정교한 메커니즘으로 우회한 거예요.
+        </p>
+
+        <h2>End-to-end 보장의 어려움</h2>
+
+        <p>
+          Kafka의 EOS도 한계가 있어요. <strong>Kafka 내부의 한 produce-consume 사이클에서만 EOS 보장</strong>.
+          Consumer가 외부 시스템(DB, API 등)과 상호작용하는 경우는 별개 문제예요.
+        </p>
+
+        <pre><code class="language-text">[Producer] → [Kafka] → [Consumer] → [DB]
+              ✓ EOS 가능        ⓘ 별도 처리 필요</code></pre>
+
+        <p>
+          Consumer가 메시지를 받아 DB에 INSERT한다고 해볼게요. INSERT 후 offset commit 전에 Consumer가 죽으면?
+          재시작 후 같은 메시지 다시 받아 같은 INSERT 시도. duplicate key error 또는 중복 row.
+          이런 end-to-end 시나리오는 consumer 측 idempotency로 풀어야 해요. 4편 주제.
+        </p>
+
+        <h2>각 모델의 trade-off 정리</h2>
+
+        <table>
+          <thead>
+            <tr><th>모델</th><th>손실</th><th>중복</th><th>처리량</th><th>구현</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>At-most-once</td>
+              <td>가능</td>
+              <td>없음</td>
+              <td>가장 높음</td>
+              <td>매우 단순</td>
+            </tr>
+            <tr>
+              <td>At-least-once</td>
+              <td>없음</td>
+              <td>가능</td>
+              <td>높음</td>
+              <td>단순</td>
+            </tr>
+            <tr>
+              <td>Exactly-once</td>
+              <td>없음</td>
+              <td>없음</td>
+              <td>중간</td>
+              <td>복잡</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실무 결정 가이드</h2>
+
+        <p>
+          어떤 모델을 선택할지 결정하는 기준이에요.
+        </p>
+
+        <h3>At-most-once를 선택할 때</h3>
+
+        <ul>
+          <li>일부 데이터 손실이 비즈니스적으로 받아들일 수 있음</li>
+          <li>처리량이 가장 중요</li>
+          <li>예: 로그 수집, 통계, 메트릭</li>
+        </ul>
+
+        <h3>At-least-once를 선택할 때</h3>
+
+        <ul>
+          <li>데이터 손실은 안 되지만 중복은 idempotency로 처리 가능</li>
+          <li>대부분의 일반 비즈니스 워크로드</li>
+          <li>예: 이벤트 소싱, 일반 메시징, 비동기 작업 큐</li>
+        </ul>
+
+        <h3>Exactly-once를 선택할 때</h3>
+
+        <ul>
+          <li>중복도 손실도 절대 안 됨</li>
+          <li>비즈니스적으로 정확성이 critical</li>
+          <li>처리량 손해를 받아들일 수 있음</li>
+          <li>예: 금융 트랜잭션, 재고 관리, 결제 처리</li>
+        </ul>
+
+        <h2>Kafka의 진화</h2>
+
+        <p>
+          Kafka는 처음부터 EOS를 지원한 게 아니에요. 진화 과정을 보면 분산 메시징의 어려움을 알 수 있어요.
+        </p>
+
+        <ul>
+          <li><strong>0.7 ~ 0.8</strong>: At-least-once만 지원, 중복 가능</li>
+          <li><strong>0.11 (2017)</strong>: Idempotent Producer 도입, 단일 partition EOS</li>
+          <li><strong>0.11 + Transactions</strong>: 여러 partition에 걸친 EOS 지원</li>
+          <li><strong>2.5+</strong>: Transactional EOS 안정성 개선</li>
+          <li><strong>3.x</strong>: KRaft (ZooKeeper 제거) + EOS 더 강력해짐</li>
+        </ul>
+
+        <p>
+          여전히 EOS는 활용 시 신중함이 필요해요. 단순히 옵션 켜는 걸로 끝나는 게 아니라 producer, consumer 모두 정교한 설정과 패턴이 필요.
+        </p>
+
+        <h2>다른 메시징 시스템과의 비교</h2>
+
+        <table>
+          <thead>
+            <tr><th>시스템</th><th>기본 보장</th><th>EOS 지원</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Kafka</td>
+              <td>At-least-once</td>
+              <td>O (0.11+)</td>
+            </tr>
+            <tr>
+              <td>RabbitMQ</td>
+              <td>At-least-once</td>
+              <td>X (idempotency로 우회)</td>
+            </tr>
+            <tr>
+              <td>AWS SQS Standard</td>
+              <td>At-least-once</td>
+              <td>X</td>
+            </tr>
+            <tr>
+              <td>AWS SQS FIFO</td>
+              <td>Exactly-once</td>
+              <td>O (단일 region)</td>
+            </tr>
+            <tr>
+              <td>Google Pub/Sub</td>
+              <td>At-least-once</td>
+              <td>O (Pub/Sub Lite)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          대부분의 메시징 시스템이 At-least-once 기본이에요. 손실 방지가 중복보다 비즈니스적으로 더 중요한 경우가 많아서.
+          EOS는 시스템마다 추가 메커니즘으로 제공.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 3가지 메시지 보장 모델은 뭐가 있나요?</h3>
+
+        <p>
+          At-most-once는 최대 한 번 전달, 손실 가능. At-least-once는 최소 한 번 전달, 중복 가능.
+          Exactly-once는 정확히 한 번 전달, 손실도 중복도 없음.
+          Kafka 기본은 At-least-once고, 0.11부터 EOS 지원해요.
+          비즈니스 요구에 따라 선택해요. 정확성이 critical하면 EOS, 처리량 우선이면 At-most-once.
+        </p>
+
+        <h3>Q. 왜 Exactly-once가 어려운가요?</h3>
+
+        <p>
+          분산 시스템에서 네트워크 실패, 시스템 다운 같은 변수가 항상 있어요.
+          Producer가 메시지 보내고 ack를 못 받으면 재시도해야 하는데, 사실 메시지가 도달했는지 모르니 중복 위험.
+          반대로 ack 안 기다리면 손실 위험. 이 trade-off를 정교한 메커니즘(Idempotent Producer + Transactions)으로 우회한 게 EOS.
+          단, Kafka 내부에서만 보장이고 외부 시스템(DB, API)과의 end-to-end EOS는 별도 처리 필요.
+        </p>
+
+        <h3>Q. At-least-once를 쓸 때 중복은 어떻게 처리해요?</h3>
+
+        <p>
+          Consumer 측 idempotency로 풀어요. 메시지에 unique ID(idempotency key)를 두고, 처리 시 그 ID 기준으로 중복 검증.
+          DB unique constraint, idempotency_key 테이블, 또는 처리한 ID를 캐시에 저장하는 등의 패턴.
+          이게 At-least-once + idempotency 조합이 사실상 EOS와 같은 효과를 주는 패턴이에요.
+        </p>
+
+        <h3>Q. Kafka EOS의 한계는요?</h3>
+
+        <p>
+          Kafka 내부의 produce-consume 사이클에서만 EOS 보장이에요.
+          Consumer가 외부 시스템(DB, API)과 인터랙션하는 경우엔 별개 문제. 메시지 처리 후 외부 쓰기와 offset commit 사이에서 장애 시 inconsistency 가능.
+          이런 end-to-end EOS는 consumer 측에서 atomic 처리(트랜잭션, idempotency)를 추가해야 보장.
+          Kafka가 모든 EOS를 자동으로 풀어주는 건 아니에요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          메시지 보장은 At-most-once(손실 가능), At-least-once(중복 가능), Exactly-once(둘 다 없음) 3가지.
+          Kafka 기본은 At-least-once, 0.11부터 EOS 지원이지만 Kafka 내부 한정.
+          외부 시스템과의 end-to-end EOS는 consumer idempotency로 풀어야 해요.
+          비즈니스 요구에 따라 처리량 vs 정확성 trade-off로 모델 선택.
+        </p>
+
+        <p>
+          다음 편에서는 Kafka의 At-least-once가 어떻게 동작하는지, ack, ISR, replication 같은 메커니즘을 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

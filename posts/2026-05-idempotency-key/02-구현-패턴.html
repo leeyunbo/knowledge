@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>구현 패턴 — Stripe 방식과 함정 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 2/2</div>
+        <h1>구현 패턴 — Stripe 방식과 함정</h1>
+        <p class="subtitle">
+          이론을 실제 코드로. atomic insert, 동시 요청 처리, 부분 실패 같은 디테일을 봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Idempotency Key 설계</div>
+        <ol>
+          <li><a href="./01-idempotency-key의-정체.html">Idempotency Key의 정체</a></li>
+          <li class="current">구현 패턴 — Stripe 방식과 함정</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>가장 단순한 구현</h2>
+
+        <p>
+          이론적으로 가장 단순한 형태부터 시작해볼게요.
+        </p>
+
+        <pre><code class="language-java">@PostMapping("/payments")
+public PaymentResponse pay(@RequestHeader("Idempotency-Key") String key,
+                           @RequestBody PaymentRequest req) {
+
+    // 1. 키 조회
+    Optional&lt;PaymentResponse&gt; cached = idempotencyStore.get(key);
+    if (cached.isPresent()) {
+        return cached.get();   // 저장된 결과 반환
+    }
+
+    // 2. 결제 처리
+    PaymentResponse result = paymentService.process(req);
+
+    // 3. 결과 저장
+    idempotencyStore.save(key, result, Duration.ofHours(24));
+
+    return result;
+}</code></pre>
+
+        <p>
+          단순하지만 함정이 있어요. 1번 검증과 2번 처리 사이에 다른 요청이 끼어들 수 있어요.
+          두 요청이 거의 동시에 들어오면 둘 다 "키 없음" 판단하고 둘 다 결제 처리. 중복 발생.
+        </p>
+
+        <h2>안전한 구현 — Atomic Insert</h2>
+
+        <p>
+          이 race를 풀려면 "키 등록"이 atomic해야 해요. DB의 unique constraint를 활용해요.
+        </p>
+
+        <pre><code class="language-sql">CREATE TABLE idempotency_keys (
+    key VARCHAR(255) PRIMARY KEY,
+    request_hash VARCHAR(64) NOT NULL,
+    response_body TEXT,
+    response_status INT,
+    status VARCHAR(20) NOT NULL,   -- PROCESSING, COMPLETED
+    created_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL
+);</code></pre>
+
+        <p>
+          여기서 핵심은 PRIMARY KEY 제약. 같은 키로 동시 INSERT 시도하면 한 트랜잭션만 성공.
+        </p>
+
+        <pre><code class="language-java">@PostMapping("/payments")
+@Transactional
+public PaymentResponse pay(@RequestHeader("Idempotency-Key") String key,
+                           @RequestBody PaymentRequest req) {
+
+    String requestHash = sha256(req);
+
+    // 1. 키 등록 시도 (atomic)
+    boolean isNew = idempotencyRepository.tryInsert(
+        key,
+        requestHash,
+        Status.PROCESSING,
+        Instant.now(),
+        Instant.now().plus(Duration.ofHours(24))
+    );
+
+    if (!isNew) {
+        // 이미 존재. 기존 레코드 조회
+        IdempotencyRecord existing = idempotencyRepository.findByKey(key);
+
+        if (!existing.getRequestHash().equals(requestHash)) {
+            throw new ConflictException("Same key, different request");
+        }
+
+        if (existing.getStatus() == Status.COMPLETED) {
+            return existing.toResponse();   // 저장된 결과
+        }
+
+        // status == PROCESSING: 다른 요청이 처리 중
+        throw new ConflictException("Request still processing");
+    }
+
+    // 2. 처리
+    PaymentResponse result = paymentService.process(req);
+
+    // 3. 결과 업데이트
+    idempotencyRepository.complete(key, result);
+
+    return result;
+}</code></pre>
+
+        <p>
+          이 구현이 race를 막아요. 두 요청이 동시에 들어오면 한 쪽만 INSERT 성공, 나머지는 PROCESSING 또는 COMPLETED 상태 보고 응답.
+        </p>
+
+        <h3>tryInsert의 안전한 구현</h3>
+
+        <pre><code class="language-java">@Repository
+public class IdempotencyRepository {
+
+    public boolean tryInsert(String key, String hash, Status status,
+                              Instant createdAt, Instant expiresAt) {
+        try {
+            jdbcTemplate.update(
+                "INSERT INTO idempotency_keys " +
+                "(key, request_hash, status, created_at, expires_at) " +
+                "VALUES (?, ?, ?, ?, ?)",
+                key, hash, status.name(), createdAt, expiresAt
+            );
+            return true;
+        } catch (DuplicateKeyException e) {
+            return false;
+        }
+    }
+}</code></pre>
+
+        <p>
+          DB 제약 위반을 catch해서 boolean으로 변환. 이게 atomic insert의 표준 패턴.
+        </p>
+
+        <h2>request hash 검증</h2>
+
+        <p>
+          1편에서 짚은 부분. 같은 키 + 다른 요청 본문 시나리오. Stripe는 422 에러로 응답.
+        </p>
+
+        <pre><code class="language-java">private String sha256(Object obj) {
+    String json = objectMapper.writeValueAsString(obj);
+    MessageDigest md = MessageDigest.getInstance("SHA-256");
+    byte[] hash = md.digest(json.getBytes(StandardCharsets.UTF_8));
+    return Hex.encodeHexString(hash);
+}</code></pre>
+
+        <p>
+          요청 본문을 JSON으로 정렬한 뒤 SHA-256 해시. 이 해시를 저장해두고 재요청 시 비교.
+        </p>
+
+        <h3>Jackson 정렬</h3>
+
+        <p>
+          JSON 직렬화 시 key 순서가 다르면 같은 객체도 다른 hash가 나와요. 정렬을 강제해야 해요.
+        </p>
+
+        <pre><code class="language-java">@Bean
+public ObjectMapper canonicalObjectMapper() {
+    return new ObjectMapper()
+        .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
+        .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true);
+}</code></pre>
+
+        <p>
+          이렇게 정렬된 ObjectMapper로 직렬화하면 항상 일관된 결과.
+        </p>
+
+        <h2>동시 요청 처리 — Stripe의 정교한 정책</h2>
+
+        <p>
+          한 가지 미묘한 케이스. 두 요청이 거의 동시에 들어왔을 때 두 번째 요청은 어떻게 응답해야 할까요?
+        </p>
+
+        <ul>
+          <li>옵션 1: 첫 번째 처리 끝날 때까지 대기 후 결과 공유</li>
+          <li>옵션 2: 즉시 409 Conflict 응답</li>
+          <li>옵션 3: 처리 중이면 status만 응답 (102 Processing 같은)</li>
+        </ul>
+
+        <p>
+          Stripe는 옵션 2를 채택해요. 다른 요청이 처리 중이면 클라이언트가 잠시 후 재시도하라고 알려요.
+          단순하면서 backpressure 효과도 있어요.
+        </p>
+
+        <pre><code class="language-http">HTTP/1.1 409 Conflict
+Content-Type: application/json
+
+{
+  "error": "concurrent_request",
+  "message": "A request with the same Idempotency-Key is currently being processed"
+}</code></pre>
+
+        <p>
+          클라이언트는 이 에러 받으면 잠시 기다렸다가 재시도. 재시도 시 첫 요청이 끝났으면 그 결과 반환받음.
+        </p>
+
+        <h2>저장 시점 — 처리 전? 처리 후?</h2>
+
+        <p>
+          한 가지 디자인 결정. 결과를 언제 저장할지.
+        </p>
+
+        <h3>패턴 A — 처리 후 저장</h3>
+
+        <ol>
+          <li>키 검증</li>
+          <li>처리</li>
+          <li>결과 저장</li>
+        </ol>
+
+        <p>
+          단순하지만 처리 중 서버가 죽으면 키만 INSERT되고 결과 미저장.
+          다음 재시도 시 PROCESSING 상태인 키를 만나는데, 처리는 안 된 상태.
+          어떻게 복구할지 별도 정책 필요.
+        </p>
+
+        <h3>패턴 B — 처리 전 INSERT, 처리 후 UPDATE</h3>
+
+        <ol>
+          <li>키 INSERT (status=PROCESSING)</li>
+          <li>처리</li>
+          <li>키 UPDATE (status=COMPLETED + 결과)</li>
+        </ol>
+
+        <p>
+          위 코드에서 사용한 패턴. PROCESSING 상태가 명시적이라 복구 처리 가능.
+          단, INSERT와 UPDATE 두 번 DB 호출.
+        </p>
+
+        <h3>패턴 C — 트랜잭션으로 묶기</h3>
+
+        <p>
+          처리 전체가 단일 트랜잭션. 처리 실패하면 롤백.
+        </p>
+
+        <pre><code class="language-java">@Transactional
+public PaymentResponse pay(...) {
+    // 키 INSERT
+    // 결제 처리 (다른 테이블 변경)
+    // 키에 결과 UPDATE
+    // 트랜잭션 커밋 시 모두 반영
+}</code></pre>
+
+        <p>
+          한 트랜잭션이라 일관성 좋지만, 결제 처리가 외부 API 호출이면 트랜잭션이 길어져 connection 점유.
+          외부 호출 동안 DB 락이 잡히는 게 위험할 수 있어요.
+        </p>
+
+        <h2>외부 API와의 통합 — 가장 어려운 부분</h2>
+
+        <p>
+          결제 같은 작업은 외부 PG API를 호출해요. 이때 idempotency가 더 복잡해져요.
+          클라이언트의 idempotency key뿐 아니라 PG와의 통신도 idempotent해야 해요.
+        </p>
+
+        <h3>시나리오</h3>
+
+        <ol>
+          <li>클라이언트가 결제 요청 (key=ABC)</li>
+          <li>서버가 키 INSERT, status=PROCESSING</li>
+          <li>서버가 PG에 결제 호출</li>
+          <li>PG에서 결제 처리 시작 (PG 측 transaction_id=PG-456)</li>
+          <li>PG가 응답을 보냈는데 네트워크 끊김</li>
+          <li>서버는 응답 못 받음. timeout으로 처리됨</li>
+          <li>이 시점에 결제 상태가 모호: 진짜 처리됐는지, 안 됐는지?</li>
+        </ol>
+
+        <p>
+          이게 분산 시스템의 가장 어려운 문제 중 하나예요. 두 시스템 사이에 진실이 일치하지 않을 수 있어요.
+          서버는 "처리 결과 모름" 상태, PG는 "결제 완료" 상태.
+        </p>
+
+        <h3>해결 패턴 — PG와도 idempotency key 공유</h3>
+
+        <p>
+          서버가 PG 호출 시 자기 idempotency key를 PG의 idempotency key로도 함께 전달.
+          PG도 같은 키로 중복 호출을 식별. 서버가 재시도해도 PG는 같은 결제로 인식.
+        </p>
+
+        <pre><code class="language-java">PaymentResponse callPg(String key, PaymentRequest req) {
+    return pgClient.post()
+        .uri("/v1/payments/confirm")
+        .header("Idempotency-Key", key)   // 같은 키 전달
+        .body(BodyInserters.fromValue(req))
+        .retrieve()
+        .bodyToMono(PaymentResponse.class)
+        .block();
+}</code></pre>
+
+        <p>
+          이게 Stripe, Toss 같은 PG가 idempotency key를 표준 헤더로 받는 이유예요.
+          서버는 자기 키와 PG 키를 같은 값으로 사용해서 end-to-end idempotency 보장.
+        </p>
+
+        <h2>복구 — PROCESSING 상태에서 멈춘 경우</h2>
+
+        <p>
+          서버가 처리 중에 죽었다면 키는 PROCESSING 상태로 남아요. 이걸 어떻게 복구할까요?
+        </p>
+
+        <h3>전략 1 — TTL 기반 자동 정리</h3>
+
+        <p>
+          키에 TTL을 두고, 만료되면 자동 삭제 또는 status 무효화.
+          간단하지만 만료 시간 동안 그 키 재시도가 차단됨.
+        </p>
+
+        <h3>전략 2 — PG에 상태 조회</h3>
+
+        <p>
+          PROCESSING인 키를 발견하면 PG에 그 키로 결제 상태를 조회.
+          PG가 "처리 완료"면 그 결과를 우리 DB에 반영하고 status=COMPLETED.
+          "미처리"면 다시 처리하거나 실패로 마감.
+        </p>
+
+        <pre><code class="language-java">PaymentStatus checkPgStatus(String key) {
+    return pgClient.get()
+        .uri("/v1/payments/status?idempotency_key=" + key)
+        .retrieve()
+        .bodyToMono(PaymentStatus.class)
+        .block();
+}</code></pre>
+
+        <p>
+          이 reconciliation 로직은 백그라운드 잡으로 주기적 실행하는 게 일반적.
+          stuck PROCESSING 키를 찾아 정리.
+        </p>
+
+        <h3>전략 3 — 낙관적 처리</h3>
+
+        <p>
+          PROCESSING 상태인 키도 새 요청이 오면 다시 처리.
+          단, PG가 idempotency 보장하니 결과는 같다는 가정.
+          위험할 수 있어서 PG의 idempotency가 확실할 때만 사용.
+        </p>
+
+        <h2>Redis 기반 구현 (가벼운 버전)</h2>
+
+        <p>
+          금융 외 일반 시스템은 Redis만으로도 충분해요.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class IdempotencyService {
+
+    private final StringRedisTemplate redis;
+
+    public &lt;T&gt; T executeIdempotent(String key, Supplier&lt;T&gt; operation, Class&lt;T&gt; type) {
+        String cachedJson = redis.opsForValue().get(key);
+        if (cachedJson != null) {
+            return objectMapper.readValue(cachedJson, type);
+        }
+
+        // SETNX로 atomic 체크
+        Boolean acquired = redis.opsForValue()
+            .setIfAbsent(key + ":lock", "1", Duration.ofMinutes(5));
+
+        if (!Boolean.TRUE.equals(acquired)) {
+            throw new ConflictException("Concurrent request");
+        }
+
+        try {
+            T result = operation.get();
+            String json = objectMapper.writeValueAsString(result);
+            redis.opsForValue().set(key, json, Duration.ofHours(24));
+            return result;
+        } finally {
+            redis.delete(key + ":lock");
+        }
+    }
+}</code></pre>
+
+        <p>
+          Redis만 사용한 버전. 빠르고 단순하지만 Redis 다운 시 보호 깨짐.
+          critical하지 않은 시스템에 적합.
+        </p>
+
+        <h2>Spring 통합 — Filter나 Interceptor</h2>
+
+        <p>
+          매 controller에 idempotency 코드를 반복하지 말고 공통 처리로 빼는 패턴.
+        </p>
+
+        <pre><code class="language-java">@Component
+public class IdempotencyFilter extends OncePerRequestFilter {
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res,
+                                     FilterChain chain) throws ServletException, IOException {
+
+        if (!"POST".equals(req.getMethod())) {
+            chain.doFilter(req, res);
+            return;
+        }
+
+        String key = req.getHeader("Idempotency-Key");
+        if (key == null) {
+            chain.doFilter(req, res);
+            return;
+        }
+
+        // 캐시된 응답 확인
+        Optional&lt;CachedResponse&gt; cached = idempotencyRepository.findByKey(key);
+        if (cached.isPresent() &amp;&amp; cached.get().getStatus() == COMPLETED) {
+            writeResponse(res, cached.get());
+            return;
+        }
+
+        // 새 요청 처리 + 결과 캐싱
+        ResponseWrapper wrapper = new ResponseWrapper(res);
+        try {
+            chain.doFilter(req, wrapper);
+            cacheResponse(key, wrapper);
+        } catch (Exception e) {
+            // 실패 시 키 삭제 (재시도 가능하게)
+            idempotencyRepository.delete(key);
+            throw e;
+        }
+    }
+}</code></pre>
+
+        <p>
+          모든 POST 요청에 자동 적용. 컨트롤러는 자기 비즈니스 로직만 작성하면 돼요.
+        </p>
+
+        <h2>흔한 함정</h2>
+
+        <h3>1. 키 노출</h3>
+
+        <p>
+          클라이언트의 idempotency key가 다른 사용자에게 노출되면 곤란해요. URL이나 쿼리 파라미터로 보내면 위험.
+          반드시 헤더로 전송하고 로그에서도 마스킹.
+        </p>
+
+        <h3>2. Hash 충돌</h3>
+
+        <p>
+          request hash로 SHA-256 정도면 충돌 가능성 거의 0이지만 SHA-1이나 MD5 같은 약한 해시는 위험.
+          항상 SHA-256 이상 사용.
+        </p>
+
+        <h3>3. TTL 짧음</h3>
+
+        <p>
+          TTL이 너무 짧으면 클라이언트의 늦은 재시도가 보호받지 못해요. 24시간 이상 권장.
+          모바일 앱이 백그라운드에서 재시도하는 케이스 등을 고려.
+        </p>
+
+        <h3>4. 부분 실패의 결과 캐싱</h3>
+
+        <p>
+          처리 도중 일부만 실패한 결과를 그대로 캐싱하면 다음 재시도가 부분 실패 결과를 받음.
+          명확히 성공/실패 결정된 결과만 캐싱하는 게 안전.
+        </p>
+
+        <h3>5. 트랜잭션 외부 호출</h3>
+
+        <p>
+          DB 트랜잭션 안에서 외부 API 호출하면 트랜잭션 길어져 락이 오래 잡힘.
+          외부 호출은 트랜잭션 밖에서, 결과만 트랜잭션 안에서 저장하는 패턴이 일반적.
+        </p>
+
+        <h2>Stripe 표준 사양</h2>
+
+        <p>
+          참고로 Stripe의 공식 사양은 이래요.
+        </p>
+
+        <ul>
+          <li>Idempotency-Key 헤더로 키 전달</li>
+          <li>키 길이 1~255 character</li>
+          <li>저장 기간 24시간</li>
+          <li>같은 키 + 다른 요청: 422 에러</li>
+          <li>동시 요청: 409 또는 잠시 대기 후 결과 공유 (구현에 따라)</li>
+          <li>5xx 에러도 캐싱 (재시도 시 같은 5xx 응답)</li>
+        </ul>
+
+        <p>
+          이 패턴이 결제 PG의 사실상 표준이라 우리 시스템도 따라가는 게 좋아요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Idempotency Key 구현 시 race condition은 어떻게 막나요?</h3>
+
+        <p>
+          DB의 unique constraint를 활용해요. 키를 PRIMARY KEY로 둔 테이블에 INSERT 시도하고, DuplicateKeyException 발생하면
+          이미 존재하는 요청. INSERT가 atomic하게 처리되므로 두 요청이 동시에 들어와도 한 쪽만 INSERT 성공.
+          나머지는 기존 레코드를 보고 PROCESSING이면 409 응답, COMPLETED면 저장된 결과 반환.
+          이 패턴이 분산 락 없이도 race를 자연스럽게 막아줘요.
+        </p>
+
+        <h3>Q. 같은 키로 다른 요청이 오면 어떻게 처리하나요?</h3>
+
+        <p>
+          Stripe의 표준 정책은 422 Unprocessable Entity 에러 응답. 클라이언트의 잘못된 사용법으로 봐요.
+          이 검증을 위해 키와 함께 request body의 SHA-256 hash도 저장. 재요청 시 hash 비교해서 다르면 거부.
+          JSON 직렬화 시 key 순서가 일관되도록 ObjectMapper 설정도 중요해요.
+        </p>
+
+        <h3>Q. PG 호출 시 idempotency를 어떻게 보장하나요?</h3>
+
+        <p>
+          서버의 idempotency key를 PG에도 같은 헤더로 전달해요. PG도 그 키로 중복 호출을 식별.
+          서버가 timeout으로 재시도해도 PG는 같은 결제로 인식해 중복 처리 안 함.
+          이게 end-to-end idempotency. Stripe, Toss 같은 PG가 idempotency-key 헤더를 표준 지원해서 가능해요.
+        </p>
+
+        <h3>Q. PROCESSING 상태에서 서버가 죽으면 복구는?</h3>
+
+        <p>
+          백그라운드 잡으로 stuck PROCESSING 키를 찾아 정리해요. 가장 안전한 방법은 PG에 그 키로 결제 상태를 조회하는 것.
+          PG가 처리 완료라고 응답하면 우리 DB도 COMPLETED로 업데이트, 미처리면 다시 처리하거나 실패로 마감.
+          TTL만 두는 단순 정책도 있지만, critical 작업에는 PG 조회 기반 reconciliation이 안전해요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Idempotency Key의 안전한 구현은 DB unique constraint + atomic insert가 핵심이에요.
+          Request hash 검증, 동시 요청 시 409 응답, PROCESSING 상태 복구 같은 패턴이 표준.
+          외부 API 호출도 같은 키로 idempotency 전파해서 end-to-end 안전성 확보.
+          금융, 결제 시스템에서는 RDB unique 제약이 가장 안전, 일반 시스템은 Redis로도 충분해요.
+        </p>
+
+        <p>
+          Idempotency Key 시리즈는 여기까지예요. 다음은 캐시 전략으로 넘어가요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

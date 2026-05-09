@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>캐시 전략 4가지 패턴 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 1/3</div>
+        <h1>캐시 전략 4가지 패턴</h1>
+        <p class="subtitle">
+          Look-aside, Read-through, Write-through, Write-behind. 각 패턴의 동작과 적합한 자리를 정리해봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">캐시 전략</div>
+        <ol>
+          <li class="current">4가지 패턴</li>
+          <li><a href="./02-일관성.html">캐시 일관성</a></li>
+          <li><a href="./03-분산-캐시.html">분산 캐시</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 캐시인가요</h2>
+
+        <p>
+          DB 조회는 비싼 작업이에요. 디스크 I/O, 네트워크 latency, 파싱, 정렬 같은 비용이 매번 들어가요.
+          같은 데이터를 여러 번 조회한다면 그 비용을 한 번만 내고 메모리에 보관해서 재사용하면 좋아요.
+          이게 캐시의 출발점이에요.
+        </p>
+
+        <p>
+          캐시는 어떻게 동작하느냐에 따라 4가지 패턴으로 나눠요.
+          어디에 캐시를 두느냐, 누가 갱신하느냐, 언제 동기화하느냐의 차이예요.
+        </p>
+
+        <h2>1. Look-aside (Cache-aside)</h2>
+
+        <p>
+          가장 흔한 패턴이에요. 애플리케이션이 캐시를 직접 다뤄요.
+        </p>
+
+        <h3>읽기 흐름</h3>
+
+        <ol>
+          <li>캐시에서 키로 조회</li>
+          <li>있으면(cache hit) 그 값 반환</li>
+          <li>없으면(cache miss) DB에서 조회</li>
+          <li>DB 결과를 캐시에 저장</li>
+          <li>결과 반환</li>
+        </ol>
+
+        <pre><code class="language-java">public User getUser(Long id) {
+    String key = "user:" + id;
+    User cached = redis.get(key);
+    if (cached != null) {
+        return cached;
+    }
+
+    User user = userRepository.findById(id);
+    redis.set(key, user, Duration.ofMinutes(10));
+    return user;
+}</code></pre>
+
+        <h3>쓰기 흐름</h3>
+
+        <ol>
+          <li>DB에 쓰기</li>
+          <li>캐시 무효화 (delete) 또는 갱신 (update)</li>
+        </ol>
+
+        <pre><code class="language-java">public void updateUser(User user) {
+    userRepository.save(user);
+    redis.delete("user:" + user.getId());   // 다음 read 시 다시 캐싱
+}</code></pre>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 단순, 캐시 장애 시에도 DB로 fallback 가능, 필요한 것만 캐싱</li>
+          <li><strong>단점</strong>: cache miss 시 latency 큼 (DB+캐시 둘 다 호출), 일관성은 애플리케이션 책임</li>
+          <li><strong>적합</strong>: 읽기 위주 워크로드, 캐시 미스 OK한 환경</li>
+        </ul>
+
+        <h2>2. Read-through</h2>
+
+        <p>
+          애플리케이션이 캐시만 호출하고, cache miss 시 캐시 라이브러리/서비스가 DB에서 알아서 가져오는 패턴이에요.
+          애플리케이션 코드에서는 캐시와 DB가 분리되지 않은 듯 보여요.
+        </p>
+
+        <pre><code class="language-java">// Caffeine, Spring Cache 같은 추상화
+@Cacheable(value = "users", key = "#id")
+public User getUser(Long id) {
+    return userRepository.findById(id);   // cache miss 시에만 호출
+}</code></pre>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 코드가 단순, 캐시와 DB의 결합 부분이 일관</li>
+          <li><strong>단점</strong>: 캐시 라이브러리에 강한 의존, 첫 read는 항상 느림</li>
+          <li><strong>적합</strong>: Spring Cache, Hibernate 2nd level cache 같은 추상화 사용 시</li>
+        </ul>
+
+        <h2>3. Write-through</h2>
+
+        <p>
+          쓰기 시점에 캐시와 DB를 동시에 갱신해요.
+        </p>
+
+        <h3>흐름</h3>
+
+        <ol>
+          <li>쓰기 요청 들어옴</li>
+          <li>캐시에 쓰기 (또는 DB에 먼저)</li>
+          <li>DB에 쓰기</li>
+          <li>둘 다 성공하면 응답</li>
+        </ol>
+
+        <pre><code class="language-java">public void updateUser(User user) {
+    userRepository.save(user);          // DB 쓰기
+    redis.set("user:" + user.getId(), user);   // 캐시 갱신
+}</code></pre>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 캐시와 DB 일관성 좋음, read 후 즉시 캐시 활용</li>
+          <li><strong>단점</strong>: 매 쓰기에 캐시까지 갱신해야 해서 latency 큼, 자주 안 읽히는 데이터도 캐싱 (낭비)</li>
+          <li><strong>적합</strong>: 쓴 직후 빠르게 읽혀야 하는 데이터</li>
+        </ul>
+
+        <h2>4. Write-behind (Write-back)</h2>
+
+        <p>
+          쓰기를 일단 캐시에만 하고, 캐시가 비동기적으로 DB에 반영하는 패턴이에요. 가장 빠르지만 가장 위험.
+        </p>
+
+        <pre><code class="language-java">public void updateUser(User user) {
+    redis.set("user:" + user.getId(), user);
+    queue.publish(new UpdateEvent(user));   // 비동기 DB 갱신
+}
+
+// 다른 워커
+@KafkaListener(topics = "user-updates")
+public void persistToDB(UpdateEvent event) {
+    userRepository.save(event.getUser());
+}</code></pre>
+
+        <h3>장점과 단점</h3>
+
+        <ul>
+          <li><strong>장점</strong>: 매우 빠른 쓰기 응답, 쓰기 부하를 큰 폭으로 흡수</li>
+          <li><strong>단점</strong>: 캐시 다운 시 미반영 데이터 손실 위험, 일관성 가장 약함</li>
+          <li><strong>적합</strong>: 카운터, 통계, 메트릭 같은 손실 허용 데이터</li>
+        </ul>
+
+        <h2>네 패턴 비교</h2>
+
+        <table>
+          <thead>
+            <tr><th>패턴</th><th>읽기 응답</th><th>쓰기 응답</th><th>일관성</th><th>구현 복잡도</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Look-aside</td>
+              <td>hit 빠름, miss 느림</td>
+              <td>DB 속도</td>
+              <td>중간 (TTL 의존)</td>
+              <td>낮음</td>
+            </tr>
+            <tr>
+              <td>Read-through</td>
+              <td>hit 빠름, miss 느림</td>
+              <td>DB 속도</td>
+              <td>중간</td>
+              <td>낮음 (라이브러리 의존)</td>
+            </tr>
+            <tr>
+              <td>Write-through</td>
+              <td>hit 빠름</td>
+              <td>DB+캐시 (느림)</td>
+              <td>강함</td>
+              <td>중간</td>
+            </tr>
+            <tr>
+              <td>Write-behind</td>
+              <td>hit 빠름</td>
+              <td>매우 빠름</td>
+              <td>약함 (지연 동기화)</td>
+              <td>높음</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실무에서 가장 흔한 조합</h2>
+
+        <p>
+          실제 대부분의 시스템은 <strong>Look-aside (읽기) + Cache Invalidation (쓰기)</strong> 조합이에요.
+          단순하고 견고해서 표준 패턴이 됐어요.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class UserService {
+
+    public User get(Long id) {
+        // Look-aside read
+        String key = "user:" + id;
+        User cached = redis.get(key);
+        if (cached != null) return cached;
+
+        User user = userRepository.findById(id);
+        redis.set(key, user, Duration.ofMinutes(10));
+        return user;
+    }
+
+    @Transactional
+    public void update(User user) {
+        userRepository.save(user);
+        redis.delete("user:" + user.getId());   // invalidation
+    }
+}</code></pre>
+
+        <p>
+          쓰기 시 캐시를 갱신하지 않고 삭제만 해요. 다음 read 시 자연스럽게 새 값으로 캐싱.
+          단순하면서 stale data 문제도 자동으로 풀려요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Look-aside와 Read-through의 차이는요?</h3>
+
+        <p>
+          Look-aside는 애플리케이션이 캐시와 DB를 직접 다뤄요. miss 시 명시적으로 DB에서 가져와 캐시에 저장.
+          Read-through는 캐시 라이브러리/서비스가 DB 호출까지 처리해요. 애플리케이션은 캐시만 호출하면 끝.
+          코드는 read-through가 단순하지만, look-aside가 더 유연하고 캐시 장애 시에도 DB로 fallback 쉬워요.
+        </p>
+
+        <h3>Q. Write-through와 Write-behind 중 무엇을 쓰나요?</h3>
+
+        <p>
+          데이터 손실 허용 여부에 따라 달라요. Write-through는 매 쓰기마다 DB까지 동기화해서 일관성 강하고 데이터 손실 없음.
+          Write-behind는 캐시에만 일단 쓰고 비동기로 DB 반영. 매우 빠르지만 캐시 다운 시 미반영 데이터 손실 가능.
+          금융 같은 critical 데이터엔 write-through, 카운터/메트릭 같은 손실 허용 데이터엔 write-behind.
+        </p>
+
+        <h3>Q. 가장 흔한 캐시 패턴은요?</h3>
+
+        <p>
+          Look-aside read + Cache Invalidation write 조합이에요. 읽기는 캐시 먼저 보고 miss면 DB.
+          쓰기는 DB 갱신 후 캐시 키 삭제. 다음 read에서 자연스럽게 새 값 캐싱.
+          단순하면서 견고해서 대부분의 실무 시스템에서 쓰는 표준 패턴이에요.
+        </p>
+
+        <h3>Q. 쓰기 시 캐시 갱신 vs 삭제 중 무엇이 좋아요?</h3>
+
+        <p>
+          삭제(invalidation)가 거의 항상 더 안전해요. 갱신은 동시 쓰기 시 stale 데이터가 캐시에 들어갈 수 있어요.
+          예를 들어 쓰기 1과 2가 거의 동시에 발생하면 DB는 2의 결과지만 캐시는 1의 결과로 끝날 수 있어요.
+          삭제는 다음 read에서 DB의 최신 값을 새로 캐싱하니 이런 race가 없어요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          캐시 패턴은 4가지. Look-aside는 가장 흔하고 유연, Read-through는 추상화 라이브러리 위주, Write-through는 일관성 강하지만 느림, Write-behind는 빠르지만 위험.
+          실무 표준은 Look-aside read + invalidation write 조합. 단순하면서 견고해요.
+          어떤 패턴을 쓰든 다음 편의 일관성 관리가 캐시 운영의 핵심이에요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

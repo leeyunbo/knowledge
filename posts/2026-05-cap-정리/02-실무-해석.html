@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실무 해석과 흔한 오해 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 2/3</div>
+        <h1>실무 해석과 흔한 오해</h1>
+        <p class="subtitle">
+          CAP은 면접의 단골이지만 실무에서는 자주 잘못 해석돼요. 흔한 오해와 정확한 해석을 정리해봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CAP 정리</div>
+        <ol>
+          <li><a href="./01-cap-정체.html">CAP 정리의 정체</a></li>
+          <li class="current">실무 해석과 흔한 오해</li>
+          <li><a href="./03-pacelc.html">PACELC — CAP을 보완한 모델</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>흔한 오해 1 — "CA 시스템도 가능하다"</h2>
+
+        <p>
+          가장 많이 듣는 오해예요. "분단을 잘 막으면 CA 시스템이 된다"는 주장.
+        </p>
+
+        <p>
+          이론적으로는 가능해요. 한 데이터센터의 한 랙에 모든 서버가 있고, 케이블이 절대 끊기지 않는 환경이라면 분단은 안 일어나니까요.
+          그런데 그건 분산 시스템이 아니에요. 단일 fault domain이라 한 사고로 다 같이 죽어요.
+        </p>
+
+        <p>
+          진짜 분산 시스템(데이터센터 간, 가용 영역 간)에서는 분단이 항상 가능해요.
+          그래서 실무에서 CA 시스템이라는 건 존재하지 않는다고 봐도 돼요.
+          PostgreSQL이나 단일 MySQL을 "CA"라고 분류하는 건 분산 시스템이 아니라는 의미일 뿐이에요.
+        </p>
+
+        <h2>흔한 오해 2 — "MongoDB는 CP, Cassandra는 AP"</h2>
+
+        <p>
+          이런 단순한 분류도 자주 보이는데 정확하지 않아요.
+          많은 시스템이 <strong>설정으로 CP와 AP 사이에서 선택할 수 있어요</strong>.
+        </p>
+
+        <h3>MongoDB의 경우</h3>
+
+        <ul>
+          <li>기본 설정: <code>w: majority</code> 쓰기 → CP에 가까움</li>
+          <li><code>w: 1</code> 쓰기 → AP에 가까움 (덜 안전, 빠름)</li>
+          <li>읽기에서 <code>readConcern: linearizable</code> 사용 → 강한 일관성</li>
+          <li><code>readConcern: local</code> → eventual consistency 가능</li>
+        </ul>
+
+        <h3>Cassandra의 경우</h3>
+
+        <ul>
+          <li>기본: 모든 쓰기/읽기에 quorum이 안 필요해 AP</li>
+          <li><code>QUORUM</code> 일관성 레벨 사용 시 거의 CP</li>
+          <li><code>ALL</code> 사용 시 강한 일관성, 단 가용성 손해</li>
+          <li>tunable consistency라고 불러요. 쿼리마다 다르게 설정 가능</li>
+        </ul>
+
+        <p>
+          그래서 정확한 표현은 "MongoDB는 기본 CP", "Cassandra는 기본 AP, 옵션으로 CP 가능"이에요.
+          단순 분류표를 외우기보다는 각 시스템이 어떤 트레이드오프를 어떤 설정으로 표현하는지 이해하는 게 좋아요.
+        </p>
+
+        <h2>흔한 오해 3 — "CAP은 일상 운영의 트레이드오프다"</h2>
+
+        <p>
+          이게 가장 큰 오해예요. CAP은 <strong>분단 발생 시점</strong>에만 적용되는 정리예요.
+          분단이 없는 평상시에는 C와 A 둘 다 만족시킬 수 있어요.
+        </p>
+
+        <p>
+          그런데 운영을 하다 보면 분단이 없는데도 일관성과 가용성 사이에 트레이드오프가 자주 보여요.
+          예를 들어 동기 복제 vs 비동기 복제. 동기 복제는 일관성 좋지만 latency 큼. 비동기는 빠르지만 stale read 가능.
+          이게 CAP으로는 설명이 안 되는 영역이에요.
+        </p>
+
+        <p>
+          그래서 PACELC라는 보완 모델이 등장했어요. 분단 없을 때의 latency vs consistency 트레이드오프까지 다뤄요.
+          3편의 주제예요.
+        </p>
+
+        <h2>흔한 오해 4 — "Consistency = 강한 일관성"</h2>
+
+        <p>
+          CAP의 C는 linearizability(선형성)예요. 가장 강한 형태의 일관성.
+          그런데 실무에서 일관성은 여러 단계가 있어요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>일관성 단계</th><th>의미</th><th>예시 시스템</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Linearizability</td>
+              <td>모든 작업이 단일 순서로 보임. 가장 강함</td>
+              <td>Spanner, etcd, ZooKeeper</td>
+            </tr>
+            <tr>
+              <td>Sequential Consistency</td>
+              <td>각 노드가 같은 순서로 보면 됨. 시점은 다를 수 있음</td>
+              <td>일부 분산 캐시</td>
+            </tr>
+            <tr>
+              <td>Causal Consistency</td>
+              <td>인과관계 있는 작업만 순서 보장</td>
+              <td>Riak, COPS</td>
+            </tr>
+            <tr>
+              <td>Read Your Writes</td>
+              <td>내가 쓴 건 내가 읽을 때 보장</td>
+              <td>일부 NoSQL</td>
+            </tr>
+            <tr>
+              <td>Eventual Consistency</td>
+              <td>충분한 시간이 지나면 일치. 단계 중 가장 약함</td>
+              <td>Cassandra, DynamoDB 기본</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          CAP의 C는 가장 위(linearizability)예요. 그런데 실무에서는 약한 일관성으로도 충분한 경우가 많아요.
+          "일관성이 부족하다"는 게 항상 나쁜 게 아니에요. 비즈니스 요구에 맞으면 충분.
+        </p>
+
+        <h2>흔한 오해 5 — "분단은 드물다"</h2>
+
+        <p>
+          많은 사람이 분단을 "데이터센터 통째로 끊긴 거대한 사고"로 생각해요. 그런 큰 분단은 드물지만,
+          작은 분단은 매우 자주 일어나요.
+        </p>
+
+        <ul>
+          <li>네트워크 지연 spike (수십~수백 ms)</li>
+          <li>패킷 손실로 인한 응답 지연</li>
+          <li>스위치 일시 과부하</li>
+          <li>가비지 컬렉션으로 인한 stall</li>
+          <li>커널 패닉 등 일시적 OS 불안정</li>
+        </ul>
+
+        <p>
+          이런 일시적 분단은 분산 시스템 운영 중 매주 또는 매일 일어날 수 있어요.
+          분산 시스템은 이런 작은 분단도 우아하게 처리해야 운영 가능해요.
+          그래서 P 무관한 시스템 설계는 실무에서 의미 없다는 거예요.
+        </p>
+
+        <h2>실무 결정 — CP를 골라야 할 때</h2>
+
+        <p>
+          어떤 시스템이 CP에 적합한지 정리해볼게요.
+        </p>
+
+        <ul>
+          <li><strong>금융 트랜잭션</strong>: 잔액 일관성이 가용성보다 중요</li>
+          <li><strong>재고 관리</strong>: overselling을 막아야 함</li>
+          <li><strong>분산 락</strong>: 두 노드가 동시에 락을 가지면 안 됨</li>
+          <li><strong>구성 정보 관리</strong>: 잘못된 설정으로 시스템이 깨지면 큰 사고 (etcd, ZooKeeper)</li>
+          <li><strong>리더 선출</strong>: 두 리더가 동시에 존재하면 split-brain</li>
+        </ul>
+
+        <p>
+          이런 시스템은 분단 시 일부 노드가 응답 거부하는 게 잘못된 데이터를 주는 것보다 안전해요.
+          가용성 손해를 감수하고 일관성을 지켜요.
+        </p>
+
+        <h2>실무 결정 — AP를 골라야 할 때</h2>
+
+        <p>
+          반대로 AP가 적합한 시스템은 이런 자리예요.
+        </p>
+
+        <ul>
+          <li><strong>소셜 미디어 피드</strong>: 좋아요 수가 한 두 개 차이나도 사용자에게 큰 영향 없음</li>
+          <li><strong>메시지 큐</strong>: 일시적 중복이나 순서 어긋남이 허용 가능</li>
+          <li><strong>분석/통계</strong>: 정확성보다 응답성이 중요</li>
+          <li><strong>제품 카탈로그</strong>: 갱신 직후 잠시 옛 데이터 보여도 OK</li>
+          <li><strong>세션 데이터</strong>: 일부 손실이 큰 문제 안 됨</li>
+        </ul>
+
+        <p>
+          이런 시스템은 분단이 발생해도 사용자가 응답을 받는 게 더 중요해요.
+          일관성은 나중에 동기화로 맞추면 돼요.
+        </p>
+
+        <h2>실무에서 자주 보는 패턴</h2>
+
+        <h3>패턴 1 — 한 시스템에 CP와 AP 영역 분리</h3>
+
+        <p>
+          큰 서비스는 한 시스템 안에 영역을 나눠 다루는 경우가 많아요.
+        </p>
+
+        <ul>
+          <li>결제, 주문 등 critical 영역: PostgreSQL/MySQL의 single-master + 동기 복제 → CP</li>
+          <li>장바구니, 좋아요 등 less-critical: Redis Cluster 또는 Cassandra → AP</li>
+          <li>로그, 메트릭: Kafka, Elasticsearch → AP에 가까움</li>
+        </ul>
+
+        <p>
+          모든 데이터를 같은 일관성 레벨로 다룰 필요는 없어요. 데이터 종류에 따라 다른 시스템 선택.
+        </p>
+
+        <h3>패턴 2 — Quorum 기반 시스템</h3>
+
+        <p>
+          많은 분산 시스템이 Quorum 기반으로 트레이드오프를 조정해요.
+          R(read) + W(write) > N(replica) 공식으로 일관성과 가용성 사이를 조정.
+        </p>
+
+        <ul>
+          <li>R + W > N: 일관성 보장 (적어도 한 노드는 최신 데이터를 가짐)</li>
+          <li>R + W ≤ N: stale read 가능, 가용성 좋음</li>
+          <li>Cassandra의 ANY, ONE, QUORUM, ALL 같은 옵션이 이 공식을 표현</li>
+        </ul>
+
+        <p>
+          쿼리별로 다르게 설정할 수도 있어요. 같은 시스템에서도 critical 쿼리는 QUORUM, 일반 쿼리는 ONE.
+        </p>
+
+        <h3>패턴 3 — Eventual Consistency + 보정</h3>
+
+        <p>
+          AP 시스템에서 eventual consistency를 허용하되, 비즈니스 로직에서 보정하는 패턴이에요.
+        </p>
+
+        <ul>
+          <li><strong>Read repair</strong>: 읽기 시 stale data 발견하면 즉시 동기화</li>
+          <li><strong>Anti-entropy</strong>: 백그라운드로 노드 간 데이터 비교 후 동기화</li>
+          <li><strong>Conflict-free Replicated Data Types (CRDT)</strong>: 자동으로 충돌 해결되는 자료구조</li>
+          <li><strong>Last Write Wins</strong>: 단순한 충돌 해결, 단 데이터 손실 가능</li>
+          <li><strong>Vector Clock</strong>: 인과관계 추적해 충돌 감지</li>
+        </ul>
+
+        <h2>"AP라도 너무 stale하면 곤란"</h2>
+
+        <p>
+          AP를 선택했다고 해서 무한정 stale을 허용하지는 않아요. "결국에는 일관성"이라는 의미의 eventual은 운영 SLA로 표현돼요.
+        </p>
+
+        <ul>
+          <li>"분단 해소 후 1초 안에 동기화"</li>
+          <li>"99% 요청은 100ms 이내 stale 데이터 안 보임"</li>
+          <li>"일별 anti-entropy 작업으로 영구 inconsistency 방지"</li>
+        </ul>
+
+        <p>
+          eventual의 시간 윈도우를 측정하고 모니터링하는 게 실무 운영의 핵심이에요.
+          단순히 "결국엔 일관성 됨"이 아니라 "얼마 후에 일관성 됨"의 SLA로 다뤄야 해요.
+        </p>
+
+        <h2>설계 결정 가이드</h2>
+
+        <p>
+          새 분산 시스템 설계 시 다음 질문 순서로 의사결정하면 도움이 돼요.
+        </p>
+
+        <ol>
+          <li>이 데이터를 잘못 보여줬을 때 비즈니스 영향이 큰가?</li>
+          <li>일관성이 부족해 사용자 간 모순된 결과가 생기면 큰 문제인가?</li>
+          <li>분단 발생 시 일부 사용자에게 응답 거부하는 게 받아들여지는가?</li>
+          <li>응답 시간 SLA가 strict한가?</li>
+          <li>데이터 양이 매우 많아 단일 노드로 처리 어려운가?</li>
+        </ol>
+
+        <p>
+          1, 2, 3에 "예"가 많으면 CP 시스템. 4, 5에 "예"가 많으면 AP 시스템.
+          단순히 "어떤 DB가 빠른가"가 아니라 비즈니스 요구를 매핑하는 게 우선이에요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. CA 시스템은 정말 없나요?</h3>
+
+        <p>
+          단일 노드 시스템이거나 분단이 절대 없는 환경이라면 가능해요. 그런데 분산 시스템이라는 정의상 그런 환경은 거의 없어요.
+          데이터센터 간, 가용 영역 간 분산이라면 분단은 항상 가능해요.
+          그래서 실무에서 의미 있는 분류는 CP와 AP뿐이에요. CA는 분산이 아닌 시스템에 해당돼요.
+        </p>
+
+        <h3>Q. CAP과 PACELC의 차이는요?</h3>
+
+        <p>
+          CAP은 분단(P) 발생 시의 트레이드오프만 다뤄요. 평상시 운영의 latency vs consistency 트레이드오프는 못 다뤄요.
+          PACELC는 그 빈 자리를 채워요. P가 발생했을 때(P) C와 A 중 선택, Else(E)는 평상시 L(latency)와 C(consistency) 중 선택.
+          CAP보다 실무 시스템을 더 정확하게 분류할 수 있어요. 다음 편 주제예요.
+        </p>
+
+        <h3>Q. eventual consistency가 "결국엔" 인데 그게 언제예요?</h3>
+
+        <p>
+          시스템마다 SLA로 표현해야 해요. "수 초 이내", "99% 요청은 100ms 이내" 같은 형태.
+          단순히 "결국엔"이 아니라 측정 가능한 시간 윈도우로 다루는 게 운영의 핵심이에요.
+          모니터링으로 그 시간이 SLA를 벗어나지 않는지 추적하고, anti-entropy 메커니즘으로 영구 inconsistency를 방지해요.
+        </p>
+
+        <h3>Q. Cassandra와 MongoDB의 일관성 옵션이 어떻게 다른가요?</h3>
+
+        <p>
+          Cassandra는 tunable consistency. 쿼리마다 ANY, ONE, QUORUM, ALL 같은 레벨 선택 가능해요.
+          R+W>N 공식으로 일관성 보장 여부를 결정. 같은 시스템에서 critical 쿼리는 QUORUM, 일반은 ONE으로 다르게 설정 가능.
+          MongoDB는 readConcern과 writeConcern으로 비슷한 조정. <code>w: majority</code>가 기본이라 CP에 가까운 동작이에요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          CAP의 실무 적용은 단순한 CP/AP 분류표가 아니라, 시스템이 분단 시 어떤 행동을 하도록 설정했는지를 봐야 해요.
+          많은 시스템이 옵션으로 CP/AP를 선택할 수 있고, 한 서비스 안에 영역별로 다른 일관성 레벨을 적용하는 게 일반적이에요.
+          무엇보다 비즈니스 요구를 먼저 매핑하는 게 정답이에요.
+        </p>
+
+        <p>
+          다음 편에서는 CAP의 한계를 보완한 PACELC 모델을 살펴봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

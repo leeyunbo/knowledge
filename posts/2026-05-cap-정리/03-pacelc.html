@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PACELC — CAP을 보완한 모델 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 3/3</div>
+        <h1>PACELC — CAP을 보완한 모델</h1>
+        <p class="subtitle">
+          CAP이 못 다룬 평상시 운영의 트레이드오프까지 표현하는 더 정교한 모델이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">CAP 정리</div>
+        <ol>
+          <li><a href="./01-cap-정체.html">CAP 정리의 정체</a></li>
+          <li><a href="./02-실무-해석.html">실무 해석과 흔한 오해</a></li>
+          <li class="current">PACELC — CAP을 보완한 모델</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 CAP만으로는 부족한가요</h2>
+
+        <p>
+          앞 편에서 짚은 CAP의 한계를 다시 정리해볼게요. CAP은 <strong>분단이 발생한 시점</strong>의 트레이드오프만 다뤄요.
+          그런데 분산 시스템 운영의 거의 대부분은 분단이 없는 평상시예요. 이 평상시에도 트레이드오프가 있어요.
+        </p>
+
+        <p>
+          예를 들어 동기 복제 vs 비동기 복제. 분단이 없어도 둘은 다른 동작을 해요.
+          동기 복제는 모든 replica가 ack를 줄 때까지 기다려서 일관성 좋지만 latency 큼. 비동기는 빠르지만 stale read 가능.
+          이 트레이드오프는 CAP으로 표현이 안 돼요.
+        </p>
+
+        <p>
+          그래서 2010년 Daniel Abadi가 PACELC라는 보완 모델을 제안했어요.
+          이름이 어색하긴 한데, CAP을 확장한 더 정교한 분류 도구예요.
+        </p>
+
+        <h2>PACELC의 의미</h2>
+
+        <p>
+          PACELC는 두 부분으로 읽어요.
+        </p>
+
+        <ul>
+          <li><strong>P</strong>artition이 발생하면 → <strong>A</strong>vailability vs <strong>C</strong>onsistency 선택 (= CAP)</li>
+          <li><strong>E</strong>lse(평상시) → <strong>L</strong>atency vs <strong>C</strong>onsistency 선택</li>
+        </ul>
+
+        <p>
+          정리하면 PACELC는 "분단 시(PAC)에는 A/C 선택, 평상시(ELC)에는 L/C 선택"을 표현하는 모델이에요.
+          시스템마다 두 차원의 선택이 따로 있어서 더 정확한 분류가 가능해요.
+        </p>
+
+        <h2>4가지 조합</h2>
+
+        <p>
+          PACELC는 시스템을 4가지로 분류해요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>분류</th><th>분단 시 (PAC)</th><th>평상시 (ELC)</th><th>예시</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>PA / EL</td>
+              <td>Availability 우선</td>
+              <td>Latency 우선</td>
+              <td>Cassandra, Riak, DynamoDB</td>
+            </tr>
+            <tr>
+              <td>PC / EC</td>
+              <td>Consistency 우선</td>
+              <td>Consistency 우선</td>
+              <td>VoltDB, HBase, BigTable</td>
+            </tr>
+            <tr>
+              <td>PA / EC</td>
+              <td>Availability 우선</td>
+              <td>Consistency 우선</td>
+              <td>MongoDB (특정 설정)</td>
+            </tr>
+            <tr>
+              <td>PC / EL</td>
+              <td>Consistency 우선</td>
+              <td>Latency 우선</td>
+              <td>흔치 않음 (이론적)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          가장 흔한 두 분류는 PA/EL (가용성 일관 추구)과 PC/EC (일관성 일관 추구)예요.
+          나머지 둘은 두 차원의 선택이 다른 케이스라 흔치 않아요.
+        </p>
+
+        <h2>PA/EL 시스템 — 가용성/속도 우선</h2>
+
+        <p>
+          분단 시에도 가용성을 살리고, 평상시에도 latency를 우선해요.
+          쓰기에 모든 replica의 ack를 기다리지 않아요. 한두 노드만 ack해도 응답을 빨리 돌려줘요.
+          stale read가 가능하다는 trade-off를 받아들임.
+        </p>
+
+        <h3>대표 시스템</h3>
+
+        <ul>
+          <li><strong>Cassandra</strong>: 기본이 PA/EL. consistency level로 조정 가능</li>
+          <li><strong>Riak</strong>: AP-eventual 지향, 평상시도 빠른 응답</li>
+          <li><strong>DynamoDB</strong>: 기본은 eventually consistent read, latency 우선</li>
+        </ul>
+
+        <h3>적합한 워크로드</h3>
+
+        <ul>
+          <li>대량 쓰기 워크로드 (로그, 메트릭)</li>
+          <li>소셜 미디어 타임라인 (좋아요, 댓글)</li>
+          <li>제품 카탈로그 검색</li>
+          <li>분석 데이터 수집</li>
+        </ul>
+
+        <h2>PC/EC 시스템 — 일관성 우선</h2>
+
+        <p>
+          분단 시에도 일관성을 지키고, 평상시에도 일관성을 우선해요. latency가 크더라도.
+          모든 쓰기에 majority의 ack 또는 전체 합의(consensus)가 필요해요.
+        </p>
+
+        <h3>대표 시스템</h3>
+
+        <ul>
+          <li><strong>HBase</strong>: row 단위 strong consistency, 합의 기반</li>
+          <li><strong>BigTable</strong>: Google의 강한 일관성 분산 테이블</li>
+          <li><strong>etcd, ZooKeeper</strong>: Raft/Zab 합의 알고리즘으로 일관성 보장</li>
+          <li><strong>VoltDB</strong>: ACID 트랜잭션 + 분산</li>
+        </ul>
+
+        <h3>적합한 워크로드</h3>
+
+        <ul>
+          <li>분산 락, 리더 선출</li>
+          <li>구성 정보 저장 (config, service discovery)</li>
+          <li>금융 시스템 (잔액, 거래)</li>
+          <li>재고 관리 (overselling 방지)</li>
+        </ul>
+
+        <h2>PA/EC — 분단 시 가용, 평상시 일관성</h2>
+
+        <p>
+          더 흥미로운 케이스. 평상시에는 모든 replica 동기화로 일관성 보장하다가, 분단 발생 시엔 minority도 응답하며 가용성으로 전환.
+          모순처럼 들리지만 실제로 가능한 디자인이에요.
+        </p>
+
+        <p>
+          MongoDB의 일부 설정이 여기에 해당돼요.
+        </p>
+
+        <ul>
+          <li>평상시 <code>w: majority</code>로 모든 쓰기 일관성 보장</li>
+          <li>분단 시 minority 쪽이 read-only나 stale read 허용으로 전환</li>
+          <li>분단 해소 후 동기화로 복구</li>
+        </ul>
+
+        <p>
+          요구사항이 매우 specific할 때 등장하는 패턴이에요. 분단 시간이 짧다고 가정.
+        </p>
+
+        <h2>PC/EL — 흔치 않은 케이스</h2>
+
+        <p>
+          분단 시에는 일관성을 지키고, 평상시에는 latency 우선.
+          이론적으로 가능하지만 실제 시스템에서 보기 드물어요.
+        </p>
+
+        <p>
+          평상시에 latency 우선이라는 건 비동기 복제로 빠르게 응답한다는 뜻이고,
+          분단 시 일관성 우선은 모든 노드가 majority의 합의를 기다린다는 뜻인데,
+          이 둘은 자연스럽게 같이 가지 않아요. 그래서 흔치 않아요.
+        </p>
+
+        <h2>PACELC로 시스템 다시 보기</h2>
+
+        <p>
+          앞 편의 단순한 CP/AP 분류표를 PACELC로 다시 정리해볼게요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>시스템</th><th>PACELC 분류</th><th>의미</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Cassandra (기본)</td>
+              <td>PA/EL</td>
+              <td>분단 가용성, 평상 빠른 응답. 일관성은 옵션</td>
+            </tr>
+            <tr>
+              <td>DynamoDB (기본)</td>
+              <td>PA/EL</td>
+              <td>비슷</td>
+            </tr>
+            <tr>
+              <td>Riak</td>
+              <td>PA/EL</td>
+              <td>비슷, eventual 강조</td>
+            </tr>
+            <tr>
+              <td>HBase</td>
+              <td>PC/EC</td>
+              <td>분단 일관성, 평상도 일관성. row 단위 strong</td>
+            </tr>
+            <tr>
+              <td>BigTable</td>
+              <td>PC/EC</td>
+              <td>비슷</td>
+            </tr>
+            <tr>
+              <td>etcd, ZooKeeper</td>
+              <td>PC/EC</td>
+              <td>합의 기반, 강한 일관성 우선</td>
+            </tr>
+            <tr>
+              <td>MongoDB (기본)</td>
+              <td>PA/EC</td>
+              <td>분단 시 가용, 평상 일관성</td>
+            </tr>
+            <tr>
+              <td>Spanner</td>
+              <td>PC/EC</td>
+              <td>전 세계 동기화, TrueTime 사용</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          단순한 CP/AP보다 시스템의 성격을 더 잘 보여줘요. 분단 시 행동과 평상 시 행동이 분리되어 표현되니까요.
+        </p>
+
+        <h2>왜 평상시 트레이드오프가 중요한가요</h2>
+
+        <p>
+          분산 시스템 운영의 99% 이상이 평상시예요. 분단은 가끔 발생하는 예외 상황.
+          그래서 평상시 latency vs consistency 트레이드오프가 사실은 더 자주 영향을 줘요.
+        </p>
+
+        <h3>예시 — 동기 복제</h3>
+
+        <p>
+          쓰기 작업이 모든 replica에 동기적으로 전파될 때까지 기다리는 정책. 일관성은 강하지만 모든 쓰기에 추가 latency.
+        </p>
+
+        <ul>
+          <li>master + 2 replica + 동기 복제</li>
+          <li>쓰기 응답: 모든 ack 기다림 → 가장 느린 replica가 발목 잡음</li>
+          <li>네트워크 한 hop 추가될 때마다 latency 증가</li>
+        </ul>
+
+        <h3>예시 — 비동기 복제</h3>
+
+        <p>
+          쓰기를 master에서 받자마자 응답하고, replica로 비동기 전파. 빠르지만 stale read 가능.
+        </p>
+
+        <ul>
+          <li>master 쓰기 응답: ack 받자마자</li>
+          <li>replica는 잠시 후 동기화</li>
+          <li>그 사이 replica로 읽기 가면 옛 값 봄</li>
+          <li>master 다운 시 미반영 데이터 손실 가능</li>
+        </ul>
+
+        <p>
+          이 두 트레이드오프는 분단과 무관해요. 분단 없는 평상시에도 매 쿼리마다 일어나요.
+          PACELC는 이 차원을 명시해서 시스템 분류에 포함시켜요.
+        </p>
+
+        <h2>실무 적용 — PACELC 관점으로 시스템 선택</h2>
+
+        <p>
+          새 시스템을 도입할 때 PACELC를 의사결정 도구로 쓸 수 있어요.
+        </p>
+
+        <h3>질문 1 — 분단 시 어떻게 행동해야 하나요?</h3>
+
+        <ul>
+          <li>금융, 분산 락, 리더 선출 → PC (분단 시 일관성)</li>
+          <li>소셜 피드, 카탈로그, 메트릭 → PA (분단 시 가용성)</li>
+        </ul>
+
+        <h3>질문 2 — 평상시 latency가 얼마나 critical한가요?</h3>
+
+        <ul>
+          <li>실시간 응답 필요, 약간의 stale 허용 → EL</li>
+          <li>응답 시간 여유 있고 정확성 우선 → EC</li>
+        </ul>
+
+        <p>
+          두 답을 조합하면 시스템 분류가 나와요. 그 분류에 맞는 DB를 선택하거나, 한 시스템 안에서 영역별로 다르게 설정.
+        </p>
+
+        <h2>예외 — Spanner와 Calvin</h2>
+
+        <p>
+          PACELC를 알면 한 가지 흥미로운 시스템에 대한 의문이 생겨요.
+          구글 Spanner는 전 세계에 분산된 데이터베이스인데 strong consistency를 보장해요. 어떻게 가능할까요?
+        </p>
+
+        <p>
+          Spanner는 PC/EC 시스템인데, 평상시 latency를 영리한 방법으로 최소화했어요. 핵심이 <strong>TrueTime</strong>이에요.
+          정밀한 GPS 시계와 atomic clock으로 전 세계 노드의 시간을 매우 정확히 동기화 (오차 ~수 ms).
+          그래서 분산 트랜잭션의 commit 시각을 합의 없이도 결정할 수 있어요.
+        </p>
+
+        <p>
+          Spanner는 PC/EC지만 latency를 잘 숨겨서 EC 영역의 비용을 최소화한 거예요.
+          하드웨어 수준 투자가 큰 시스템이라 일반 시스템은 흉내내기 어려운 디자인.
+          Calvin이라는 학술 시스템도 비슷한 방향(deterministic ordering)을 추구해요.
+        </p>
+
+        <h2>CAP, PACELC, 그리고 그 다음</h2>
+
+        <p>
+          분산 시스템 트레이드오프 모델은 CAP에서 PACELC로, 그 다음 더 정교한 모델로 진화해왔어요.
+          최근 학계와 실무에서는 다음 같은 추가 차원도 다뤄요.
+        </p>
+
+        <ul>
+          <li><strong>Throughput vs Latency</strong>: 처리량과 응답 시간의 트레이드오프</li>
+          <li><strong>Read consistency vs Write consistency</strong>: 둘을 따로 다룸</li>
+          <li><strong>Linearizability vs Sequential Consistency vs Eventual</strong>: 일관성의 여러 단계</li>
+          <li><strong>Operability</strong>: 운영 복잡도까지 고려</li>
+        </ul>
+
+        <p>
+          모델은 점점 정교해지지만 출발점은 여전히 CAP이에요.
+          CAP을 정확히 이해하고, PACELC로 보완하면 대부분의 분산 시스템 디자인 결정에 도움이 돼요.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. PACELC가 CAP과 어떻게 다른가요?</h3>
+
+        <p>
+          CAP은 분단(P) 발생 시의 트레이드오프만 다뤄요. PACELC는 그 외에 평상시(Else) 운영의 latency vs consistency 트레이드오프까지 표현해요.
+          P 발생 시(PAC) A/C 선택, Else(ELC) L/C 선택. 시스템을 더 정확하게 분류할 수 있어 PA/EL, PC/EC, PA/EC, PC/EL 4가지 조합이 나와요.
+        </p>
+
+        <h3>Q. 가장 흔한 PACELC 분류는요?</h3>
+
+        <p>
+          PA/EL과 PC/EC 두 가지가 가장 흔해요.
+          PA/EL은 분단 가용성과 평상 빠른 응답을 우선하는 시스템. Cassandra, DynamoDB, Riak이 대표적.
+          PC/EC는 분단과 평상 모두 일관성 우선. HBase, etcd, ZooKeeper, Spanner가 대표.
+          나머지 PA/EC, PC/EL은 두 차원의 선택이 다른 흔치 않은 케이스.
+        </p>
+
+        <h3>Q. Spanner는 CAP 정리를 위반하는 건가요?</h3>
+
+        <p>
+          위반하지 않아요. Spanner는 PC/EC 시스템으로 분단 시 일관성 우선, 평상 시도 일관성 우선이에요.
+          단, TrueTime이라는 정밀 시계 기술로 평상시 latency를 매우 작게 만든 디자인이에요.
+          분단이 발생하면 일부 노드가 응답 거부하는 CP 동작을 해요.
+          즉 trade-off가 사라진 게 아니라 평상시 latency를 영리하게 줄인 거예요.
+        </p>
+
+        <h3>Q. 평상시 latency vs consistency 트레이드오프 예시는요?</h3>
+
+        <p>
+          동기 복제 vs 비동기 복제가 가장 흔한 예시예요.
+          동기는 모든 replica의 ack를 기다려서 일관성 좋지만 매 쓰기마다 추가 latency.
+          비동기는 master에서 ack 받자마자 응답해서 빠르지만 replica가 동기화 전이라 stale read 가능.
+          이건 분단 없이도 매 쿼리마다 일어나는 트레이드오프라 PACELC가 명시적으로 다뤄요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          PACELC는 CAP을 보완해 평상시 운영의 latency vs consistency 트레이드오프까지 표현하는 모델이에요.
+          분단 시(PAC)와 평상 시(ELC)를 분리해서 4가지 조합으로 시스템을 분류해요.
+          PA/EL은 가용성/속도 우선, PC/EC는 일관성 우선이 가장 흔한 두 분류예요.
+          시스템 선택 시 분단 시 행동과 평상 시 행동을 둘 다 고려하는 게 PACELC의 핵심이에요.
+        </p>
+
+        <p>
+          CAP 시리즈는 여기까지예요. 다음은 분산 락의 세계로 들어가요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

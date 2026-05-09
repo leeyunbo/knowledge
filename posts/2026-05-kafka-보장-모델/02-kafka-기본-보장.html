@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kafka의 기본 보장 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 2/4</div>
+        <h1>Kafka의 기본 보장</h1>
+        <p class="subtitle">
+          Kafka가 At-least-once를 어떻게 구현하는지. ack, ISR, replication 메커니즘이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Kafka 보장 모델</div>
+        <ol>
+          <li><a href="./01-3가지-보장-모델.html">3가지 보장 모델</a></li>
+          <li class="current">Kafka의 기본 보장</li>
+          <li><a href="./03-exactly-once.html">Exactly-Once Semantics</a></li>
+          <li><a href="./04-consumer-측-처리.html">Consumer 측 처리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Kafka 구조 빠르게 복습</h2>
+
+        <p>
+          보장 메커니즘을 보기 전에 Kafka 구조를 짧게 복습해요.
+        </p>
+
+        <ul>
+          <li><strong>Topic</strong>: 메시지의 논리적 분류</li>
+          <li><strong>Partition</strong>: Topic을 여러 조각으로 나눈 것. 병렬성과 확장성의 단위</li>
+          <li><strong>Broker</strong>: Kafka 서버 노드</li>
+          <li><strong>Producer</strong>: 메시지 발행하는 클라이언트</li>
+          <li><strong>Consumer</strong>: 메시지 소비하는 클라이언트</li>
+          <li><strong>Replication</strong>: Partition을 여러 broker에 복제</li>
+          <li><strong>ISR (In-Sync Replicas)</strong>: 현재 leader와 동기화된 replica 집합</li>
+        </ul>
+
+        <p>
+          이 구조 위에 메시지 보장 메커니즘이 동작해요.
+        </p>
+
+        <h2>Producer 측 보장 — acks 설정</h2>
+
+        <p>
+          Producer가 Kafka에 메시지 보낼 때 어디까지 ack를 받을지 설정. 가장 중요한 옵션이에요.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>acks</th><th>의미</th><th>보장</th><th>처리량</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>0</code></td>
+              <td>ack 안 기다림</td>
+              <td>At-most-once (손실 가능)</td>
+              <td>가장 높음</td>
+            </tr>
+            <tr>
+              <td><code>1</code></td>
+              <td>leader broker만 ack</td>
+              <td>중간 (leader 다운 + 비동기 복제 시 손실)</td>
+              <td>높음</td>
+            </tr>
+            <tr>
+              <td><code>all</code> (또는 -1)</td>
+              <td>ISR 모두 ack</td>
+              <td>가장 강함 (At-least-once)</td>
+              <td>중간</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>acks=all의 진짜 의미</h3>
+
+        <p>
+          ISR(In-Sync Replicas)에 있는 모든 replica에 메시지가 쓰여야 ack 응답. 손실 없음 보장.
+          단, ISR이 1개로 줄어들면 사실상 leader만 있는 상태와 같아져 손실 가능.
+          그래서 추가 옵션이 필요해요.
+        </p>
+
+        <h3>min.insync.replicas</h3>
+
+        <p>
+          토픽 또는 broker 레벨 설정. ISR이 이 수보다 적으면 쓰기 거부.
+        </p>
+
+        <pre><code class="language-properties">min.insync.replicas=2
+acks=all</code></pre>
+
+        <p>
+          이 조합으로 "최소 2개 replica에 쓰기 보장" 강제. ISR이 1개로 줄면 producer에 NotEnoughReplicasException.
+          가용성을 일부 포기하는 대신 손실 방지 강화.
+        </p>
+
+        <h2>retries와 idempotent producer</h2>
+
+        <p>
+          ack 못 받으면 재시도. 그런데 재시도가 중복을 만들 수 있어요.
+        </p>
+
+        <pre><code class="language-text">1. Producer가 메시지 보냄
+2. Kafka가 받음 (메시지 저장됨)
+3. ack 응답이 네트워크에서 손실
+4. Producer는 응답 못 받아 timeout
+5. Producer가 재시도 → 같은 메시지 또 저장됨</code></pre>
+
+        <h3>Idempotent Producer</h3>
+
+        <p>
+          Kafka 0.11에서 도입된 기능. Producer마다 PID(Producer ID)를 부여하고, 메시지마다 sequence number 부여.
+          Broker가 같은 PID + sequence를 가진 메시지가 두 번 들어오면 중복으로 인식하고 한 번만 저장.
+        </p>
+
+        <pre><code class="language-properties">enable.idempotence=true</code></pre>
+
+        <p>
+          이 한 줄로 producer 측 중복 방지. 단일 partition 내에서 EOS 보장.
+          여러 partition에 걸친 atomic 쓰기는 transactions가 필요해요. 다음 편 주제.
+        </p>
+
+        <h2>Replication과 ISR</h2>
+
+        <p>
+          Kafka의 partition은 여러 broker에 복제돼요. 한 broker가 leader, 나머지가 follower.
+          producer/consumer는 항상 leader와 통신. follower는 leader의 데이터를 비동기 복제.
+        </p>
+
+        <h3>ISR — In-Sync Replicas</h3>
+
+        <p>
+          leader와 충분히 동기화된 replica의 집합. 보통 leader + 따라잡고 있는 follower.
+          뒤처진 follower는 ISR에서 제외.
+        </p>
+
+        <ul>
+          <li>ISR 안에 있는 replica = "최신" (또는 거의 최신)</li>
+          <li>ISR 밖 replica = "뒤처짐"</li>
+          <li>leader가 다운되면 ISR 안의 replica 중 하나가 새 leader로 promotion</li>
+        </ul>
+
+        <h3>왜 ISR이 중요한가요</h3>
+
+        <p>
+          acks=all 시 ISR 모두에 ack 받아야 응답. min.insync.replicas로 ISR 최소 크기 강제.
+          ISR이 충분히 크면 leader 다운에도 손실 없음. ISR이 작아지면 손실 위험 증가.
+        </p>
+
+        <h3>unclean.leader.election</h3>
+
+        <p>
+          ISR이 모두 죽고 ISR 밖 replica만 살아있을 때, 그 replica를 새 leader로 만들 것인가의 옵션.
+        </p>
+
+        <ul>
+          <li><code>unclean.leader.election.enable=true</code>: 가용성 우선. 데이터 손실 위험</li>
+          <li><code>unclean.leader.election.enable=false</code>: 안전성 우선. 모든 ISR 죽으면 partition 일시 unavailable</li>
+        </ul>
+
+        <p>
+          기본값은 false (Kafka 1.0+). 안전이 default. 이걸 true로 두면 데이터 손실 가능성을 받아들이는 거예요.
+        </p>
+
+        <h2>Producer의 권장 설정</h2>
+
+        <p>
+          데이터 손실 없는 At-least-once의 표준 설정이에요.
+        </p>
+
+        <pre><code class="language-properties"># Producer
+acks=all
+enable.idempotence=true
+retries=Integer.MAX_VALUE   # 무한 재시도
+max.in.flight.requests.per.connection=5
+
+# Topic
+min.insync.replicas=2
+replication.factor=3
+
+# Broker
+unclean.leader.election.enable=false</code></pre>
+
+        <p>
+          이 설정 조합이 Kafka의 At-least-once 보장 표준. 손실 없음 + 중복 가능.
+          중복은 consumer 측 idempotency로 풀어요.
+        </p>
+
+        <h2>Consumer 측 보장 — offset commit</h2>
+
+        <p>
+          Consumer는 어디까지 처리했는지를 offset으로 추적해요. offset commit 시점이 보장 모델을 결정.
+        </p>
+
+        <h3>At-most-once Consumer</h3>
+
+        <pre><code class="language-java">// 메시지 받자마자 offset commit
+ConsumerRecords records = consumer.poll(Duration.ofMillis(100));
+consumer.commitSync();   // ★ 처리 전 commit
+
+for (ConsumerRecord record : records) {
+    process(record);   // 여기서 실패하면 메시지 손실
+}</code></pre>
+
+        <p>
+          처리 전에 commit하니 처리 실패해도 다음 poll에서 같은 메시지 안 옴. 손실 위험.
+        </p>
+
+        <h3>At-least-once Consumer</h3>
+
+        <pre><code class="language-java">// 처리 후 offset commit
+ConsumerRecords records = consumer.poll(Duration.ofMillis(100));
+
+for (ConsumerRecord record : records) {
+    process(record);
+}
+
+consumer.commitSync();   // ★ 처리 후 commit</code></pre>
+
+        <p>
+          처리 후 commit. 처리 도중 crash 시 다음 시작 때 같은 메시지 다시 받음. 중복 가능.
+          가장 흔한 패턴이에요.
+        </p>
+
+        <h3>auto-commit의 함정</h3>
+
+        <p>
+          <code>enable.auto.commit=true</code>로 두면 consumer가 주기적으로 자동 commit.
+          그런데 commit 시점이 명확하지 않아 At-most-once와 At-least-once 사이의 모호한 동작.
+        </p>
+
+        <pre><code class="language-properties">enable.auto.commit=false   # 권장</code></pre>
+
+        <p>
+          명시적으로 commit 시점을 제어하는 게 안전. 자동 commit은 함정 많아서 운영 환경에서는 끄는 게 권장돼요.
+        </p>
+
+        <h2>실제 동작 예시 — 시나리오 트레이스</h2>
+
+        <p>
+          acks=all + 중복 발생 시나리오를 구체적으로 따라가볼게요.
+        </p>
+
+        <ol>
+          <li>Producer가 메시지 M 발행</li>
+          <li>Leader broker가 M을 자기 log에 append</li>
+          <li>Follower들이 leader에서 M을 fetch해 자기 log에 append</li>
+          <li>Leader가 ISR 모두 동기화 확인</li>
+          <li>Leader가 producer에게 ack 보냄</li>
+          <li>그 ack가 네트워크에서 손실</li>
+          <li>Producer는 timeout → 재시도</li>
+          <li>같은 메시지 M' 재전송</li>
+          <li>Leader가 M'을 또 append. 이제 log에 M, M' 두 번 있음</li>
+        </ol>
+
+        <p>
+          위 시나리오에서 Idempotent Producer를 활성화하면 9번 단계에서 broker가 중복 인식.
+          M'을 무시하고 첫 번째 M에 대한 ack만 다시 응답. 중복 방지.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. acks=all과 acks=1의 차이는요?</h3>
+
+        <p>
+          acks=1은 leader broker만 ack 보내요. leader가 받자마자 응답하므로 빠르지만, 비동기 복제 중 leader가 죽으면 데이터 손실 가능.
+          acks=all은 ISR 모두 ack를 기다려요. 가장 강한 보장. 단, latency 큼.
+          critical 데이터엔 acks=all + min.insync.replicas=2 조합이 표준이에요.
+        </p>
+
+        <h3>Q. ISR이 뭐예요?</h3>
+
+        <p>
+          In-Sync Replicas, 현재 leader와 충분히 동기화된 replica 집합이에요.
+          뒤처진 follower는 ISR에서 빠지고, 따라잡으면 다시 들어와요.
+          acks=all은 ISR 모두에 ack 받아야 응답. ISR 크기가 작아지면 손실 위험 증가하고, min.insync.replicas로 최소 크기 강제 가능.
+          leader 다운 시 ISR 안의 replica가 새 leader로 promotion돼요.
+        </p>
+
+        <h3>Q. Idempotent Producer가 어떻게 중복을 막나요?</h3>
+
+        <p>
+          Producer마다 PID(Producer ID)를 부여하고 메시지마다 sequence number 부여해요.
+          Broker가 같은 PID + sequence를 가진 메시지가 두 번 들어오면 중복으로 인식하고 한 번만 저장, ack는 다시 응답.
+          enable.idempotence=true로 활성화. 단일 partition 내에서 EOS 보장.
+          여러 partition에 걸친 atomic 쓰기는 Transactions가 필요해요.
+        </p>
+
+        <h3>Q. unclean.leader.election은 켜야 하나요?</h3>
+
+        <p>
+          기본값은 false (안전 우선). 켜면 ISR 모두 죽었을 때 ISR 밖 replica가 새 leader로 promotion되어 가용성 살리지만 데이터 손실 가능.
+          critical 데이터엔 false 유지. 가용성이 절대적으로 우선이고 일부 손실 허용 가능한 환경에선 true도 검토할 수 있지만 거의 권장 안 해요.
+          Kafka 1.0+부터 default false예요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Kafka의 At-least-once 표준 설정: Producer는 acks=all + idempotence + 무한 재시도, topic은 min.insync.replicas=2 + replication 3,
+          broker는 unclean.leader.election=false. Consumer는 처리 후 manual commit.
+          이 조합이 데이터 손실 없는 표준 보장이에요. 중복은 consumer 측 idempotency로 풀어요.
+        </p>
+
+        <p>
+          다음 편에서는 그 위에 올라가는 Exactly-Once Semantics를 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

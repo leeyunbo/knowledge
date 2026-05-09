@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cache Stampede의 정체 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 1/2</div>
+        <h1>Cache Stampede의 정체</h1>
+        <p class="subtitle">
+          인기 키의 TTL이 만료되는 순간 일어나는 사고. 캐시가 오히려 시스템 붕괴의 원인이 될 수 있어요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Cache Stampede</div>
+        <ol>
+          <li class="current">Stampede의 정체</li>
+          <li><a href="./02-방어-패턴.html">방어 패턴</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>이름의 의미</h2>
+
+        <p>
+          Stampede는 동물 무리가 한꺼번에 우르르 달리는 현상이에요.
+          캐시에서는 수많은 요청이 동시에 같은 자원으로 몰리는 사고를 의미해요.
+          Thundering Herd Problem이라는 다른 이름도 있어요. 의미는 같아요.
+        </p>
+
+        <h2>발생 시나리오</h2>
+
+        <p>
+          가장 흔한 자리는 인기 키의 TTL 만료 순간이에요.
+        </p>
+
+        <ol>
+          <li>인기 상품 정보가 캐시에 있고 TTL 5분 설정</li>
+          <li>그 5분 동안 초당 1000 요청이 그 키를 cache hit로 처리</li>
+          <li>5분 후 TTL 만료 → 캐시에서 키 사라짐</li>
+          <li>그 직후 들어온 첫 요청이 cache miss → DB 조회 시작</li>
+          <li>DB 조회 중에 또 들어온 요청들도 cache miss → 모두 DB 조회 시작</li>
+          <li>DB가 1000 동시 쿼리를 받음 → 부하 폭주</li>
+          <li>DB 응답 지연 → 더 많은 요청 누적 → 시스템 정지</li>
+        </ol>
+
+        <p>
+          평소에는 1 RPS가 DB로 가던 게 갑자기 1000 RPS로 폭주해요. DB가 이걸 흡수 못하면 시스템 전체가 무너져요.
+        </p>
+
+        <h2>왜 이렇게 위험한가요</h2>
+
+        <p>
+          평소에 캐시가 잘 동작하면 DB 부하는 매우 낮아요. 캐시가 99% 트래픽을 흡수하니 DB는 1%만 처리.
+          이런 환경에서 DB는 "정상 부하"의 1%만 처리할 수 있는 용량으로 운영되는 경우가 많아요.
+        </p>
+
+        <p>
+          그런데 stampede가 발생하면 DB가 갑자기 100배 부하를 받게 돼요.
+          평소 용량의 100배는 절대 흡수할 수 없으니 시스템이 무너져요.
+          캐시가 오히려 시스템을 더 취약하게 만든 셈.
+        </p>
+
+        <h2>실제 사례</h2>
+
+        <p>
+          유명한 사례 몇 가지가 있어요.
+        </p>
+
+        <ul>
+          <li>2008년 Twitter "fail whale" — 인기 트윗 캐시 만료 시 stampede가 시스템 다운의 한 원인</li>
+          <li>2015년 Reddit Hug of Death — 인기 게시글이 한 번에 캐시 만료되면서 DB 폭주</li>
+          <li>흔한 K-pop 콘서트 티켓 오픈 — 첫 5분에 stampede로 시스템 다운</li>
+          <li>이커머스 한정 세일 시작 시 — 인기 상품 캐시 만료가 트래픽 spike와 겹쳐 동시 발생</li>
+        </ul>
+
+        <p>
+          공통점은 "동시 접속이 많은 환경"이라는 점이에요. 트래픽이 적으면 stampede가 발생해도 영향이 작아요.
+          큰 서비스일수록 이 위험이 커요.
+        </p>
+
+        <h2>3가지 stampede 유형</h2>
+
+        <h3>유형 1 — TTL 만료 stampede</h3>
+
+        <p>
+          위에서 설명한 가장 흔한 시나리오. TTL 만료 → 다수 cache miss → DB 폭주.
+          가장 많이 다루는 유형이에요.
+        </p>
+
+        <h3>유형 2 — 캐시 노드 다운</h3>
+
+        <p>
+          Redis 노드가 다운되면 그 노드의 모든 키가 일순간에 사라져요.
+          평소에 그 노드가 처리하던 트래픽이 모두 DB로 폭주.
+          단일 키 stampede보다 훨씬 심각.
+        </p>
+
+        <h3>유형 3 — Cold cache start</h3>
+
+        <p>
+          새 캐시 인스턴스 시작 시 또는 deployment 후 cold cache 상태.
+          모든 요청이 cache miss → DB로 폭주.
+          서비스 재시작이나 새 노드 추가 직후에 발생.
+        </p>
+
+        <h2>왜 단순히 "캐시 다시 채우면 끝"이 아닌가요</h2>
+
+        <p>
+          순진한 생각. 한 요청이 cache miss로 DB에서 가져와 캐시에 저장하면 그 다음 요청은 hit. 끝.
+          그런데 첫 요청이 DB에서 가져오는 데 100ms 걸린다면, 그 100ms 동안 들어온 다른 모든 요청도 cache miss를 겪어요.
+        </p>
+
+        <pre><code class="language-text">시간    요청          상태
+T0      Req 1: cache miss → DB 조회 시작
+T20ms   Req 2: cache miss → DB 조회 시작 (Req 1 진행 중)
+T40ms   Req 3: cache miss → DB 조회 시작 (Req 1, 2 진행 중)
+...
+T100ms  Req 1: DB 응답 받음 → 캐시 저장
+T100ms+ 이후 요청: cache hit</code></pre>
+
+        <p>
+          첫 100ms 동안 누적된 모든 요청이 동시에 DB 조회. 100ms × 1000 RPS = 약 100개 동시 쿼리.
+          이게 stampede의 본질적 메커니즘이에요. <strong>한 요청이 캐시를 채우는 시간 동안 다른 요청들이 동시에 DB로 가는 것</strong>.
+        </p>
+
+        <h2>비슷한 패턴 — Dogpile Effect</h2>
+
+        <p>
+          같은 현상의 다른 이름. 한 자원에 강아지 무리(dogpile)가 몰리는 모양 비유.
+          기술적으로 같은 문제예요.
+        </p>
+
+        <h2>Stampede 측정</h2>
+
+        <p>
+          시스템에 stampede가 발생하는지 어떻게 알 수 있을까요? 모니터링 메트릭으로 추적.
+        </p>
+
+        <ul>
+          <li><strong>DB QPS spike</strong>: 평소 대비 갑작스러운 증가</li>
+          <li><strong>DB connection 사용량</strong>: 동시 연결 수가 급증</li>
+          <li><strong>Cache miss rate spike</strong>: 평소 1%였던 게 갑자기 50%</li>
+          <li><strong>Latency P99 증가</strong>: 응답 시간이 갑자기 길어짐</li>
+          <li><strong>Hot key 트래픽 분포</strong>: 한 키에 트래픽이 집중되는지</li>
+        </ul>
+
+        <p>
+          정상 운영에서도 작은 stampede는 자주 발생할 수 있어요. 그게 문제가 안 되는 수준인지, 큰 사고로 번지는지 측정으로 판단.
+        </p>
+
+        <h2>위험을 키우는 조건</h2>
+
+        <p>
+          어떤 환경에서 stampede가 더 위험해지는지 정리해볼게요.
+        </p>
+
+        <ul>
+          <li>인기 키가 소수에 집중 (hot key 패턴)</li>
+          <li>DB 조회가 느린 자원 (외부 API, 복잡한 쿼리)</li>
+          <li>캐시 hit ratio가 매우 높음 (DB 용량을 작게 두는 경향)</li>
+          <li>모든 인스턴스의 같은 키 TTL이 동시에 만료 (모두 같은 시각에 채웠다면)</li>
+          <li>트래픽이 일정하지 않음 (이벤트 기반 spike)</li>
+        </ul>
+
+        <p>
+          모두 일반적인 캐싱 환경 특성이에요. stampede는 본질적으로 캐시 사용 시 항상 가능한 함정.
+          그래서 의식적인 방어가 필요해요. 다음 편의 주제예요.
+        </p>
+
+        <h2>Stampede를 막는 일반 원칙</h2>
+
+        <p>
+          구체적 방법은 다음 편에서 자세히 다루지만, 큰 그림의 원칙을 먼저 정리하면 이래요.
+        </p>
+
+        <ol>
+          <li><strong>한 요청만 DB 조회하게</strong>: 동시 요청이 같은 키를 다 조회하지 않게</li>
+          <li><strong>TTL 동기화 깨기</strong>: 같은 키들의 만료 시점을 분산</li>
+          <li><strong>점진적 갱신</strong>: TTL 만료 직전부터 미리 갱신</li>
+          <li><strong>장애 대비</strong>: cache 다운 시 fallback 정책</li>
+        </ol>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Cache Stampede가 뭔가요?</h3>
+
+        <p>
+          인기 키의 TTL 만료 순간 다수 요청이 동시에 cache miss를 만나 DB로 몰려가는 현상이에요.
+          평소 cache hit으로 흡수되던 트래픽이 갑자기 DB로 폭주해서 DB가 처리 못하면 시스템 전체가 정지할 수 있어요.
+          캐시가 오히려 시스템을 취약하게 만드는 함정이에요. Thundering Herd Problem이라고도 불러요.
+        </p>
+
+        <h3>Q. 왜 한 요청이 캐시를 채우면 다른 요청도 안전하지 않나요?</h3>
+
+        <p>
+          첫 요청이 DB 조회를 끝내고 캐시에 저장하기까지 시간이 걸려요. 보통 수십~수백 ms.
+          그 시간 동안 들어오는 모든 요청도 cache miss를 보고 자기도 DB 조회 시작해요.
+          결과적으로 100ms × 1000 RPS = 100개 동시 쿼리 같이 누적돼요.
+          한 요청이 끝나기 전 다른 요청들이 같은 작업을 동시에 해버리는 게 stampede의 본질이에요.
+        </p>
+
+        <h3>Q. Stampede를 어떻게 감지하나요?</h3>
+
+        <p>
+          DB QPS 급증, connection 사용량 spike, cache miss rate 급증, latency P99 증가가 핵심 신호예요.
+          모니터링 시스템(Datadog, Prometheus)에 alert 걸어두면 자동 감지 가능.
+          평소 base line을 알면 비정상 패턴이 보여요.
+          작은 stampede는 자주 발생할 수 있어 위험 임계값을 명확히 정하는 게 중요해요.
+        </p>
+
+        <h3>Q. 어떤 워크로드가 stampede에 취약한가요?</h3>
+
+        <p>
+          인기 키가 소수에 집중되고, DB 조회가 느리고, cache hit ratio가 매우 높은 환경이 가장 취약해요.
+          한정 세일, 이벤트, 인기 콘텐츠 같은 hot spot 패턴.
+          또 모든 인스턴스가 같은 시각에 같은 키를 채웠다면 만료도 같이 발생해서 stampede가 커져요.
+          이런 환경은 의식적인 방어 패턴이 필수예요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Cache Stampede는 인기 키 만료 시 다수 요청이 동시에 DB로 몰려가는 사고예요.
+          평소 캐시가 흡수하던 트래픽이 갑자기 DB로 폭주해 시스템 정지로 이어질 수 있어요.
+          캐시 사용 시 항상 가능한 함정이라 의식적인 방어가 필요해요.
+        </p>
+
+        <p>
+          다음 편에서는 stampede를 막는 구체적 방어 패턴 5가지를 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

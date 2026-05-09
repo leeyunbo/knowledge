@@ -89,7 +89,7 @@
 
     <section class="graph-canvas">
       <div class="graph-meta">
-        <span><span id="progressText">2 / 29</span> · <span id="progressPct">7%</span></span>
+        <span><span id="progressText">8 / 29</span> · <span id="progressPct">28%</span></span>
       </div>
 
       <svg class="graph-svg" viewBox="0 0 1000 720" xmlns="http://www.w3.org/2000/svg" aria-label="분산 시스템 설계 토픽 그래프">
@@ -164,14 +164,14 @@
         </a>
 
         <!-- B. 분산 시스템 -->
-        <a class="node group-B" data-state="locked" data-id="7" data-title="CAP 정리" data-desc="C, A, P 중 둘만. 실무 시스템의 trade-off" href="#">
-          <g transform="translate(450,100)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">CAP</text></g>
+        <a class="node group-B" data-state="done" data-id="7" data-title="CAP 정리" data-desc="C, A, P 중 둘만. 실무 시스템의 trade-off" href="./posts/2026-05-cap-정리/01-cap-정체.html">
+          <g transform="translate(450,100)" style="--ring-delay: 0s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">CAP</text></g>
         </a>
-        <a class="node group-B" data-state="locked" data-id="8" data-title="분산 락" data-desc="Redis SETNX, Redlock 논쟁, Zookeeper" href="#">
-          <g transform="translate(530,180)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">분산락</text></g>
+        <a class="node group-B" data-state="done" data-id="8" data-title="분산 락" data-desc="Redis SETNX, Redlock 논쟁, Zookeeper" href="./posts/2026-05-분산-락/01-분산-락의-필요와-함정.html">
+          <g transform="translate(530,180)" style="--ring-delay: 0.4s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">분산락</text></g>
         </a>
-        <a class="node group-B" data-state="locked" data-id="9" data-title="Idempotency Key 설계" data-desc="중복 요청 방어, 키 생성 전략, TTL" href="#">
-          <g transform="translate(370,180)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Idempotency</text></g>
+        <a class="node group-B" data-state="done" data-id="9" data-title="Idempotency Key 설계" data-desc="중복 요청 방어, 키 생성 전략, TTL" href="./posts/2026-05-idempotency-key/01-idempotency-key의-정체.html">
+          <g transform="translate(370,180)" style="--ring-delay: 0.8s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Idempotency</text></g>
         </a>
         <a class="node group-B" data-state="locked" data-id="10" data-title="합의 알고리즘 (Raft)" data-desc="leader election, log replication, snapshot" href="#">
           <g transform="translate(440,280)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Raft</text></g>
@@ -187,22 +187,22 @@
         </a>
 
         <!-- C. 캐싱 -->
-        <a class="node group-C" data-state="locked" data-id="14" data-title="캐시 전략" data-desc="Look-aside / Write-through / Write-behind" href="#">
-          <g transform="translate(700,100)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">캐시 전략</text></g>
+        <a class="node group-C" data-state="done" data-id="14" data-title="캐시 전략" data-desc="Look-aside / Write-through / Write-behind" href="./posts/2026-05-캐시-전략/01-4가지-패턴.html">
+          <g transform="translate(700,100)" style="--ring-delay: 1.2s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">캐시 전략</text></g>
         </a>
-        <a class="node group-C" data-state="locked" data-id="15" data-title="캐시 일관성 패턴" data-desc="invalidation 시점, 더블 라이트, write-around" href="#">
-          <g transform="translate(820,100)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">일관성</text></g>
+        <a class="node group-C" data-state="done" data-id="15" data-title="캐시 일관성 패턴" data-desc="invalidation 시점, 더블 라이트, write-around" href="./posts/2026-05-캐시-전략/02-일관성.html">
+          <g transform="translate(820,100)" style="--ring-delay: 1.6s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">일관성</text></g>
         </a>
-        <a class="node group-C" data-state="locked" data-id="16" data-title="Cache Stampede 방어" data-desc="한꺼번에 만료될 때 발생. PER, lock, jitter" href="#">
-          <g transform="translate(770,200)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Stampede</text></g>
+        <a class="node group-C" data-state="done" data-id="16" data-title="Cache Stampede 방어" data-desc="한꺼번에 만료될 때 발생. PER, lock, jitter" href="./posts/2026-05-cache-stampede/01-stampede의-정체.html">
+          <g transform="translate(770,200)" style="--ring-delay: 2.0s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Stampede</text></g>
         </a>
         <a class="node group-C" data-state="locked" data-id="17" data-title="Redis 자료구조 실무 활용" data-desc="String, Hash, List, Set, Sorted Set, Stream" href="#">
           <g transform="translate(660,200)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Redis</text></g>
         </a>
 
         <!-- D. 메시징 -->
-        <a class="node group-D" data-state="locked" data-id="18" data-title="Kafka 보장 모델" data-desc="at-least-once, ordering, ack, ISR" href="#">
-          <g transform="translate(820,280)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Kafka 보장</text></g>
+        <a class="node group-D" data-state="done" data-id="18" data-title="Kafka 보장 모델" data-desc="at-least-once, ordering, ack, ISR" href="./posts/2026-05-kafka-보장-모델/01-3가지-보장-모델.html">
+          <g transform="translate(820,280)" style="--ring-delay: 2.4s;"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Kafka 보장</text></g>
         </a>
         <a class="node group-D" data-state="locked" data-id="19" data-title="Exactly-once의 환상" data-desc="진정한 exactly-once는 없다. idempotent producer + transactional" href="#">
           <g transform="translate(920,360)"><circle class="node-ring" /><circle class="node-circle" r="9" /><text class="node-label" y="24">Exactly-once</text></g>

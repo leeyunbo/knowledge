@@ -85,17 +85,17 @@
 - [x] ★ Session vs JWT — 언제 어느 것 (2편)
 
 ### 분산 시스템
-- [ ] ★ CAP 정리 — 실무 적용 (3편)
-- [ ] ★ 분산 락 — Redlock 논쟁까지 (3편)
-- [ ] ★ Idempotency Key 설계 (2편)
+- [x] ★ CAP 정리 — 실무 적용 (3편)
+- [x] ★ 분산 락 — Redlock 논쟁까지 (3편)
+- [x] ★ Idempotency Key 설계 (2편)
 
 ### 캐싱
-- [ ] ★ 캐시 전략 — Look-aside / Write-through / Write-behind (3편)
-- [ ] ★ 캐시 일관성 패턴 (3편)
-- [ ] ★ Cache Stampede 방어 (2편)
+- [x] ★ 캐시 전략 — Look-aside / Write-through / Write-behind (3편)
+- [x] ★ 캐시 일관성 패턴 (3편) — 캐시 전략 시리즈에 포함
+- [x] ★ Cache Stampede 방어 (2편)
 
 ### 메시징
-- [ ] ★ Kafka 보장 모델 (4편)
+- [x] ★ Kafka 보장 모델 (4편)
 - [ ] ★ "Exactly-once"의 환상 (3편)
 
 ### Resilience 패턴

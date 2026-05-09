@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redis 기반 구현 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 2/3</div>
+        <h1>Redis 기반 구현 — SETNX부터 Redisson까지</h1>
+        <p class="subtitle">
+          가장 많이 쓰이는 Redis 분산 락. 직접 구현해보면서 함정과 안전 패턴을 짚어요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">분산 락</div>
+        <ol>
+          <li><a href="./01-분산-락의-필요와-함정.html">분산 락의 필요와 함정</a></li>
+          <li class="current">Redis 기반 구현</li>
+          <li><a href="./03-redlock-논쟁.html">Redlock 논쟁과 안전한 패턴</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>가장 단순한 구현 — SETNX</h2>
+
+        <p>
+          Redis에서 분산 락을 만드는 출발점은 <code>SETNX</code> 명령어예요. SET if Not eXists의 약자.
+          키가 없을 때만 설정하고, 있으면 실패. 한 번에 한 클라이언트만 성공한다는 보장이 락의 핵심이에요.
+        </p>
+
+        <pre><code class="language-text">SET lock-key client-id NX EX 30
+# NX: 키가 없을 때만 설정
+# EX 30: 30초 TTL
+# 응답: OK 또는 nil</code></pre>
+
+        <h3>Java 코드로</h3>
+
+        <pre><code class="language-java">@Service
+public class SimpleRedisLock {
+
+    private final RedisTemplate&lt;String, String&gt; redis;
+
+    public boolean tryLock(String key, String token, Duration ttl) {
+        Boolean result = redis.opsForValue()
+            .setIfAbsent(key, token, ttl);
+        return Boolean.TRUE.equals(result);
+    }
+
+    public void unlock(String key, String token) {
+        // 위험: GET 후 DEL은 atomic 아님
+        String value = redis.opsForValue().get(key);
+        if (token.equals(value)) {
+            redis.delete(key);
+        }
+    }
+}</code></pre>
+
+        <p>
+          이 코드에는 함정이 있어요. unlock에서 GET과 DEL 사이에 다른 클라이언트가 끼어들 수 있어요.
+        </p>
+
+        <h2>안전한 unlock — Lua 스크립트</h2>
+
+        <p>
+          Redis는 Lua 스크립트를 atomic하게 실행해줘요. GET-검증-DEL을 하나의 atomic 연산으로 묶을 수 있어요.
+        </p>
+
+        <pre><code class="language-lua">if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end</code></pre>
+
+        <pre><code class="language-java">@Service
+public class SafeRedisLock {
+
+    private final StringRedisTemplate redis;
+
+    private static final String UNLOCK_SCRIPT =
+        "if redis.call('get', KEYS[1]) == ARGV[1] then " +
+        "  return redis.call('del', KEYS[1]) " +
+        "else " +
+        "  return 0 " +
+        "end";
+
+    public boolean tryLock(String key, String token, Duration ttl) {
+        Boolean result = redis.opsForValue()
+            .setIfAbsent(key, token, ttl);
+        return Boolean.TRUE.equals(result);
+    }
+
+    public boolean unlock(String key, String token) {
+        Long result = redis.execute(
+            new DefaultRedisScript&lt;&gt;(UNLOCK_SCRIPT, Long.class),
+            List.of(key),
+            token
+        );
+        return Long.valueOf(1).equals(result);
+    }
+}</code></pre>
+
+        <p>
+          이제 락 보유자만 자기 락을 풀 수 있고, 다른 클라이언트의 락을 잘못 푸는 일이 없어요.
+        </p>
+
+        <h2>사용 패턴 — try-finally</h2>
+
+        <pre><code class="language-java">String lockKey = "order:lock:" + orderId;
+String token = UUID.randomUUID().toString();
+Duration ttl = Duration.ofSeconds(30);
+
+if (lock.tryLock(lockKey, token, ttl)) {
+    try {
+        // critical section
+        processOrder(orderId);
+    } finally {
+        lock.unlock(lockKey, token);
+    }
+} else {
+    throw new BusyException("Already in progress");
+}</code></pre>
+
+        <p>
+          try-finally로 묶어 예외 발생해도 unlock 보장. token은 매 호출마다 새 UUID 생성해서 unique.
+          이 정도면 단순한 분산 락은 동작해요. 그런데 1편에서 본 함정들이 아직 남아있어요.
+        </p>
+
+        <h2>함정 1 — TTL 동안 작업 못 끝내면</h2>
+
+        <p>
+          작업이 예상보다 오래 걸려서 TTL 만료 전 못 끝나면 락이 자동 풀려요. 다른 클라이언트가 락 획득 후 자기 작업 시작.
+          기존 클라이언트는 자기가 락 가졌다 생각하고 작업 계속. race condition.
+        </p>
+
+        <h3>해결 — Watchdog 패턴</h3>
+
+        <p>
+          락을 잡은 후 백그라운드 스레드가 주기적으로 TTL을 연장해요. 작업이 끝날 때까지.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class WatchdogLock {
+
+    private final ScheduledExecutorService scheduler;
+
+    public LockHandle tryLock(String key, String token, Duration initialTtl) {
+        if (!doLock(key, token, initialTtl)) return null;
+
+        ScheduledFuture&lt;?&gt; renewal = scheduler.scheduleAtFixedRate(
+            () -&gt; renewLock(key, token, initialTtl),
+            initialTtl.toMillis() / 3,
+            initialTtl.toMillis() / 3,
+            TimeUnit.MILLISECONDS
+        );
+
+        return new LockHandle(key, token, renewal);
+    }
+
+    private void renewLock(String key, String token, Duration ttl) {
+        // EXPIRE를 보유자만 실행 (Lua로 atomic)
+        renewScript.execute(key, token, ttl.getSeconds());
+    }
+
+    public void unlock(LockHandle handle) {
+        handle.renewal.cancel(false);
+        doUnlock(handle.key, handle.token);
+    }
+}</code></pre>
+
+        <p>
+          TTL의 1/3 주기로 갱신. 30초 TTL이면 10초마다 한 번씩 연장.
+          작업이 끝나면 watchdog 멈추고 락 해제.
+          클라이언트 자체가 죽으면 watchdog도 죽으니 TTL이 만료되어 자동 정리.
+        </p>
+
+        <h3>renewLock의 안전성</h3>
+
+        <p>
+          연장도 atomic해야 해요. 자기 락만 연장하도록 Lua 스크립트로.
+        </p>
+
+        <pre><code class="language-lua">if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("expire", KEYS[1], ARGV[2])
+else
+    return 0
+end</code></pre>
+
+        <h2>Redisson — 권장 라이브러리</h2>
+
+        <p>
+          위 모든 패턴을 직접 구현하지 않고 검증된 라이브러리를 쓰는 게 안전해요. Java 진영의 표준이 Redisson이에요.
+          Watchdog, Lua 스크립트, fencing 등이 다 들어있어요.
+        </p>
+
+        <pre><code class="language-java">@Service
+public class OrderService {
+
+    private final RedissonClient redisson;
+
+    public void processOrder(Long orderId) {
+        RLock lock = redisson.getLock("order:" + orderId);
+
+        try {
+            // tryLock(waitTime, leaseTime, unit)
+            boolean acquired = lock.tryLock(5, 30, TimeUnit.SECONDS);
+            if (!acquired) {
+                throw new BusyException("Lock not acquired");
+            }
+
+            // critical section
+            doProcessOrder(orderId);
+
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+}</code></pre>
+
+        <h3>Redisson의 tryLock 인자</h3>
+
+        <ul>
+          <li><strong>waitTime</strong>: 락 획득까지 최대 대기 시간. 그 시간 안에 못 잡으면 false 반환</li>
+          <li><strong>leaseTime</strong>: TTL. 자동 갱신은 leaseTime 지정 시 비활성, 미지정 시 활성 (watchdog)</li>
+          <li><strong>unit</strong>: 시간 단위</li>
+        </ul>
+
+        <pre><code class="language-java">// leaseTime 지정 → 자동 갱신 X, 30초 후 자동 만료
+lock.tryLock(5, 30, TimeUnit.SECONDS);
+
+// leaseTime 미지정 (-1) → 자동 갱신 O, watchdog이 30초마다 연장 (기본)
+lock.tryLock(5, TimeUnit.SECONDS);
+lock.lock();   // 무한 대기, watchdog 활성</code></pre>
+
+        <p>
+          작업 시간이 예측 가능하면 leaseTime 명시. 작업 시간이 가변적이면 watchdog 활용.
+        </p>
+
+        <h2>Redisson의 추가 기능</h2>
+
+        <h3>RReadWriteLock — 읽기/쓰기 락</h3>
+
+        <p>
+          여러 reader가 동시에 락을 잡고, writer는 단독 점유.
+          캐시 갱신 같은 시나리오에 유용.
+        </p>
+
+        <pre><code class="language-java">RReadWriteLock rwLock = redisson.getReadWriteLock("cache:user:" + userId);
+
+// reader
+rwLock.readLock().lock();
+try { /* 읽기 */ } finally { rwLock.readLock().unlock(); }
+
+// writer
+rwLock.writeLock().lock();
+try { /* 쓰기 */ } finally { rwLock.writeLock().unlock(); }</code></pre>
+
+        <h3>RSemaphore — 동시 진입 수 제한</h3>
+
+        <pre><code class="language-java">RSemaphore semaphore = redisson.getSemaphore("api:rate-limit");
+semaphore.trySetPermits(10);   // 동시 10개까지
+
+semaphore.acquire();
+try { /* 작업 */ } finally { semaphore.release(); }</code></pre>
+
+        <p>
+          외부 API 호출 동시 수 제한, throttling 같은 자리.
+        </p>
+
+        <h3>RCountDownLatch</h3>
+
+        <p>
+          여러 서비스가 어떤 작업의 완료를 기다리는 패턴.
+          분산 환경의 java.util.concurrent.CountDownLatch 같은 도구.
+        </p>
+
+        <h2>주의 — Redis Cluster 환경</h2>
+
+        <p>
+          단일 Redis 인스턴스라면 위 패턴이 잘 동작해요. 그런데 Redis Cluster 환경에서는 추가 고려가 필요해요.
+        </p>
+
+        <h3>같은 slot 보장</h3>
+
+        <p>
+          Redis Cluster는 키를 hash slot으로 분산해요. 한 트랜잭션이나 Lua 스크립트에서 여러 키를 다루려면 같은 slot에 있어야 해요.
+          분산 락 구현 시 보통 한 키만 다루므로 문제없지만, 락과 보호되는 자원이 같은 slot에 있어야 atomicity 보장.
+        </p>
+
+        <pre><code class="language-text">{order:123}:lock      # {order:123} hash tag로 같은 slot 강제</code></pre>
+
+        <h3>Master-Slave 비동기 복제 함정</h3>
+
+        <p>
+          1편에서 짚은 함정. master에 락 SET → master 죽음 → replica가 새 master로 promotion → 락이 사라짐.
+          A는 자기가 락 가졌다 생각하지만 새 master는 모름. B가 SETNX 성공해 락 획득.
+          A와 B가 동시에 락 보유 → race condition.
+        </p>
+
+        <p>
+          이 문제를 풀려고 등장한 게 Redlock 알고리즘이에요. 단, 그것도 논쟁이 있어요. 다음 편 주제.
+        </p>
+
+        <h2>Spring 통합</h2>
+
+        <p>
+          Spring Boot에서 Redisson 통합은 간단해요.
+        </p>
+
+        <pre><code class="language-yaml">spring:
+  data:
+    redis:
+      host: redis.internal
+      port: 6379</code></pre>
+
+        <pre><code class="language-java">@Configuration
+public class RedissonConfig {
+
+    @Bean(destroyMethod = "shutdown")
+    public RedissonClient redissonClient(RedisProperties props) {
+        Config config = new Config();
+        config.useSingleServer()
+            .setAddress("redis://" + props.getHost() + ":" + props.getPort());
+        return Redisson.create(config);
+    }
+}</code></pre>
+
+        <p>
+          이후 어디서든 <code>RedissonClient</code> 주입받아 사용 가능.
+          모니터링, metrics, JMX exposure도 자동으로 들어와요.
+        </p>
+
+        <h2>분산 락 사용 시 권장 패턴</h2>
+
+        <p>
+          몇 가지 권장 패턴을 정리하면 이래요.
+        </p>
+
+        <h3>1. tryLock + waitTime 명시</h3>
+
+        <p>
+          무한 대기 <code>lock()</code>은 위험해요. 데드락이나 시스템 정지의 원인이 될 수 있어요.
+          항상 <code>tryLock(waitTime, ...)</code>로 명시적 timeout 설정.
+        </p>
+
+        <h3>2. critical section 짧게</h3>
+
+        <p>
+          락 안에서 외부 API 호출, 큰 DB 쿼리 같은 무거운 작업 피하기.
+          락 안은 메모리 작업 위주, 무거운 작업은 락 밖에서.
+        </p>
+
+        <h3>3. leaseTime을 작업 시간보다 충분히 크게</h3>
+
+        <p>
+          또는 watchdog 활용. 작업 도중 락 풀리는 게 가장 위험한 시나리오.
+        </p>
+
+        <h3>4. 항상 finally에서 unlock</h3>
+
+        <p>
+          <code>isHeldByCurrentThread()</code> 체크 후 unlock. 대기 중 timeout으로 락 못 잡은 경우 unlock 호출하면 예외 발생할 수 있어요.
+        </p>
+
+        <h3>5. 모니터링</h3>
+
+        <ul>
+          <li>락 획득 실패율 (waitTime 초과)</li>
+          <li>평균 락 보유 시간</li>
+          <li>락 획득 latency p99</li>
+          <li>watchdog 갱신 빈도</li>
+        </ul>
+
+        <p>
+          이 메트릭들로 락 시스템의 건강도와 성능 병목을 파악.
+        </p>
+
+        <h2>흔한 성능 함정</h2>
+
+        <h3>락 획득 latency</h3>
+
+        <p>
+          Redis가 같은 region에 있으면 0.5~2ms, 다른 region이면 100ms+.
+          매 작업마다 락 획득 비용이 전체 latency를 좌우해요. critical path에서는 Redis가 가까이 있어야 해요.
+        </p>
+
+        <h3>락 키 hot spot</h3>
+
+        <p>
+          모든 요청이 같은 락 키를 다투면 Redis 한 노드에 부하 집중.
+          가능하면 락을 더 작은 단위로 분할. user-id 같은 키로 락 분산.
+        </p>
+
+        <h3>락 폭주 시 cascading failure</h3>
+
+        <p>
+          백엔드 서비스가 느려져 락 보유 시간이 길어지면, 다른 요청이 락 대기 → 더 많은 스레드 점유 → 시스템 전체 정지.
+          락 대기 timeout을 짧게 두고 빠르게 fail하는 게 안전.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Redis에서 분산 락을 어떻게 구현하나요?</h3>
+
+        <p>
+          가장 단순한 형태는 <code>SET key value NX EX 30</code>. 키가 없을 때만 설정하고 30초 TTL 부여.
+          하지만 함정이 있어요. unlock 시 GET-DEL이 atomic 안 되면 다른 클라이언트의 락을 풀어버릴 수 있어요.
+          그래서 락 값에 unique token을 두고, Lua 스크립트로 GET-검증-DEL을 atomic하게 처리해야 안전해요.
+          실무에서는 Redisson 같은 라이브러리를 쓰는 게 가장 권장돼요.
+        </p>
+
+        <h3>Q. Redisson의 watchdog이 뭔가요?</h3>
+
+        <p>
+          락 보유 중인 클라이언트가 백그라운드 스레드로 TTL을 주기적으로 연장하는 메커니즘이에요.
+          기본 30초 TTL이면 10초마다 다시 30초로 갱신. 작업이 길어져도 락이 풀리지 않아요.
+          작업이 끝나면 watchdog 종료, 클라이언트가 죽으면 watchdog도 죽어 TTL 만료로 자동 정리.
+          Redisson에서 leaseTime 지정 안 하면 watchdog 활성, 지정하면 비활성이에요.
+        </p>
+
+        <h3>Q. critical section은 왜 짧게 유지해야 하나요?</h3>
+
+        <p>
+          락 보유 시간이 길수록 다른 클라이언트의 대기가 누적돼서 throughput이 떨어져요.
+          또 락 안에서 외부 API 호출하다가 응답 안 오면 락이 영원히 안 풀리는 상황도 가능해요.
+          락 안에서는 메모리 연산이나 짧은 DB 작업만, 외부 호출이나 무거운 작업은 락 밖에서 처리.
+          이게 분산 락 운영의 핵심 원칙이에요.
+        </p>
+
+        <h3>Q. Redis Cluster에서 락 키를 어떻게 설계하나요?</h3>
+
+        <p>
+          관련된 키들이 같은 hash slot에 있도록 hash tag를 사용해요. <code>{order:123}:lock</code>처럼 중괄호로 묶인 부분이 hash key가 돼요.
+          이래야 락과 보호되는 자원이 같은 slot에 있어 Lua 스크립트의 atomicity 보장.
+          또 master-slave 비동기 복제로 인한 락 손실 가능성을 의식해서, 단일 Redis 인스턴스보다는 Redlock 같은 추가 메커니즘 검토 필요해요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Redis 분산 락의 출발점은 <code>SET NX EX</code>이지만, 안전한 구현엔 unique token + Lua 스크립트 + watchdog이 필요해요.
+          실무에서는 Redisson 같은 검증된 라이브러리를 쓰는 게 안전. Spring 통합도 간단하고 RReadWriteLock, RSemaphore 같은 추가 도구도 제공해요.
+          critical section은 짧게, leaseTime 충분하게, 항상 finally에서 unlock 하는 게 권장 패턴이에요.
+        </p>
+
+        <p>
+          마지막 편에서는 Redis Cluster 환경의 락 안전성을 둘러싼 Redlock 논쟁과 진짜 안전한 패턴인 fencing token을 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

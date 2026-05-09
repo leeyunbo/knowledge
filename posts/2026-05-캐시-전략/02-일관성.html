@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>캐시 일관성 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 2/3</div>
+        <h1>캐시 일관성</h1>
+        <p class="subtitle">
+          캐시와 DB가 다른 값을 보여주는 일관성 문제. 그리고 흔한 race condition들과 해결 패턴이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">캐시 전략</div>
+        <ol>
+          <li><a href="./01-4가지-패턴.html">4가지 패턴</a></li>
+          <li class="current">캐시 일관성</li>
+          <li><a href="./03-분산-캐시.html">분산 캐시</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>일관성 문제의 본질</h2>
+
+        <p>
+          캐시는 본질적으로 DB의 복사본이에요. 두 곳에 같은 데이터가 있으면 언젠가 둘이 어긋날 가능성이 생겨요.
+          어떻게 어긋나는지, 어떻게 다시 맞추는지가 캐시 일관성 관리의 핵심이에요.
+        </p>
+
+        <p>
+          어긋나는 자리는 크게 세 가지예요.
+        </p>
+
+        <ul>
+          <li><strong>쓰기 직후</strong>: DB는 새 값, 캐시는 옛 값</li>
+          <li><strong>TTL 만료 전</strong>: 다른 경로로 DB가 변경됐는데 캐시는 옛 값 유지</li>
+          <li><strong>분산 환경</strong>: 노드별로 다른 캐시 값 보유</li>
+        </ul>
+
+        <h2>일관성 단계</h2>
+
+        <table>
+          <thead>
+            <tr><th>단계</th><th>의미</th><th>비용</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Strong consistency</td>
+              <td>캐시와 DB가 항상 일치</td>
+              <td>매우 높음 (모든 쓰기 동기화)</td>
+            </tr>
+            <tr>
+              <td>Read-your-writes</td>
+              <td>내가 쓴 건 내가 읽을 때 보장</td>
+              <td>중간</td>
+            </tr>
+            <tr>
+              <td>Eventual consistency</td>
+              <td>충분한 시간 후 일치</td>
+              <td>낮음</td>
+            </tr>
+            <tr>
+              <td>Weak consistency</td>
+              <td>일치 보장 없음, 자주 갱신</td>
+              <td>매우 낮음</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          대부분의 실무 캐시는 eventual consistency 정도를 추구해요. Strong은 비용이 너무 커서 캐시 의미가 사라져요.
+        </p>
+
+        <h2>Race Condition 1 — Update vs Read</h2>
+
+        <p>
+          가장 흔한 시나리오. Look-aside 패턴에서 Update와 Read가 동시에 일어날 때.
+        </p>
+
+        <pre><code class="language-text">시간    Read 스레드              Update 스레드
+T1     redis.get(key) → null
+T2                              userRepo.save(updatedUser)
+T3                              redis.delete(key)
+T4     userRepo.findById() → 옛 값 (T1 시점)
+T5     redis.set(key, 옛 값)
+T6     read 끝, 캐시에 stale 데이터 남음</code></pre>
+
+        <p>
+          Read 스레드가 cache miss 후 DB 조회. 그 사이에 Update 스레드가 DB 갱신 + 캐시 삭제.
+          하지만 Read 스레드는 옛 값을 보고 캐시에 다시 set. 캐시에 stale 데이터가 남아요.
+        </p>
+
+        <h3>해결 — Cache-Aside Pattern with TTL</h3>
+
+        <p>
+          가장 단순한 답. 캐시에 짧은 TTL을 두면 race가 발생해도 일정 시간 후 자동 정리.
+          5~10분 TTL이면 stale 데이터 영향이 짧아요.
+        </p>
+
+        <h3>해결 — 분산 락</h3>
+
+        <p>
+          Read와 Update를 같은 락으로 보호. 단, 매 read에 락 비용이 들어가서 적합하지 않은 경우 많아요.
+        </p>
+
+        <h3>해결 — Update 후 두 번 invalidation</h3>
+
+        <p>
+          Update 후 캐시 삭제, 잠깐 기다렸다가 한 번 더 삭제. 두 번째 삭제가 race로 들어간 stale 데이터를 정리.
+        </p>
+
+        <pre><code class="language-java">@Transactional
+public void updateUser(User user) {
+    userRepository.save(user);
+    redis.delete("user:" + user.getId());
+
+    // 100ms 후 한 번 더
+    scheduler.schedule(
+        () -&gt; redis.delete("user:" + user.getId()),
+        100, TimeUnit.MILLISECONDS
+    );
+}</code></pre>
+
+        <p>
+          간단하지만 race window가 100ms보다 길면 안 통해요. 어디까지 정확성을 추구할지 결정 필요.
+        </p>
+
+        <h2>Race Condition 2 — Cache Stampede</h2>
+
+        <p>
+          인기 키의 TTL이 만료되는 순간 수천 요청이 동시에 cache miss를 만나 DB로 몰려가는 현상이에요.
+          DB에 갑작스러운 부하가 몰려서 시스템 정지 위험.
+          이 주제는 워낙 중요해서 별도 시리즈로 다뤄요.
+        </p>
+
+        <h2>Race Condition 3 — Double Read</h2>
+
+        <p>
+          한 트랜잭션 안에서 같은 데이터를 두 번 읽는데, 그 사이에 캐시가 갱신되어 두 read가 다른 결과를 보는 경우.
+        </p>
+
+        <pre><code class="language-java">public Order processOrder(Long orderId) {
+    User user = getUser(orderId);   // cache hit, 이름 "Alice"
+
+    // 이 사이에 다른 트랜잭션이 user 이름 변경 + 캐시 갱신
+
+    User user2 = getUser(orderId);  // cache hit, 이름 "Bob"
+    // 같은 트랜잭션에서 다른 user 보임
+}</code></pre>
+
+        <h3>해결</h3>
+
+        <p>
+          한 트랜잭션 안에서는 한 번 읽은 값을 변수에 저장해 재사용. 캐시 호출을 반복하지 않기.
+          또는 한 메서드 내 캐시 결과를 트랜잭션 스코프 안에서 한 번만 사용.
+        </p>
+
+        <h2>Cache Invalidation Patterns</h2>
+
+        <h3>패턴 1 — Write + Invalidate</h3>
+
+        <p>
+          가장 흔한 패턴. DB 쓰기 후 캐시 키 삭제. 다음 read에서 자연스럽게 새 값 캐싱.
+        </p>
+
+        <pre><code class="language-java">@Transactional
+public void update(User user) {
+    userRepository.save(user);
+    redis.delete("user:" + user.getId());
+}</code></pre>
+
+        <h3>패턴 2 — Write + Update Cache</h3>
+
+        <p>
+          DB 쓰기 후 새 값으로 캐시 갱신. 다음 read가 즉시 hit.
+          단, 동시 쓰기 시 race 가능. invalidate가 더 안전.
+        </p>
+
+        <h3>패턴 3 — TTL only</h3>
+
+        <p>
+          Invalidation 없이 짧은 TTL만 의존. 코드는 단순하지만 stale 윈도우 명확.
+          자주 안 변하는 데이터에 적합.
+        </p>
+
+        <h3>패턴 4 — Event-driven invalidation</h3>
+
+        <p>
+          DB 변경 이벤트(CDC, Outbox)로 캐시 invalidation 트리거.
+          여러 서비스가 같은 캐시를 공유할 때 강력해요.
+        </p>
+
+        <pre><code class="language-text">DB write → Outbox event → Kafka → Cache invalidation worker → Redis delete</code></pre>
+
+        <h2>분산 캐시의 일관성</h2>
+
+        <p>
+          여러 캐시 노드(또는 캐시 인스턴스)가 있을 때 어느 노드의 invalidation을 다른 노드에 전파할지가 문제예요.
+        </p>
+
+        <h3>Local Cache의 함정</h3>
+
+        <p>
+          Caffeine 같은 in-memory 캐시는 각 서버 인스턴스에 따로 존재해요.
+          서버 A의 캐시를 invalidate해도 서버 B의 캐시는 그대로.
+          여러 인스턴스가 다른 stale 데이터를 보여주는 inconsistency 발생.
+        </p>
+
+        <h3>해결 — Pub/Sub Invalidation</h3>
+
+        <p>
+          한 인스턴스가 invalidate 발생하면 메시지를 발행해 다른 인스턴스도 invalidate.
+        </p>
+
+        <pre><code class="language-java">@Component
+public class DistributedCache {
+
+    private final Cache&lt;String, Object&gt; localCache = Caffeine.newBuilder()
+        .expireAfterWrite(Duration.ofMinutes(5))
+        .build();
+
+    public void invalidate(String key) {
+        localCache.invalidate(key);
+        redis.publish("cache:invalidate", key);   // 다른 인스턴스에 알림
+    }
+
+    @EventListener
+    public void onMessage(String key) {
+        localCache.invalidate(key);
+    }
+}</code></pre>
+
+        <h3>Redis 6.0 Client-Side Caching</h3>
+
+        <p>
+          Redis 6.0부터 client-side caching을 표준으로 지원해요. 클라이언트가 자기 메모리에 캐시를 두고,
+          Redis가 키 변경 시 자동으로 invalidation 메시지 전송.
+          분산 환경의 일관성 처리가 자동화돼요.
+        </p>
+
+        <h2>실무 가이드</h2>
+
+        <p>
+          캐시 일관성 관리의 실용적 가이드를 정리하면 이래요.
+        </p>
+
+        <ol>
+          <li>먼저 TTL을 두세요. 모든 일관성 함정의 first line of defense예요</li>
+          <li>Write 후 캐시 invalidate. 갱신보다 삭제가 거의 항상 더 안전</li>
+          <li>Strong consistency가 진짜 필요한 데이터는 캐싱하지 말기</li>
+          <li>Local cache + 분산 환경이면 invalidation 전파 메커니즘 필수</li>
+          <li>모니터링 — cache hit ratio, stale data 발생 빈도, 일관성 깨진 시간</li>
+        </ol>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 캐시 invalidation을 왜 update보다 권장하나요?</h3>
+
+        <p>
+          동시 쓰기 시 race 위험이 적어요. 두 update가 거의 동시에 발생하면 캐시는 마지막 update 결과로 끝날 수 있는데,
+          그게 DB의 최종 결과와 다를 수 있어요. invalidation은 다음 read에서 DB의 최신 값을 새로 캐싱하니 이런 race가 없어요.
+          또 invalidation은 단순해서 구현 함정도 적어요. cache-aside의 표준 패턴이에요.
+        </p>
+
+        <h3>Q. cache-aside의 stale data race는 어떻게 풀어요?</h3>
+
+        <p>
+          가장 단순한 답은 짧은 TTL이에요. 5~10분이면 race로 들어간 stale 데이터도 자동 정리.
+          더 강한 보장이 필요하면 update 후 두 번 invalidation (즉시 + 100ms 후), 또는 분산 락으로 read+update 보호.
+          하지만 락은 비용이 커서 거의 안 써요. 보통 TTL + invalidation 조합으로 충분해요.
+        </p>
+
+        <h3>Q. Local cache (Caffeine)와 분산 cache (Redis) 중 무엇을 쓰나요?</h3>
+
+        <p>
+          단일 인스턴스라면 Caffeine이 가장 빠르고 단순. 분산 환경이면 Redis가 자연스러운 선택.
+          하이브리드 패턴도 흔해요. Caffeine을 L1 캐시(매우 빠름), Redis를 L2 캐시(공유)로 두는 multi-level.
+          단, Caffeine을 분산 환경에서 쓸 때는 invalidation 전파(Redis pub/sub)이 필수예요.
+        </p>
+
+        <h3>Q. 어떤 데이터는 캐싱하지 말아야 하나요?</h3>
+
+        <p>
+          금융 거래처럼 strong consistency가 필요한 데이터, 자주 변하는 사용자 입력 데이터, 보안 sensitive한 데이터(토큰)는 캐싱 부적합.
+          또 cache hit ratio가 매우 낮은 데이터(매번 다른 키 조회)는 캐시 의미 없어요.
+          캐싱이 의미 있는 건 자주 읽히고 자주 안 변하는 데이터예요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          캐시 일관성은 TTL + Invalidation 조합으로 대부분 풀어요. Update 시 update가 아닌 invalidate가 더 안전한 패턴.
+          분산 환경에서는 invalidation 전파 메커니즘(Redis pub/sub) 필수.
+          Strong consistency가 필요한 데이터는 캐싱하지 않는 게 답.
+          대부분의 실무는 eventual consistency 정도가 충분해요.
+        </p>
+
+        <p>
+          다음 편에서는 분산 캐시의 구조와 partitioning, replication을 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

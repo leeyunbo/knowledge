@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exactly-Once Semantics (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 3/4</div>
+        <h1>Exactly-Once Semantics</h1>
+        <p class="subtitle">
+          Kafka가 EOS를 어떻게 구현하는지. Idempotent Producer + Transactions의 결합이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Kafka 보장 모델</div>
+        <ol>
+          <li><a href="./01-3가지-보장-모델.html">3가지 보장 모델</a></li>
+          <li><a href="./02-kafka-기본-보장.html">Kafka의 기본 보장</a></li>
+          <li class="current">Exactly-Once Semantics</li>
+          <li><a href="./04-consumer-측-처리.html">Consumer 측 처리</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>EOS의 두 부분</h2>
+
+        <p>
+          Kafka의 Exactly-Once Semantics는 두 메커니즘으로 구성돼요.
+        </p>
+
+        <ul>
+          <li><strong>Idempotent Producer</strong>: 단일 partition 내 중복 방지 (2편에서 본 것)</li>
+          <li><strong>Transactions</strong>: 여러 partition에 걸친 atomic 쓰기</li>
+        </ul>
+
+        <p>
+          Idempotent Producer는 한 partition에 같은 메시지가 두 번 저장되는 걸 막고,
+          Transactions는 여러 메시지 또는 여러 partition의 변경을 atomic하게 묶어요. 둘이 결합해서 EOS가 완성돼요.
+        </p>
+
+        <h2>왜 Transactions가 필요한가요</h2>
+
+        <p>
+          가장 흔한 EOS 시나리오는 "consume → process → produce" 패턴. Kafka에서 메시지 받아 처리한 결과를 다시 Kafka에 쓰는 거예요.
+          이때 atomicity가 깨지는 자리가 여러 군데 있어요.
+        </p>
+
+        <ol>
+          <li>Consumer가 메시지 받음</li>
+          <li>처리 후 Producer로 결과 메시지 발행</li>
+          <li>Consumer offset commit</li>
+        </ol>
+
+        <p>
+          2번 후 3번 전에 crash 발생하면? 재시작 시 같은 메시지 다시 받아 처리, 결과 메시지 또 발행.
+          중복 결과 발생.
+          반대로 3번 후 2번 전 crash면 메시지 처리 결과 손실.
+        </p>
+
+        <p>
+          이 시나리오에서 EOS를 보장하려면 <strong>2번과 3번을 atomic하게 묶어야</strong> 해요. 둘 다 성공 또는 둘 다 실패.
+          이게 Kafka Transactions의 자리예요.
+        </p>
+
+        <h2>Transactions API</h2>
+
+        <pre><code class="language-java">Properties props = new Properties();
+props.put("transactional.id", "my-transactional-id");
+props.put("enable.idempotence", "true");
+props.put("acks", "all");
+
+Producer&lt;String, String&gt; producer = new KafkaProducer&lt;&gt;(props);
+producer.initTransactions();   // 한 번만 호출
+
+while (running) {
+    producer.beginTransaction();
+    try {
+        ConsumerRecords records = consumer.poll(Duration.ofMillis(100));
+        for (ConsumerRecord record : records) {
+            String result = process(record);
+            producer.send(new ProducerRecord("output-topic", result));
+        }
+
+        // offset commit도 transaction의 일부
+        producer.sendOffsetsToTransaction(
+            currentOffsets(records),
+            consumer.groupMetadata()
+        );
+
+        producer.commitTransaction();
+    } catch (Exception e) {
+        producer.abortTransaction();
+    }
+}</code></pre>
+
+        <h3>핵심 포인트</h3>
+
+        <ul>
+          <li><code>transactional.id</code>: producer 식별자, 재시작 후에도 같은 id 사용</li>
+          <li><code>initTransactions()</code>: producer 시작 시 한 번만 호출</li>
+          <li><code>beginTransaction()</code>, <code>commitTransaction()</code>, <code>abortTransaction()</code>으로 트랜잭션 경계</li>
+          <li><code>sendOffsetsToTransaction()</code>: consumer offset commit을 트랜잭션에 포함</li>
+        </ul>
+
+        <p>
+          이 트랜잭션 안에 들어간 모든 send와 offset commit은 atomic. 함께 commit되거나 함께 abort.
+        </p>
+
+        <h2>내부 메커니즘</h2>
+
+        <h3>Transaction Coordinator</h3>
+
+        <p>
+          각 transactional producer마다 코디네이터 broker가 할당돼요. 트랜잭션 상태를 관리.
+        </p>
+
+        <ul>
+          <li>트랜잭션 상태(BEGIN, ONGOING, COMMITTED, ABORTED)를 internal topic에 저장</li>
+          <li>장애 시 트랜잭션 복구</li>
+          <li>두 producer가 같은 transactional.id 쓰면 fencing</li>
+        </ul>
+
+        <h3>Two-Phase Commit (2PC)</h3>
+
+        <p>
+          Kafka 트랜잭션은 분산 트랜잭션의 표준 패턴인 2PC와 유사한 방식으로 동작해요.
+        </p>
+
+        <ol>
+          <li>Prepare: Coordinator에 commit 요청, transaction 상태를 PREPARE_COMMIT으로 기록</li>
+          <li>각 partition leader에 commit marker 전파</li>
+          <li>모든 partition 확인 후 transaction 상태를 COMMITTED로</li>
+          <li>Producer에 응답</li>
+        </ol>
+
+        <p>
+          중간에 장애가 발생해도 coordinator가 PREPARE_COMMIT 상태 보고 복구. 모든 partition에 commit marker 전파 후 COMMITTED 처리.
+        </p>
+
+        <h3>Read Isolation Level</h3>
+
+        <p>
+          Consumer 측에서도 설정이 필요해요.
+        </p>
+
+        <pre><code class="language-properties">isolation.level=read_committed</code></pre>
+
+        <ul>
+          <li><code>read_uncommitted</code> (기본): 진행 중 트랜잭션 메시지도 읽음</li>
+          <li><code>read_committed</code>: COMMITTED 마커가 찍힌 메시지만 읽음</li>
+        </ul>
+
+        <p>
+          EOS를 받으려면 read_committed 필수. 진행 중 트랜잭션이 abort되면 그 메시지를 읽지 않아야 EOS 보장.
+        </p>
+
+        <h2>Producer Fencing</h2>
+
+        <p>
+          같은 transactional.id를 가진 producer 두 개가 동시에 동작하면 안 돼요. 이걸 막는 메커니즘이 fencing이에요.
+        </p>
+
+        <pre><code class="language-text">Producer A (transactional.id=foo, epoch=1)
+Producer B (transactional.id=foo, epoch=2)   ← 새로 시작
+
+Coordinator는 epoch=2를 새 활성으로 인식
+Producer A의 commit 시도 → ProducerFencedException</code></pre>
+
+        <p>
+          새 producer가 같은 transactional.id로 시작하면 epoch 증가. 옛 producer의 모든 트랜잭션은 fencing되어 거부.
+          producer 재시작이나 zombie 인스턴스로 인한 중복을 방지해요.
+        </p>
+
+        <h2>EOS 권장 설정</h2>
+
+        <pre><code class="language-properties"># Producer
+transactional.id=my-app-producer-1
+enable.idempotence=true
+acks=all
+retries=Integer.MAX_VALUE
+max.in.flight.requests.per.connection=5
+
+# Consumer
+isolation.level=read_committed
+enable.auto.commit=false
+
+# Topic
+replication.factor=3
+min.insync.replicas=2
+
+# Broker
+transaction.state.log.replication.factor=3
+transaction.state.log.min.isr=2</code></pre>
+
+        <h2>Spring Kafka의 EOS</h2>
+
+        <p>
+          Spring Kafka는 EOS 설정을 추상화해서 더 단순하게 사용 가능.
+        </p>
+
+        <pre><code class="language-yaml">spring:
+  kafka:
+    producer:
+      transaction-id-prefix: tx-
+      properties:
+        enable.idempotence: true
+    consumer:
+      isolation-level: read_committed</code></pre>
+
+        <pre><code class="language-java">@Service
+public class StreamProcessor {
+
+    @Transactional("kafkaTransactionManager")
+    @KafkaListener(topics = "input-topic")
+    public void process(ConsumerRecord&lt;String, String&gt; record) {
+        String result = doProcess(record.value());
+        kafkaTemplate.send("output-topic", result);
+        // offset commit과 send가 같은 트랜잭션
+    }
+}</code></pre>
+
+        <p>
+          @Transactional 한 어노테이션으로 EOS 활성화. Spring이 내부적으로 sendOffsetsToTransaction 호출.
+          단, kafkaTransactionManager 설정이 필요해요.
+        </p>
+
+        <h2>EOS의 한계</h2>
+
+        <h3>한계 1 — Kafka 내부 한정</h3>
+
+        <p>
+          Kafka EOS는 <strong>Kafka의 read → process → write 사이클에서만 보장</strong>이에요.
+          Consumer가 외부 시스템(DB, API)에 쓰는 경우는 별개.
+          이 end-to-end EOS는 4편의 주제예요.
+        </p>
+
+        <h3>한계 2 — 처리량 손실</h3>
+
+        <p>
+          트랜잭션 commit 비용이 있어서 throughput이 떨어져요. 일반 producer 대비 ~30~50% 감소.
+          EOS가 진짜 필요한 자리에만 적용. 일반 메시징은 At-least-once + idempotency가 더 효율적일 수 있어요.
+        </p>
+
+        <h3>한계 3 — 복잡도</h3>
+
+        <p>
+          Producer, Consumer, Topic, Broker 설정 모두 정확해야 EOS 동작.
+          하나라도 틀리면 EOS 깨짐. Spring Kafka 같은 추상화 사용이 권장돼요.
+        </p>
+
+        <h3>한계 4 — Lag 증가</h3>
+
+        <p>
+          read_committed consumer는 진행 중 트랜잭션의 메시지를 읽지 않으니, 트랜잭션이 길면 consumer lag 증가.
+          짧은 트랜잭션을 자주 commit하는 게 권장.
+        </p>
+
+        <h2>EOS가 필요한 자리</h2>
+
+        <ul>
+          <li>금융 트랜잭션 (이체, 결제 처리)</li>
+          <li>재고 관리 (정확한 수량 추적)</li>
+          <li>이벤트 소싱 (이벤트 중복 절대 금지)</li>
+          <li>스트림 처리에서 정확한 집계 (count, sum 등)</li>
+          <li>다른 시스템과의 정확한 동기화</li>
+        </ul>
+
+        <h2>EOS를 안 써도 되는 자리</h2>
+
+        <ul>
+          <li>로그 수집 (일부 손실/중복 허용)</li>
+          <li>메트릭, 통계</li>
+          <li>알림, 푸시 (idempotency로 처리 가능)</li>
+          <li>일반 비즈니스 이벤트 (consumer가 idempotent하게 처리하면 충분)</li>
+        </ul>
+
+        <p>
+          많은 자리에서 At-least-once + Consumer idempotency가 EOS와 같은 효과 + 더 단순.
+          EOS는 진짜 필요할 때만 검토.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Kafka EOS의 두 메커니즘은요?</h3>
+
+        <p>
+          Idempotent Producer와 Transactions예요. Idempotent Producer는 PID + sequence number로 단일 partition 중복 방지.
+          Transactions는 여러 partition 또는 여러 메시지 + offset commit을 atomic하게 묶어요.
+          consume → process → produce 패턴에서 처리 결과 발행과 offset commit을 함께 처리해서 EOS 보장.
+          read_committed isolation으로 consumer가 진행 중 transaction을 안 읽도록 설정도 함께 필요해요.
+        </p>
+
+        <h3>Q. transactional.id가 뭐예요?</h3>
+
+        <p>
+          Producer의 transactional 식별자예요. 같은 id로 새 producer가 시작하면 옛 producer는 fencing되어 거부돼요(ProducerFencedException).
+          이게 zombie producer로 인한 중복을 막아줘요.
+          애플리케이션 인스턴스마다 unique한 id를 부여하고, 재시작 후에도 같은 id 사용. coordinator가 epoch로 fencing 처리해요.
+        </p>
+
+        <h3>Q. EOS의 가장 큰 한계는요?</h3>
+
+        <p>
+          Kafka 내부 한정이에요. Consumer가 외부 시스템(DB, API)에 쓰는 경우는 EOS 별도 보장 안 됨.
+          end-to-end EOS는 consumer 측에서 idempotency나 transaction을 추가해야 보장.
+          또 throughput이 ~30~50% 감소하는 비용이 있어서 진짜 필요한 자리에만 써야 해요.
+          많은 경우 At-least-once + idempotency가 더 효율적.
+        </p>
+
+        <h3>Q. Spring Kafka의 EOS는 어떻게 활용해요?</h3>
+
+        <p>
+          transaction-id-prefix와 isolation-level=read_committed를 yaml로 설정.
+          Listener 메서드에 @Transactional("kafkaTransactionManager") 붙이면 Spring이 자동으로 transaction 처리.
+          내부적으로 producer.beginTransaction, sendOffsetsToTransaction, commitTransaction 호출.
+          한 어노테이션으로 EOS 활성화. 단, kafkaTransactionManager Bean 설정이 필요해요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Kafka EOS는 Idempotent Producer + Transactions로 구성돼요. consume → process → produce 사이클에서 EOS 보장.
+          단, Kafka 내부 한정이고 외부 시스템과의 end-to-end EOS는 별도 처리 필요.
+          throughput 비용도 있어서 진짜 정확성이 critical한 자리에만 적용.
+          Spring Kafka가 추상화 제공해서 활용은 단순해요.
+        </p>
+
+        <p>
+          마지막 편에서는 Consumer 측 처리, 특히 외부 시스템과의 end-to-end 보장 패턴을 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

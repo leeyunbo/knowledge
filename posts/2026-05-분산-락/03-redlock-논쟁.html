@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redlock 논쟁과 안전한 패턴 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 3/3</div>
+        <h1>Redlock 논쟁과 안전한 패턴</h1>
+        <p class="subtitle">
+          Redis 분산 락의 안전성을 둘러싼 유명한 학계 논쟁. 그리고 그 논쟁이 알려주는 진짜 안전한 패턴이에요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">분산 락</div>
+        <ol>
+          <li><a href="./01-분산-락의-필요와-함정.html">분산 락의 필요와 함정</a></li>
+          <li><a href="./02-redis-구현.html">Redis 기반 구현</a></li>
+          <li class="current">Redlock 논쟁과 안전한 패턴</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Redlock의 등장</h2>
+
+        <p>
+          2016년 Redis 창시자 Salvatore Sanfilippo가 발표한 알고리즘이에요.
+          1편에서 짚은 함정인 "master 장애 + replica failover로 락 손실"을 풀려는 시도였어요.
+        </p>
+
+        <h3>핵심 아이디어</h3>
+
+        <p>
+          단일 Redis 대신 <strong>독립적인 Redis 인스턴스 N개</strong>(보통 5개)를 두고, majority(N/2 + 1)에서 락 획득에 성공해야 진짜 락 보유로 인정.
+          한두 인스턴스가 죽어도 majority가 살아있으면 락 시스템이 동작.
+          replica 없이 모두 master.
+        </p>
+
+        <h3>흐름</h3>
+
+        <ol>
+          <li>현재 시각 측정 (timestamp T1)</li>
+          <li>N개의 독립 Redis 인스턴스에 동일한 키, 동일한 token으로 SET NX 시도 (각각 짧은 timeout으로)</li>
+          <li>성공한 인스턴스 수 확인. (N/2 + 1) 이상이면 후보 락 획득</li>
+          <li>현재 시각 T2 측정. 경과 시간 (T2 - T1)이 락 TTL보다 작아야 유효</li>
+          <li>유효한 TTL = 원래 TTL - (T2 - T1) - clock drift</li>
+          <li>이 시간 안에 작업을 끝내야 안전</li>
+        </ol>
+
+        <p>
+          핵심은 다수 노드의 합의로 락의 유일성을 보장한다는 점이에요. 한두 노드가 죽거나 분단되어도 majority만 살아있으면 동작.
+        </p>
+
+        <h2>Redlock의 약속</h2>
+
+        <p>
+          Sanfilippo가 주장한 안전성 보장은 이래요.
+        </p>
+
+        <ul>
+          <li>한 시점에 한 클라이언트만 락 보유 (mutual exclusion)</li>
+          <li>일부 Redis 인스턴스가 죽어도 동작 (fault tolerance)</li>
+          <li>락 보유자가 죽어도 TTL로 자동 회수</li>
+        </ul>
+
+        <p>
+          단순한 single Redis보다 안전해 보였어요. 많은 사람들이 사용하기 시작.
+          Redisson도 RedissonRedLock 클래스로 이 알고리즘을 구현 제공.
+        </p>
+
+        <h2>Martin Kleppmann의 비판</h2>
+
+        <p>
+          그런데 2016년 분산 시스템 연구자 Martin Kleppmann("Designing Data-Intensive Applications" 저자)이
+          Redlock의 안전성에 의문을 제기하는 글을 썼어요.
+          이게 "Redlock 논쟁"의 시작이에요.
+        </p>
+
+        <h3>비판 1 — Timing 의존성</h3>
+
+        <p>
+          Redlock은 시간(timestamp)에 의존해요. 각 노드의 시계가 정확히 동기화되어 있다고 가정.
+          그런데 실제 분산 시스템에서 시계는 신뢰할 수 없어요.
+        </p>
+
+        <ul>
+          <li>NTP로 시계 동기화하지만 정확하지 않음 (수 ms ~ 초 단위 drift)</li>
+          <li>관리자가 갑자기 시계를 바꾸는 경우</li>
+          <li>가상 머신의 시계 jump</li>
+          <li>일부 노드의 시계가 빠르거나 느림</li>
+        </ul>
+
+        <p>
+          시계가 어긋나면 한 노드는 락이 만료됐다고 판단하고 다른 노드는 아직 유효하다고 판단할 수 있어요.
+          그러면 두 클라이언트가 동시에 락을 가지는 상황 가능.
+        </p>
+
+        <h3>비판 2 — Process pause</h3>
+
+        <p>
+          1편에서 짚은 GC pause 함정이 Redlock에서도 안 풀려요.
+          A가 락을 잡고 작업 시작. 그 후 GC pause로 30초 멈춤. 그 사이 TTL 만료, 락 해제.
+          B가 락 획득. A의 GC pause 끝남. A는 자기가 락 가졌다 생각하고 작업 계속.
+          Redlock도 이 시나리오를 막지 못해요.
+        </p>
+
+        <h3>비판 3 — 네트워크 지연</h3>
+
+        <p>
+          A가 락 획득 후 자원에 작업 요청을 보내요. 그런데 그 패킷이 네트워크에서 30초 지연돼요.
+          그 사이 락은 만료, B가 락 획득 후 자원에 작업 보냄.
+          A의 옛날 작업 패킷과 B의 새 작업 패킷이 자원 서버에 거의 동시에 도착.
+          자원 서버는 둘 다 처리 → race condition.
+        </p>
+
+        <p>
+          분산 락 자체로는 막을 수 없는 문제예요. 자원 서버가 추가 검증을 해야 안전.
+        </p>
+
+        <h2>Sanfilippo의 반박</h2>
+
+        <p>
+          Sanfilippo가 다시 글을 써서 반박했어요. 핵심 주장은 이래요.
+        </p>
+
+        <ul>
+          <li>NTP가 합리적으로 동작하면 시계 drift는 작아요</li>
+          <li>GC pause는 모든 분산 락 알고리즘이 공유하는 문제</li>
+          <li>실무에서 "거의 항상" 안전한 락이 충분히 유용</li>
+          <li>Redlock은 single Redis보다 명백히 안전</li>
+        </ul>
+
+        <p>
+          이 논쟁은 쉽게 결론 나지 않았어요. 양쪽 모두 부분적으로 맞아요. 논쟁의 핵심은 "분산 락의 절대 안전성을 추구할 가치가 있는가"였어요.
+        </p>
+
+        <h2>진짜 안전한 패턴 — Fencing Token</h2>
+
+        <p>
+          Kleppmann이 제안한 진짜 안전한 패턴이 <strong>fencing token</strong>이에요.
+          분산 락의 안전성을 자원 서버 측에서도 검증하는 방식이에요.
+        </p>
+
+        <h3>핵심 아이디어</h3>
+
+        <p>
+          락 시스템이 클라이언트에게 monotonically increasing token을 함께 발급해요. 매번 락 획득 시 token이 증가.
+          클라이언트가 자원 서버에 작업 요청할 때 그 token을 함께 보내요.
+          자원 서버는 자기가 받은 가장 큰 token을 기억하고, 그보다 작은 token으로 오는 요청은 거부.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Fencing Token">
+            <defs>
+              <style>
+                .actor { fill: #f9fafb; stroke: #4e5968; stroke-width: 1.2; }
+                .ok { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .reject { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.5; stroke-dasharray: 3,3; }
+                .label { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #4e5968; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+                .arrow { stroke: #6b7684; stroke-width: 1.2; fill: none; marker-end: url(#a-fence); }
+              </style>
+              <marker id="a-fence" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7684"/>
+              </marker>
+            </defs>
+
+            <text x="20" y="22" class="header">FENCING TOKEN으로 GC pause 안전성 확보</text>
+
+            <rect x="20" y="40" width="120" height="32" rx="4" class="actor"/>
+            <text x="80" y="60" text-anchor="middle" class="label">Client A</text>
+
+            <rect x="220" y="40" width="120" height="32" rx="4" class="actor"/>
+            <text x="280" y="60" text-anchor="middle" class="label">Lock Server</text>
+
+            <rect x="420" y="40" width="160" height="32" rx="4" class="actor"/>
+            <text x="500" y="60" text-anchor="middle" class="label">Resource Server</text>
+
+            <text x="20" y="100" class="small" fill="#1b64da">① A 락 획득, token=42</text>
+
+            <text x="20" y="135" class="small" fill="#c4302b">② A에서 GC pause (30초)</text>
+
+            <text x="20" y="170" class="small" fill="#1b64da">③ TTL 만료, B 락 획득, token=43</text>
+
+            <text x="20" y="205" class="small" fill="#1b64da">④ B가 자원 서버에 작업 (token=43)</text>
+            <line x1="280" y1="215" x2="420" y2="215" class="arrow"/>
+            <rect x="300" y="220" width="60" height="14" class="ok"/>
+            <text x="330" y="232" text-anchor="middle" class="small" fill="#1b64da">accept</text>
+
+            <text x="20" y="255" class="small" fill="#c4302b">⑤ A 깨어남, 자원 서버에 작업 (token=42)</text>
+            <line x1="140" y1="265" x2="420" y2="265" class="arrow"/>
+            <rect x="430" y="265" width="60" height="14" class="reject"/>
+            <text x="460" y="277" text-anchor="middle" class="small" fill="#c4302b">reject (42&lt;43)</text>
+          </svg>
+          <figcaption>Fencing Token — 자원 서버가 token으로 옛 클라이언트의 작업 거부</figcaption>
+        </figure>
+
+        <h3>왜 안전한가요</h3>
+
+        <p>
+          A의 token=42, B의 token=43. 자원 서버는 가장 큰 token을 43으로 기억.
+          A의 GC pause 끝나고 token=42로 작업 보내면 자원 서버가 거부 (42 &lt; 43).
+          GC pause로 인한 race condition이 자원 서버에서 차단돼요.
+        </p>
+
+        <p>
+          시계 drift, 네트워크 지연, GC pause 모두 막을 수 있어요.
+          분산 락의 timing 의존성 자체를 우회하는 패턴이에요.
+        </p>
+
+        <h2>Redis로 fencing token 만들기</h2>
+
+        <p>
+          Redis에 락과 함께 atomic counter를 두면 가능해요.
+        </p>
+
+        <pre><code class="language-lua">-- 락 획득과 token 증가를 atomic하게
+if redis.call("setnx", KEYS[1], ARGV[1]) == 1 then
+    redis.call("expire", KEYS[1], ARGV[2])
+    return redis.call("incr", KEYS[2])   -- token counter
+else
+    return -1
+end</code></pre>
+
+        <p>
+          반환된 token을 클라이언트가 자원 서버에 함께 보내요.
+        </p>
+
+        <pre><code class="language-java">long token = lockService.acquire("order:123", 30);
+if (token &lt; 0) throw new BusyException();
+
+try {
+    resourceServer.update(orderId, data, token);   // token 함께 전송
+} finally {
+    lockService.release("order:123");
+}</code></pre>
+
+        <h3>자원 서버 측</h3>
+
+        <pre><code class="language-java">@RestController
+public class ResourceController {
+
+    private final Map&lt;String, Long&gt; latestTokens = new ConcurrentHashMap&lt;&gt;();
+
+    @PostMapping("/orders/{id}/update")
+    public void update(@PathVariable String id, @RequestBody Data data,
+                       @RequestHeader("X-Fencing-Token") long token) {
+        latestTokens.compute(id, (k, oldToken) -&gt; {
+            if (oldToken != null &amp;&amp; token &lt;= oldToken) {
+                throw new StaleTokenException();
+            }
+            return token;
+        });
+
+        // 처리
+        doUpdate(id, data);
+    }
+}</code></pre>
+
+        <p>
+          자원 서버가 자기 메모리(또는 DB)에 token을 저장하고, 옛 token 요청은 거부.
+          이 패턴이 분산 락과 결합하면 진짜 안전한 시스템이 돼요.
+        </p>
+
+        <h2>실무 결정 — Redlock vs ZooKeeper/etcd</h2>
+
+        <p>
+          진짜 안전한 분산 락이 필요하면 Redlock보다 ZooKeeper나 etcd가 더 권장돼요.
+          이들은 합의 알고리즘 기반이라 분단 시 일관성을 보장.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>도구</th><th>안전성</th><th>운영 복잡도</th><th>throughput</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>단일 Redis + Redisson</td>
+              <td>중간 (master failover 시 락 손실 가능)</td>
+              <td>낮음</td>
+              <td>높음</td>
+            </tr>
+            <tr>
+              <td>Redlock</td>
+              <td>중간+ (논쟁 있음)</td>
+              <td>중간</td>
+              <td>중간</td>
+            </tr>
+            <tr>
+              <td>ZooKeeper</td>
+              <td>높음</td>
+              <td>중간</td>
+              <td>중간</td>
+            </tr>
+            <tr>
+              <td>etcd</td>
+              <td>높음 (Raft)</td>
+              <td>중간</td>
+              <td>중간</td>
+            </tr>
+            <tr>
+              <td>DB row lock</td>
+              <td>높음 (ACID)</td>
+              <td>낮음 (이미 있는 DB)</td>
+              <td>낮음</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          정확성이 매우 critical하다면 ZooKeeper/etcd. 일반적인 경우는 단일 Redis + Redisson + fencing token.
+          단순한 시스템에서는 DB row lock으로 충분할 수도.
+        </p>
+
+        <h2>Redlock 논쟁의 교훈</h2>
+
+        <p>
+          이 논쟁이 우리에게 알려준 큰 교훈이 몇 가지 있어요.
+        </p>
+
+        <h3>교훈 1 — "안전"의 단계가 있다</h3>
+
+        <p>
+          분산 락이 100% 안전하다고 주장하기는 어려워요. timing, process pause, 네트워크 지연 같은 요소가 모두 변수.
+          "거의 항상 안전"과 "절대 안전"은 다른 거고, 추구하는 안전 수준에 따라 도구가 달라져요.
+        </p>
+
+        <h3>교훈 2 — 락만으로 충분하지 않을 수 있다</h3>
+
+        <p>
+          진짜 안전을 원한다면 분산 락 + 자원 서버 측 추가 검증이 필요해요.
+          fencing token이 그 패턴. 락이 깨져도 자원 서버가 옛 작업을 거부.
+        </p>
+
+        <h3>교훈 3 — 더 단순한 답을 먼저 검토</h3>
+
+        <p>
+          많은 경우 분산 락 대신 idempotency, optimistic lock, single-master 같은 패턴이 더 단순하고 안전해요.
+          분산 락은 진짜 필요한 자리에만 쓰는 게 좋아요.
+        </p>
+
+        <h3>교훈 4 — 라이브러리를 신뢰하되 의식하기</h3>
+
+        <p>
+          Redisson 같은 검증된 라이브러리를 쓰는 게 직접 구현보다 안전.
+          하지만 그 라이브러리가 보장하는 것과 보장 못 하는 것을 의식해야 해요.
+          예를 들어 Redisson은 watchdog, atomic unlock을 처리하지만 fencing token은 직접 추가해야 해요.
+        </p>
+
+        <h2>실전 패턴 정리</h2>
+
+        <h3>일반 시스템 — 단일 Redis + Redisson</h3>
+
+        <p>
+          대부분의 자리에 적합. master failover로 인한 일시적 락 손실은 매우 드물고, 그 영향이 비즈니스적으로 받아들일 수 있을 때.
+          예: 캐시 갱신 동시성 방지, 외부 API 호출 throttling.
+        </p>
+
+        <h3>중요한 시스템 — Redis + fencing token</h3>
+
+        <p>
+          작업이 자원 서버에 영향을 주고, 그 자원에 검증을 추가할 수 있을 때.
+          예: 결제 처리 (자원 서버에 idempotency key + fencing token 함께 검증).
+        </p>
+
+        <h3>매우 critical한 시스템 — ZooKeeper/etcd</h3>
+
+        <p>
+          금융, 분산 트랜잭션 코디네이션, 리더 선출. 안전성이 최우선.
+          예: Kafka의 컨트롤러 선출, k8s의 leader election.
+        </p>
+
+        <h3>가장 단순한 시스템 — DB row lock 또는 idempotency</h3>
+
+        <p>
+          이미 RDB가 있고 트래픽이 적다면 굳이 별도 인프라 도입할 필요 없음.
+          DB의 SELECT FOR UPDATE 또는 unique index로 충분.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Redlock 알고리즘이 뭔가요?</h3>
+
+        <p>
+          Redis 창시자 Salvatore가 제안한 분산 락 알고리즘이에요.
+          단일 Redis 대신 독립적인 Redis 인스턴스 N개(보통 5)를 두고, majority(N/2+1)에서 락 획득에 성공해야 진짜 락 보유로 인정해요.
+          한두 인스턴스가 죽어도 동작하고, master-slave failover로 인한 락 손실 위험을 줄여요.
+          단, Martin Kleppmann이 안전성에 의문을 제기한 논쟁이 있어요.
+        </p>
+
+        <h3>Q. Redlock의 한계는요?</h3>
+
+        <p>
+          시간(timestamp)에 의존하는 알고리즘이라 시계 drift 문제가 있어요. NTP가 정확하지 않거나 관리자가 시계를 바꾸면 안전성 깨질 수 있어요.
+          또 GC pause로 인한 race condition은 Redlock도 막지 못해요. A가 30초 GC pause 동안 락이 만료되어 B가 락 획득.
+          A 깨어나면 자기가 여전히 락 가졌다 생각해서 race 발생.
+          진짜 안전을 원하면 fencing token 같은 추가 메커니즘이 필요해요.
+        </p>
+
+        <h3>Q. Fencing Token이 뭔가요?</h3>
+
+        <p>
+          분산 락의 안전성을 자원 서버 측에서도 검증하는 패턴이에요. 락 시스템이 monotonically increasing token을 락과 함께 발급.
+          클라이언트가 자원 서버에 작업할 때 token을 함께 보내요. 자원 서버는 받은 가장 큰 token을 기억하고, 그보다 작은 token 요청은 거부.
+          이래야 GC pause로 옛 클라이언트가 깨어나도 자원 서버가 차단해서 race 방지. 진짜 안전한 분산 락의 핵심 패턴이에요.
+        </p>
+
+        <h3>Q. 언제 Redis 대신 ZooKeeper/etcd를 써야 하나요?</h3>
+
+        <p>
+          정확성이 매우 critical할 때예요. 금융, 분산 트랜잭션 코디네이션, 리더 선출 같은 자리.
+          ZooKeeper는 Zab, etcd는 Raft 합의 알고리즘 기반이라 분단 시에도 일관성을 강하게 보장해요.
+          Redis보다 운영 복잡도와 throughput 비용이 있지만 안전성이 우선인 자리에서는 그 비용을 받아들일 가치가 있어요.
+          k8s의 leader election이 etcd 위에서 동작하는 게 대표적 예시예요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          Redlock은 Redis 분산 락의 안전성을 높이려는 알고리즘이지만 timing 의존성과 process pause 문제로 논쟁이 있어요.
+          진짜 안전한 패턴은 fencing token으로 자원 서버 측 검증을 추가하는 거예요.
+          정확성 critical한 시스템은 ZooKeeper/etcd, 일반 시스템은 단일 Redis + Redisson + (필요 시) fencing token이 권장 패턴이에요.
+        </p>
+
+        <p>
+          분산 락 시리즈는 여기까지예요. 다음은 분산 락의 단순한 대안이 되는 Idempotency Key 설계로 가요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

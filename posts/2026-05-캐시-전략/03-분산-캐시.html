@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>분산 캐시 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.10 · 시리즈 3/3</div>
+        <h1>분산 캐시</h1>
+        <p class="subtitle">
+          캐시도 한 노드로는 부족해요. 여러 노드에 분산하는 메커니즘과 그에 따른 트레이드오프를 봐요.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">캐시 전략</div>
+        <ol>
+          <li><a href="./01-4가지-패턴.html">4가지 패턴</a></li>
+          <li><a href="./02-일관성.html">캐시 일관성</a></li>
+          <li class="current">분산 캐시</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>왜 분산이 필요한가요</h2>
+
+        <p>
+          단일 캐시 노드의 한계는 명확해요.
+        </p>
+
+        <ul>
+          <li>메모리 한계 — 한 서버 RAM이 한정적 (보통 수백 GB)</li>
+          <li>처리량 한계 — 한 노드의 RPS 처리 한계</li>
+          <li>가용성 — 한 노드 다운 시 모든 캐시 손실</li>
+          <li>네트워크 latency — 다른 region에 모든 클라이언트가 접근 시 느림</li>
+        </ul>
+
+        <p>
+          그래서 캐시도 결국 분산해야 해요. 두 가지 차원이 있어요. <strong>Partitioning</strong>(데이터 분산)과 <strong>Replication</strong>(복제).
+        </p>
+
+        <h2>Partitioning — 데이터 분산</h2>
+
+        <p>
+          전체 데이터셋을 여러 노드에 나눠 저장. 각 노드가 일부 키만 담당.
+          용량과 처리량이 노드 수에 비례해 늘어나요.
+        </p>
+
+        <h3>가장 단순한 — modulo hash</h3>
+
+        <pre><code class="language-text">node_index = hash(key) % N (전체 노드 수)</code></pre>
+
+        <p>
+          단순하지만 큰 함정이 있어요. 노드를 추가하거나 제거하면 거의 모든 키의 매핑이 바뀌어요.
+          전체 캐시가 무효화되어 DB로 폭주하는 cache stampede 위험.
+        </p>
+
+        <h3>Consistent Hashing — 표준 패턴</h3>
+
+        <p>
+          이 함정을 푸는 알고리즘이에요. 1997년 MIT가 제안했고 모던 분산 시스템의 표준이 됐어요.
+        </p>
+
+        <ol>
+          <li>해시 공간을 0 ~ 2^32-1 같은 큰 ring으로 표현</li>
+          <li>각 노드를 hash로 ring 위 한 점에 배치</li>
+          <li>키도 hash로 ring 위 한 점에 배치</li>
+          <li>키는 자기 위치에서 시계방향으로 가장 가까운 노드에 저장</li>
+        </ol>
+
+        <figure>
+          <svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Consistent Hashing">
+            <defs>
+              <style>
+                .ring { fill: none; stroke: #d8dce0; stroke-width: 2; }
+                .node { fill: #f2f6ff; stroke: #1b64da; stroke-width: 2; }
+                .key { fill: #fff7e6; stroke: #d97c1c; stroke-width: 1.5; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 10px; fill: #6b7684; }
+                .header { font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #6b7684; font-weight: 600; }
+              </style>
+            </defs>
+
+            <text x="20" y="22" class="header">CONSISTENT HASHING — 해시 ring</text>
+
+            <circle cx="200" cy="130" r="80" class="ring"/>
+
+            <circle cx="200" cy="50" r="10" class="node"/>
+            <text x="200" y="35" text-anchor="middle" class="small">Node A</text>
+
+            <circle cx="278" cy="155" r="10" class="node"/>
+            <text x="298" y="160" class="small">Node B</text>
+
+            <circle cx="160" cy="200" r="10" class="node"/>
+            <text x="160" y="222" text-anchor="middle" class="small">Node C</text>
+
+            <circle cx="122" cy="100" r="10" class="node"/>
+            <text x="100" y="100" text-anchor="middle" class="small">Node D</text>
+
+            <circle cx="240" cy="80" r="6" class="key"/>
+            <text x="252" y="80" class="small">key1</text>
+
+            <circle cx="225" cy="190" r="6" class="key"/>
+            <text x="240" y="195" class="small">key2</text>
+
+            <circle cx="135" cy="160" r="6" class="key"/>
+            <text x="150" y="170" class="small">key3</text>
+
+            <text x="380" y="50" class="label">key1 → Node B</text>
+            <text x="380" y="68" class="small">시계방향 가장 가까운 노드</text>
+
+            <text x="380" y="100" class="label">key2 → Node C</text>
+            <text x="380" y="130" class="label">key3 → Node D</text>
+
+            <text x="380" y="170" class="small" fill="#1b64da">노드 추가/제거 시</text>
+            <text x="380" y="186" class="small" fill="#1b64da">인접 노드의 일부만 영향</text>
+          </svg>
+          <figcaption>Consistent Hashing — 키와 노드를 hash ring에 배치, 시계방향으로 매핑</figcaption>
+        </figure>
+
+        <h3>장점</h3>
+
+        <p>
+          노드 추가/제거 시 영향 범위가 작아요. 한 노드를 추가하면 그 노드 위치의 인접 키들만 새 노드로 이동.
+          전체의 1/N만 재배치돼요. 다른 키들은 그대로 매핑 유지.
+        </p>
+
+        <h3>단점과 보완 — Virtual Node</h3>
+
+        <p>
+          노드를 ring 위에 그냥 놓으면 분포가 균일하지 않을 수 있어요. 한 노드가 큰 영역, 다른 노드가 작은 영역을 담당.
+          부하 불균형 발생.
+        </p>
+
+        <p>
+          해결은 한 물리 노드를 여러 가상 노드(virtual node, vnode)로 ring에 배치. 보통 100~1000개.
+          분포가 통계적으로 더 균일해져서 부하가 골고루 분산.
+        </p>
+
+        <h2>Redis Cluster의 분산</h2>
+
+        <p>
+          Redis는 자체 분산 메커니즘이 있어요. Consistent hashing이 아닌 <strong>hash slot</strong> 방식.
+        </p>
+
+        <h3>Hash Slot</h3>
+
+        <ul>
+          <li>전체 키 공간을 16384개의 슬롯으로 나눔</li>
+          <li>키의 CRC16 해시를 16384로 나눈 나머지로 슬롯 결정</li>
+          <li>각 슬롯이 어느 노드에 할당되는지는 클러스터가 관리</li>
+          <li>노드 추가/제거 시 슬롯 단위로 재할당</li>
+        </ul>
+
+        <pre><code class="language-text">slot = CRC16(key) % 16384</code></pre>
+
+        <h3>Hash Tag로 같은 슬롯 강제</h3>
+
+        <p>
+          여러 키를 같은 슬롯에 두려면 hash tag를 사용해요. 중괄호로 감싼 부분이 hash 계산에 사용돼요.
+        </p>
+
+        <pre><code class="language-text">{user:123}:profile     → slot 같음
+{user:123}:settings    → slot 같음
+{user:123}:notifications → slot 같음
+
+# 모두 같은 슬롯이라 한 노드에서 atomic 트랜잭션 가능</code></pre>
+
+        <p>
+          Lua 스크립트, MULTI/EXEC, 분산 락 같이 여러 키를 atomic하게 다뤄야 할 때 필수예요.
+          slot이 다르면 cross-slot 작업 불가.
+        </p>
+
+        <h2>Replication — 복제</h2>
+
+        <p>
+          한 노드에만 데이터를 두면 그 노드 다운 시 데이터 손실. Replication으로 같은 데이터를 여러 노드에 둬요.
+        </p>
+
+        <h3>Master-Replica</h3>
+
+        <p>
+          한 master가 쓰기 받고, 여러 replica가 master의 변경을 비동기로 따라가는 구조. 가장 흔한 패턴.
+        </p>
+
+        <ul>
+          <li>쓰기는 항상 master로</li>
+          <li>읽기는 master 또는 replica 어디든 가능</li>
+          <li>master 다운 시 replica 중 하나를 새 master로 promotion (failover)</li>
+          <li>비동기 복제라 master 다운 시 일부 데이터 손실 가능</li>
+        </ul>
+
+        <h3>Multi-Master</h3>
+
+        <p>
+          여러 master가 모두 쓰기를 받고 서로 동기화. 이론적으로 가능하지만 충돌 해결이 어려워서 캐시 환경에선 잘 안 써요.
+          DynamoDB Global Tables 같은 일부 시스템에서 사용.
+        </p>
+
+        <h2>Sharding + Replication 조합</h2>
+
+        <p>
+          실무에서는 두 차원을 함께 써요. Sharding으로 데이터를 나누고, 각 shard마다 replication.
+        </p>
+
+        <pre><code class="language-text">전체 키
+  ├── Shard 1 (Master + 2 Replica)
+  ├── Shard 2 (Master + 2 Replica)
+  ├── Shard 3 (Master + 2 Replica)
+  └── Shard N (Master + 2 Replica)</code></pre>
+
+        <p>
+          Redis Cluster의 표준 구성. Master 3 + Replica 3이 최소 권장 구성이에요.
+        </p>
+
+        <h2>분산 캐시의 일관성 함정</h2>
+
+        <h3>Master-Replica 비동기 복제</h3>
+
+        <p>
+          분산 락 시리즈에서 본 함정. master에 쓴 데이터가 replica에 전파되기 전 master 다운.
+          replica가 새 master로 promotion되면 그 쓰기는 사라짐.
+        </p>
+
+        <h3>해결</h3>
+
+        <ul>
+          <li><code>WAIT</code> 명령어 — 일정 수의 replica에 전파될 때까지 대기 (Redis)</li>
+          <li><code>min-replicas-to-write</code> 설정 — 일정 수 replica가 살아있어야만 쓰기 허용</li>
+          <li>Synchronous replication — 매우 비싼 비용</li>
+        </ul>
+
+        <p>
+          캐시는 일반적으로 손실 허용이라 비동기 복제로 충분. critical 데이터는 캐시에 두지 않는 게 답.
+        </p>
+
+        <h2>분산 캐시의 운영 패턴</h2>
+
+        <h3>Cache Warming</h3>
+
+        <p>
+          새 노드 추가 또는 캐시 비우기 후 cold cache 상태에서 모든 요청이 DB로 몰림.
+          warming 작업으로 미리 자주 쓰이는 데이터를 캐시에 채워두는 패턴.
+        </p>
+
+        <h3>Cache Pre-warming</h3>
+
+        <p>
+          Deployment 직전에 새 인스턴스의 로컬 캐시를 채우는 작업. 첫 요청부터 캐시 hit.
+        </p>
+
+        <h3>Hot Key 모니터링</h3>
+
+        <p>
+          소수의 키가 트래픽 대부분을 받는 hot key 패턴. 그 키가 위치한 노드만 부하 집중.
+          모니터링으로 hot key 발견 시 대응.
+        </p>
+
+        <ul>
+          <li>해당 키를 여러 노드에 복제 (랜덤 routing)</li>
+          <li>로컬 cache로 분산</li>
+          <li>키 자체를 분할 (counter:user:123 → counter:user:123:shard:0~9)</li>
+        </ul>
+
+        <h3>모니터링 메트릭</h3>
+
+        <ul>
+          <li>cache hit ratio (높을수록 좋음, 90%+ 권장)</li>
+          <li>memory usage 노드별</li>
+          <li>QPS (queries per second) 노드별</li>
+          <li>P99 latency</li>
+          <li>eviction rate (메모리 부족으로 키가 쫓겨나는 빈도)</li>
+        </ul>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. modulo hash와 consistent hashing의 차이는요?</h3>
+
+        <p>
+          modulo는 단순하지만 노드 추가/제거 시 거의 모든 키의 매핑이 바뀌어요. 전체 캐시 무효화로 DB 폭주 위험.
+          consistent hashing은 노드를 hash ring에 배치해서, 추가/제거 시 인접 노드의 일부 키만 재배치돼요.
+          영향이 1/N로 작아서 모던 분산 시스템의 표준이에요.
+        </p>
+
+        <h3>Q. Redis Cluster의 hash slot이 뭔가요?</h3>
+
+        <p>
+          Redis는 consistent hashing이 아닌 16384개 hash slot으로 키를 분산해요.
+          키의 CRC16을 16384로 나눈 나머지가 슬롯 번호. 슬롯이 어느 노드에 할당되는지는 클러스터가 관리.
+          노드 추가/제거 시 슬롯 단위로 재할당. 여러 키를 같은 슬롯에 두려면 hash tag를 사용해요.
+        </p>
+
+        <h3>Q. Hash Tag는 언제 쓰나요?</h3>
+
+        <p>
+          여러 키를 한 노드에서 atomic하게 다뤄야 할 때 써요. <code>{user:123}:profile</code>처럼 중괄호 안의 부분이 hash 계산에 사용되어,
+          중괄호 안이 같은 키들은 같은 슬롯에 위치. Lua 스크립트, MULTI/EXEC, 분산 락 같은 cross-key 작업에 필수.
+          단, hot spot 만들 위험 있어 신중히 사용.
+        </p>
+
+        <h3>Q. Master-Replica 비동기 복제의 함정은요?</h3>
+
+        <p>
+          master에 쓴 데이터가 replica에 전파되기 전 master가 다운되면 그 쓰기가 사라질 수 있어요.
+          새 master로 promotion된 replica는 그 데이터를 모르거든요.
+          캐시는 보통 손실 허용이라 비동기 복제로 충분하지만, 락 같은 critical 데이터엔 위험해요.
+          Redlock이나 ZooKeeper 같은 강한 일관성 시스템 검토가 필요해요.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          분산 캐시는 partitioning과 replication 두 차원이 있어요.
+          Partitioning은 consistent hashing 또는 hash slot으로, replication은 master-replica가 표준.
+          비동기 복제로 인한 일시적 손실 가능성이 있지만 캐시 특성상 받아들일 수 있어요.
+          Hot key 모니터링과 warming 같은 운영 패턴이 분산 캐시의 안정성을 좌우해요.
+        </p>
+
+        <p>
+          캐시 전략 시리즈는 여기까지예요. 다음은 Cache Stampede라는 분산 캐시의 가장 무서운 함정을 깊게 봐요.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
