@@ -50,7 +50,7 @@
 - [ ] 18. `Exchanger` — 두 스레드 1:1 데이터 교환 (1편)
 
 #### Group F — 함정 (회색)
-- [ ] ★ 19. Deadlock — 4조건, 예방/회피/탐지 (3편)
+- [x] ★ 19. Deadlock — 4조건, 예방/회피/탐지 (3편)
 - [ ] 20. Livelock / Starvation — 굶는 스레드 (1편)
 - [x] ★ 21. `ThreadLocal` 함정 — 메모리 누수, 스레드풀과 상극 (2편)
 - [ ] 22. `InterruptedException` 처리법 — 삼키지 말고 복원 (1편)

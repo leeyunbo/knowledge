@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deadlock의 4가지 조건 (1) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 1/3</div>
+        <h1>Deadlock의 4가지 조건</h1>
+        <p class="subtitle">
+          시스템이 영원히 멈춰버리는 현상의 원인을 정확히 정의하는 네 가지 필요 조건.
+          이 넷 중 하나만 깨도 데드락은 발생하지 않는다.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Deadlock</div>
+        <ol>
+          <li class="current">Deadlock의 4가지 조건</li>
+          <li><a href="./02-예방-회피-탐지.html">예방 / 회피 / 탐지</a></li>
+          <li><a href="./03-실무-디버깅.html">실무 — DB Deadlock과 jstack 디버깅</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>Deadlock이란</h2>
+
+        <p>
+          여러 스레드 또는 프로세스가 서로가 가진 자원을 기다리며 영원히 진행하지 못하는 상태.
+          모든 당사자가 다른 누군가의 양보를 기다리고 있어, 외부 개입 없이는 풀리지 않는 정지.
+        </p>
+
+        <p>
+          시스템 입장에서는 일부 스레드가 살아있지만 일을 못 하는 상태.
+          CPU 사용률은 0에 가까운데(스레드들이 대기 중) 응답은 영원히 안 옴.
+          심각한 운영 사고 중 하나로, 발견과 진단이 어려운 편.
+        </p>
+
+        <h2>가장 단순한 예시</h2>
+
+        <pre><code class="language-java">Object lockA = new Object();
+Object lockB = new Object();
+
+Thread t1 = new Thread(() -&gt; {
+    synchronized (lockA) {
+        synchronized (lockB) {
+            // 작업
+        }
+    }
+});
+
+Thread t2 = new Thread(() -&gt; {
+    synchronized (lockB) {
+        synchronized (lockA) {
+            // 작업
+        }
+    }
+});</code></pre>
+
+        <p>
+          t1은 lockA를 잡고 lockB를 기다린다. t2는 lockB를 잡고 lockA를 기다린다.
+          서로가 가진 락을 풀어주지 않으니 둘 다 영원히 대기.
+          이게 가장 전형적인 데드락.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deadlock 그림">
+            <defs>
+              <style>
+                .thread { fill: #f2f6ff; stroke: #1b64da; stroke-width: 1.5; }
+                .lock-held { fill: #fdf3f3; stroke: #c4302b; stroke-width: 1.5; }
+                .label { font-family: 'JetBrains Mono', monospace; font-size: 12px; fill: #19181a; font-weight: 600; }
+                .small { font-family: 'Pretendard Variable', sans-serif; font-size: 11px; fill: #6b7684; }
+                .arrow { stroke: #c4302b; stroke-width: 1.5; fill: none; marker-end: url(#a-dl); }
+                .holds { stroke: #4e5968; stroke-width: 1.2; fill: none; marker-end: url(#a-gray-dl); }
+              </style>
+              <marker id="a-dl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#c4302b"/>
+              </marker>
+              <marker id="a-gray-dl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#4e5968"/>
+              </marker>
+            </defs>
+
+            <rect x="40" y="40" width="120" height="50" rx="6" class="thread"/>
+            <text x="100" y="70" text-anchor="middle" class="label">Thread 1</text>
+
+            <rect x="440" y="40" width="120" height="50" rx="6" class="thread"/>
+            <text x="500" y="70" text-anchor="middle" class="label">Thread 2</text>
+
+            <rect x="240" y="40" width="120" height="50" rx="6" class="lock-held"/>
+            <text x="300" y="64" text-anchor="middle" class="label">Lock A</text>
+            <text x="300" y="80" text-anchor="middle" class="small">held by T1</text>
+
+            <rect x="240" y="125" width="120" height="50" rx="6" class="lock-held"/>
+            <text x="300" y="149" text-anchor="middle" class="label">Lock B</text>
+            <text x="300" y="165" text-anchor="middle" class="small">held by T2</text>
+
+            <line x1="160" y1="65" x2="240" y2="65" class="holds"/>
+            <text x="200" y="58" text-anchor="middle" class="small">holds</text>
+
+            <line x1="440" y1="65" x2="360" y2="150" class="holds"/>
+            <text x="425" y="105" text-anchor="middle" class="small">holds</text>
+
+            <line x1="100" y1="90" x2="240" y2="150" class="arrow"/>
+            <text x="120" y="135" class="small" fill="#c4302b">waits for B</text>
+
+            <line x1="500" y1="90" x2="360" y2="65" class="arrow"/>
+            <text x="430" y="55" class="small" fill="#c4302b">waits for A</text>
+          </svg>
+          <figcaption>전형적 Deadlock — T1은 A를 들고 B를, T2는 B를 들고 A를 기다림 (순환)</figcaption>
+        </figure>
+
+        <h2>4가지 필요 조건 (Coffman Conditions)</h2>
+
+        <p>
+          1971년 Edward G. Coffman이 정리한 데드락 발생의 4가지 필요 조건.
+          이 모두가 동시에 성립할 때만 데드락이 발생한다.
+          뒤집으면, 하나만 깨도 데드락 자체가 불가능해진다.
+        </p>
+
+        <h3>1. Mutual Exclusion (상호 배제)</h3>
+
+        <p>
+          한 자원은 한 번에 하나의 스레드만 사용할 수 있다.
+          여러 스레드가 동시에 같은 자원을 읽을 수 있다면(read-only 공유) 이 조건이 성립하지 않아 데드락도 발생하지 않는다.
+          예를 들어 immutable 객체는 mutual exclusion이 필요 없으니 그 자체로 데드락 위험이 없다.
+        </p>
+
+        <h3>2. Hold and Wait (점유와 대기)</h3>
+
+        <p>
+          한 스레드가 자원 A를 점유한 채 자원 B를 추가로 요청하며 기다린다.
+          위 예시에서 Thread 1이 lockA를 들고 lockB를 기다리는 상태.
+          이 조건이 없으면, 즉 한 스레드가 다른 자원을 요청할 때 자기가 가진 자원을 모두 풀어야 한다면 hold and wait이 성립하지 않는다.
+        </p>
+
+        <h3>3. No Preemption (선점 불가)</h3>
+
+        <p>
+          한 스레드가 점유 중인 자원을 외부에서 강제로 빼앗을 수 없다.
+          자원을 점유한 스레드가 자발적으로 풀어야만 다른 스레드가 사용 가능.
+          OS의 CPU 스케줄링은 preemptive이지만(우선순위 높은 스레드가 CPU를 빼앗음),
+          mutex 같은 자원 락은 보통 non-preemptive.
+        </p>
+
+        <h3>4. Circular Wait (순환 대기)</h3>
+
+        <p>
+          스레드들이 자원을 기다리는 관계가 순환을 이룬다.
+          T1 → T2 → T3 → ... → T1 형태.
+          위 예시에서 T1은 T2가 가진 lockB를, T2는 T1이 가진 lockA를 기다리는 길이 2의 순환.
+        </p>
+
+        <h2>네 조건의 관계</h2>
+
+        <p>
+          이 넷은 모두 필요 조건. 즉 데드락이 발생했다면 네 조건이 모두 성립한 것이고,
+          하나라도 깨졌다면 데드락은 발생할 수 없다.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>조건</th><th>핵심 질문</th><th>이걸 깨는 방법</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Mutual Exclusion</td>
+              <td>자원이 배타적으로 점유되는가?</td>
+              <td>read-only 공유, immutable 객체</td>
+            </tr>
+            <tr>
+              <td>Hold and Wait</td>
+              <td>점유한 채 추가 요청하는가?</td>
+              <td>모든 자원을 한 번에 요청 (atomic acquire)</td>
+            </tr>
+            <tr>
+              <td>No Preemption</td>
+              <td>강제 회수가 불가능한가?</td>
+              <td>tryLock + timeout, 강제 회수 메커니즘</td>
+            </tr>
+            <tr>
+              <td>Circular Wait</td>
+              <td>대기 관계가 순환을 이루는가?</td>
+              <td>락 획득 순서를 전역 정렬</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          실무에서 가장 자주 적용되는 게 4번 — 락 획득 순서를 정해 순환을 깨는 것.
+          모든 스레드가 같은 순서로 락을 잡으면 순환 자체가 만들어지지 않는다.
+          다음 편에서 자세히.
+        </p>
+
+        <h2>발생 환경 — 자바 안과 밖</h2>
+
+        <h3>자바 코드에서</h3>
+
+        <p>
+          synchronized 또는 Lock을 두 개 이상 잡는 코드에서 발생.
+          순서가 다르게 잡히는 경우가 가장 흔한 시나리오.
+          한 메서드는 (A → B) 순서, 다른 메서드는 (B → A) 순서로 잡으면 위 예시 그대로 데드락.
+        </p>
+
+        <h3>데이터베이스에서</h3>
+
+        <p>
+          DB의 행 락(row lock)이 같은 패턴으로 데드락을 만든다. 트랜잭션 1이 row 100을 잠그고 row 200을 기다리는데,
+          트랜잭션 2가 row 200을 잠그고 row 100을 기다리는 상황.
+          MySQL의 InnoDB나 PostgreSQL은 자동으로 데드락을 탐지해 한 트랜잭션을 롤백시킨다.
+          3편에서 자세히.
+        </p>
+
+        <h3>분산 시스템에서</h3>
+
+        <p>
+          여러 서비스가 외부 자원(DB, 캐시, 메시지 큐)을 다른 순서로 잡으면 분산 데드락 가능.
+          단일 노드의 자바 데드락보다 탐지가 훨씬 어려워 보통 timeout으로 풀어주는 게 표준.
+        </p>
+
+        <h2>비슷하지만 다른 현상들</h2>
+
+        <h3>Livelock</h3>
+
+        <p>
+          데드락이 "정지"라면 livelock은 "헛바퀴 도는 활동".
+          서로 양보하려다 같은 패턴이 반복되어 누구도 진행을 못 하는 상태.
+          예를 들어 두 사람이 좁은 복도에서 서로 비키려다 같은 방향으로 계속 비키는 상황.
+        </p>
+
+        <p>
+          코드 예 — 둘 다 락을 풀고 다시 잡기를 반복하는 retry 루프가 같은 타이밍에 동기화되어 영원히 진행 못 하는 경우.
+          무작위 backoff(jitter)가 livelock 방지의 표준 도구.
+        </p>
+
+        <h3>Starvation</h3>
+
+        <p>
+          한 스레드가 자원을 영원히 받지 못하는 상태.
+          데드락이 아니라 우선순위가 낮거나 락 정책이 unfair해서 자기 차례가 오지 않는 것.
+          PriorityBlockingQueue에서 우선순위 낮은 작업이 처리 안 되는 게 대표적.
+          fairness 옵션 또는 timeout으로 방어.
+        </p>
+
+        <h3>Race Condition과의 관계</h3>
+
+        <p>
+          Race condition은 동시 접근으로 데이터가 깨지는 현상이고, 데드락은 락이 풀리지 않아 진행이 안 되는 현상.
+          데드락 회피하려고 락을 너무 풀어두면 race condition 위험. 락을 너무 잡으면 데드락 위험.
+          균형을 잡는 게 동시성 설계의 본체.
+        </p>
+
+        <h2>왜 데드락은 어려운가</h2>
+
+        <h3>이유 1 — 비결정적</h3>
+
+        <p>
+          데드락은 항상 발생하는 게 아니라 특정 타이밍에서만 발생.
+          위 예시 코드도 두 스레드가 정확히 같은 시점에 첫 락을 잡아야 데드락이 생긴다.
+          어느 한쪽이 더 빨리 두 번째 락까지 잡으면 그냥 정상 동작.
+          그래서 테스트 환경에서 재현이 어렵고, 운영에서만 가끔 터진다.
+        </p>
+
+        <h3>이유 2 — 코드가 분산</h3>
+
+        <p>
+          데드락은 보통 두 군데 이상의 코드가 만든다. 서로 다른 메서드, 서로 다른 클래스, 서로 다른 모듈에서
+          락 순서가 어긋나 발생. 한 곳만 봐서는 문제를 못 보고 호출 그래프 전체를 봐야 한다.
+        </p>
+
+        <h3>이유 3 — 동적 락</h3>
+
+        <p>
+          정적으로 정해진 락이라면 분석이 가능하지만,
+          ID 같은 동적 키로 락을 잡는 경우 (예: 사용자별 분산 락) 락의 순서를 컴파일 타임에 알 수 없다.
+          실행 시 어느 순서로 잡힐지 데이터에 따라 달라진다.
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Deadlock의 4가지 조건은?</h3>
+
+        <p>
+          Mutual Exclusion(자원 배타 점유), Hold and Wait(점유 후 추가 대기),
+          No Preemption(강제 회수 불가), Circular Wait(순환 대기).
+          1971년 Coffman이 정리. 모두가 필요 조건이라 하나만 깨도 데드락은 발생할 수 없다.
+        </p>
+
+        <h3>Q. Livelock과 Deadlock의 차이?</h3>
+
+        <p>
+          Deadlock은 스레드가 영원히 대기하는 정지 상태.
+          Livelock은 스레드가 활동은 하지만 의미 있는 진행이 없는 상태 — 서로 양보하려다 헛바퀴 도는 패턴.
+          둘 다 시스템 정지를 만들지만 진단법이 다르다 — Deadlock은 thread dump로, Livelock은 CPU 사용률과 진행률로.
+        </p>
+
+        <h3>Q. 데드락이 테스트에서 안 잡히는 이유?</h3>
+
+        <p>
+          비결정적이기 때문. 특정 타이밍 — 두 스레드가 정확히 같은 순간에 첫 락을 잡고 두 번째 락을 요청 —
+          이 일치할 때만 발생. 일반 테스트에서 재현 확률이 낮고 운영 환경의 부하에서만 가끔 터진다.
+          정적 분석 도구(SpotBugs, Coverity)나 동시성 테스트 도구(jcstress)가 필요.
+        </p>
+
+        <h3>Q. 가장 단순한 데드락 해결 방법?</h3>
+
+        <p>
+          Circular Wait을 깨는 것 — 모든 락을 같은 순서로 잡기.
+          여러 락이 필요한 모든 코드가 같은 순서를 따르면 순환이 만들어지지 않으므로 데드락 자체가 불가능.
+          전역적인 락 순서를 정의하는 것이 가장 흔하고 효과적인 예방.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          데드락은 여러 스레드가 서로의 자원을 기다리며 영원히 정지하는 현상.
+          Coffman의 4가지 필요 조건이 모두 성립할 때만 발생 — Mutual Exclusion, Hold and Wait, No Preemption, Circular Wait.
+          하나만 깨도 데드락은 불가능. 실무에서 가장 흔한 답은 Circular Wait를 깨기 위한 락 순서 통일.
+        </p>
+
+        <p>
+          다음 편은 그 깨는 방법들 — 예방, 회피, 탐지의 세 전략.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

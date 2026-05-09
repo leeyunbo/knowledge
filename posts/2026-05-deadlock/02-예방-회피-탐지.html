@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deadlock 예방 / 회피 / 탐지 (2) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 2/3</div>
+        <h1>예방 / 회피 / 탐지</h1>
+        <p class="subtitle">
+          데드락에 대응하는 세 가지 전략. 애초에 못 만들거나, 만들 위험을 보고 피하거나, 발생한 뒤 풀어주거나.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Deadlock</div>
+        <ol>
+          <li><a href="./01-deadlock의-4가지-조건.html">Deadlock의 4가지 조건</a></li>
+          <li class="current">예방 / 회피 / 탐지</li>
+          <li><a href="./03-실무-디버깅.html">실무 — DB Deadlock과 jstack 디버깅</a></li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>세 전략의 차이</h2>
+
+        <p>
+          데드락 대응은 크게 세 가지 접근으로 나뉜다.
+          예방(prevention)은 4조건 중 하나가 절대 성립하지 못하게 만드는 것,
+          회피(avoidance)는 자원 요청 시점에 위험성을 검사해 데드락이 될 만한 요청을 거부하는 것,
+          탐지(detection)는 일단 발생을 허용하고 나중에 발견해 풀어주는 것.
+        </p>
+
+        <h2>예방 — 4조건 중 하나 깨기</h2>
+
+        <h3>Mutual Exclusion 깨기</h3>
+
+        <p>
+          자원이 배타 점유되지 않게 만든다. 가장 자연스러운 방법은 immutable 객체와 read-only 공유.
+          데이터가 변하지 않으면 락 자체가 필요 없으니 데드락 위험도 사라진다.
+        </p>
+
+        <p>
+          상태가 있어야 하는 경우엔 lock-free 자료구조를 검토.
+          AtomicReference, ConcurrentHashMap 같은 j.u.c 도구는 CAS 기반이라 전통적 락이 아닌 방식으로 동시성을 다룬다.
+          데드락 위험 자체가 없거나 매우 낮다.
+        </p>
+
+        <h3>Hold and Wait 깨기 — 모든 락을 한 번에</h3>
+
+        <pre><code class="language-java">// 잘못된 패턴 - hold and wait
+synchronized (lockA) {
+    // 작업 1
+    synchronized (lockB) {
+        // 작업 2
+    }
+}
+
+// 한 번에 잡기 - 가능하면 이렇게 (lockA, lockB는 ReentrantLock)
+ReentrantLock lockA = new ReentrantLock();
+ReentrantLock lockB = new ReentrantLock();
+
+boolean acquired = false;
+while (!acquired) {
+    if (lockA.tryLock()) {
+        try {
+            if (lockB.tryLock()) {
+                acquired = true;
+                break;
+            }
+        } finally {
+            if (!acquired) lockA.unlock();
+        }
+    }
+    LockSupport.parkNanos(jitterNanos());   // backoff
+}</code></pre>
+
+        <p>
+          tryLock으로 두 락을 모두 잡거나 둘 다 풀고 retry. 어느 시점에도 "한 락만 잡고 다른 락 대기" 상태가 없으니
+          hold and wait 조건이 성립하지 않는다.
+          코드는 길어지지만 안전하다.
+        </p>
+
+        <h3>No Preemption 깨기 — Timeout 기반 락</h3>
+
+        <pre><code class="language-java">if (lock.tryLock(5, TimeUnit.SECONDS)) {
+    try {
+        // 작업
+    } finally {
+        lock.unlock();
+    }
+} else {
+    // 5초 안에 락 못 잡음 → 다른 전략으로
+    throw new TimeoutException("Lock acquisition failed");
+}</code></pre>
+
+        <p>
+          ReentrantLock의 <code>tryLock(timeout)</code>은 일정 시간 후 자동으로 락 획득 시도를 포기.
+          무한 대기를 강제 종료하는 셈이라 No Preemption 조건이 약해진다.
+          synchronized는 이 기능이 없어 ReentrantLock의 큰 장점.
+        </p>
+
+        <h3>Circular Wait 깨기 — 락 순서 통일 (가장 자주 쓰는 방법)</h3>
+
+        <p>
+          모든 코드가 락을 같은 순서로 잡으면 순환이 만들어지지 않는다.
+          전역적인 정렬을 정의하고 모든 코드가 그 정렬을 따른다.
+        </p>
+
+        <pre><code class="language-java">public void transfer(Account from, Account to, long amount) {
+    Account first = from.getId() &lt; to.getId() ? from : to;
+    Account second = from.getId() &lt; to.getId() ? to : from;
+
+    synchronized (first) {
+        synchronized (second) {
+            from.debit(amount);
+            to.credit(amount);
+        }
+    }
+}</code></pre>
+
+        <p>
+          계좌 ID로 정렬해 항상 작은 ID부터 잡는다. transfer(A, B)와 transfer(B, A)가 동시에 호출되어도
+          둘 다 같은 순서(min(A,B) → max(A,B))로 락을 잡으니 데드락이 생길 수 없다.
+          ID 같은 자연 정렬 가능한 키가 있을 때 가장 깔끔한 패턴.
+        </p>
+
+        <h3>해시로 정렬 (자연 정렬 키가 없을 때)</h3>
+
+        <pre><code class="language-java">public void operate(Object a, Object b) {
+    int ah = System.identityHashCode(a);
+    int bh = System.identityHashCode(b);
+    Object first = ah &lt; bh ? a : b;
+    Object second = ah &lt; bh ? b : a;
+
+    synchronized (first) {
+        synchronized (second) {
+            // 작업
+        }
+    }
+}</code></pre>
+
+        <p>
+          identityHashCode로 정렬. 같은 객체에 대해 항상 같은 순서.
+          단, 두 객체의 hashCode가 우연히 같으면(매우 드물지만) 추가 처리 필요.
+          일반적으로는 ID 정렬이 더 깔끔.
+        </p>
+
+        <h2>회피 — Banker's Algorithm</h2>
+
+        <p>
+          학술적으로 잘 알려진 데드락 회피 알고리즘. Edsger Dijkstra가 1965년 제안.
+          자원 요청이 들어왔을 때 그 요청을 받아들이면 어떤 안전한 종료 시퀀스가 존재하는지 검사.
+          가능하면 받아들이고 없으면 거부.
+        </p>
+
+        <p>
+          이론적으로 우아하지만 실무에서는 거의 쓰이지 않는다.
+          모든 자원 요청과 해제를 중앙에서 관리해야 하고, 매 요청마다 안전성 검사 비용이 들기 때문.
+          애플리케이션 레벨 데드락 대응엔 부적합. 운영체제의 자원 관리에서나 의미 있는 알고리즘.
+        </p>
+
+        <h2>탐지 — 발생 후 풀어주기</h2>
+
+        <p>
+          데드락 자체를 막지 않고 발생을 허용한 뒤, 정기적으로 검사해 발견되면 한 당사자를 강제 종료해 푼다.
+          DB 시스템이 이 방식을 자주 사용.
+        </p>
+
+        <h3>탐지 알고리즘 — Wait-For Graph</h3>
+
+        <p>
+          시스템의 모든 스레드/트랜잭션과 그들의 락 대기 관계로 그래프를 만든다.
+          노드는 스레드, 간선은 "T1이 T2가 가진 자원을 기다림" 같은 관계.
+          이 그래프에 사이클이 있으면 데드락.
+        </p>
+
+        <pre><code class="language-text">스레드 관계:
+T1 → T2  (T1이 T2의 자원을 기다림)
+T2 → T3
+T3 → T1
+
+→ T1, T2, T3가 사이클 → 데드락 탐지</code></pre>
+
+        <p>
+          DFS로 사이클을 찾으면 O(V+E). 정기적으로 또는 락 요청 시점에 실행.
+          MySQL InnoDB가 정확히 이 방식으로 동작 — 매 락 요청마다 wait-for graph 검사로 데드락 즉시 탐지.
+        </p>
+
+        <h3>해결 — Victim 선정</h3>
+
+        <p>
+          데드락이 탐지되면 사이클을 끊기 위해 한 트랜잭션을 강제 롤백한다.
+          어느 트랜잭션을 victim으로 고를지의 정책이 시스템마다 다르다.
+          MySQL은 보통 작업량이 적은(가장 적게 변경한) 트랜잭션을 선택.
+        </p>
+
+        <pre><code class="language-text">ERROR 1213 (40001): Deadlock found when trying to get lock;
+try restarting transaction</code></pre>
+
+        <p>
+          MySQL이 victim으로 선택한 트랜잭션은 위 에러로 롤백되고, 애플리케이션이 재시도해야 한다.
+          이 에러를 만나면 어쩔 수 없는 데드락 상황으로 보고 retry 로직을 넣는 게 표준.
+        </p>
+
+        <h2>세 전략 비교</h2>
+
+        <table>
+          <thead>
+            <tr><th>전략</th><th>장점</th><th>단점</th><th>적합 환경</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>예방 (락 순서)</td>
+              <td>구현 단순, 데드락 자체 불가</td>
+              <td>모든 코드가 규칙 준수해야</td>
+              <td>일반 자바 코드</td>
+            </tr>
+            <tr>
+              <td>예방 (tryLock + timeout)</td>
+              <td>유연한 대응 가능</td>
+              <td>코드 길어짐, retry 처리 필요</td>
+              <td>락 패턴이 복잡한 시스템</td>
+            </tr>
+            <tr>
+              <td>회피 (Banker)</td>
+              <td>이론적 안전성</td>
+              <td>비현실적 비용</td>
+              <td>학술적, OS 자원 관리</td>
+            </tr>
+            <tr>
+              <td>탐지 (Wait-For Graph)</td>
+              <td>발생 후 자동 해결</td>
+              <td>victim 트랜잭션 손실</td>
+              <td>DBMS, 트랜잭션 시스템</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>실무 권장 패턴</h2>
+
+        <h3>1차 방어 — 락 순서 통일</h3>
+
+        <p>
+          가장 단순하고 효과적. 두 락을 함께 잡는 모든 코드가 같은 순서를 따르도록 코딩 규칙 정립.
+          코드 리뷰에서 이 규칙 위반을 점검.
+          ID 같은 자연 정렬 키를 활용한 sort-based locking이 표준 패턴.
+        </p>
+
+        <h3>2차 방어 — 단일 락 또는 lock-free</h3>
+
+        <p>
+          여러 락을 잡는 코드 자체를 줄인다. 가능하면 단일 락으로 보호하는 임계 영역 설계,
+          또는 ConcurrentHashMap 같은 lock-free 자료구조로 락 자체를 회피.
+        </p>
+
+        <h3>3차 방어 — tryLock + timeout</h3>
+
+        <p>
+          위 두 방어가 어려운 복잡한 케이스에 ReentrantLock의 tryLock(timeout) 사용.
+          데드락이 발생해도 timeout으로 풀려 시스템 정지를 막는다.
+          단, 실패 시 retry 로직과 적절한 backoff 필요.
+        </p>
+
+        <h3>4차 방어 — 탐지와 강제 종료</h3>
+
+        <p>
+          DB의 데드락은 어쩔 수 없으니 자동 탐지 + retry 패턴.
+          애플리케이션 레벨에선 외부 모니터링이 데드락을 감지하고 알람 → 운영자가 thread dump로 분석 → 코드 수정.
+        </p>
+
+        <h2>피해야 할 패턴</h2>
+
+        <h3>중첩 synchronized 메서드</h3>
+
+        <pre><code class="language-java">// 위험
+public synchronized void methodA() {
+    other.methodB();   // other도 synchronized이면 두 락 잡힘
+}
+
+public synchronized void methodB() {
+    other.methodA();
+}</code></pre>
+
+        <p>
+          여러 객체의 synchronized 메서드가 서로 호출하는 패턴은 데드락의 흔한 원인.
+          호출 그래프가 복잡해지면 어느 락을 어떤 순서로 잡는지 추적이 어렵다.
+          synchronized 메서드 안에서 다른 객체의 synchronized 메서드를 호출하지 않는 게 안전.
+        </p>
+
+        <h3>외부 호출 동안 락 보유</h3>
+
+        <pre><code class="language-java">// 위험
+synchronized (lock) {
+    externalApi.call();   // 락을 들고 외부 API 호출
+}</code></pre>
+
+        <p>
+          락을 잡은 채 외부 시스템(DB, HTTP, 파일)을 호출하면 그 시스템의 응답을 기다리는 동안 락이 걸려 있다.
+          외부 시스템이 느리거나 멈추면 락도 영원히 걸려있어 다른 스레드가 무한 대기.
+          외부 호출은 락 밖에서, 락 안에서는 메모리 작업만.
+        </p>
+
+        <h3>락 안에서 콜백 호출</h3>
+
+        <pre><code class="language-java">// 위험
+synchronized (lock) {
+    listeners.forEach(Listener::onUpdate);   // 콜백 코드가 무엇을 할지 모름
+}</code></pre>
+
+        <p>
+          콜백/리스너 코드는 호출자가 통제할 수 없다.
+          그 안에서 다른 락을 잡거나 무거운 작업을 하면 예상치 못한 데드락.
+          락 밖에서 listener를 복사해 호출하는 게 안전 (defensive copy 패턴).
+        </p>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. Deadlock 예방의 가장 흔한 방법?</h3>
+
+        <p>
+          락 순서 통일. Circular Wait 조건을 깨는 것이 실무에서 가장 단순하고 효과적.
+          모든 코드가 같은 순서로 락을 잡으면 순환이 만들어질 수 없으므로 데드락 자체가 불가능.
+          ID 같은 자연 정렬 키를 활용한 sort-based locking이 표준 패턴.
+        </p>
+
+        <h3>Q. tryLock(timeout)의 의미?</h3>
+
+        <p>
+          ReentrantLock의 메서드. 일정 시간 동안만 락 획득을 시도하고, 시간 초과 시 false 반환.
+          synchronized는 이 기능이 없어 무한 대기. tryLock + timeout은 No Preemption 조건을 깨는 셈으로
+          데드락 발생 시 강제 종료 가능. 단, 실패 시 retry나 다른 전략 처리 필요.
+        </p>
+
+        <h3>Q. DB 데드락은 어떻게 감지/해결?</h3>
+
+        <p>
+          DB가 자동으로 wait-for graph로 탐지하고 한 트랜잭션을 victim으로 강제 롤백.
+          MySQL은 작업량이 적은 트랜잭션을 victim으로 선택하는 정책.
+          애플리케이션은 "Deadlock found" 에러를 받으면 retry 로직으로 대응. 어쩔 수 없는 시스템 동작.
+        </p>
+
+        <h3>Q. 락 안에서 외부 API 호출이 왜 위험?</h3>
+
+        <p>
+          외부 API가 느리거나 멈추면 그 시간 동안 락이 걸려 있다.
+          다른 스레드들은 그 락을 영원히 기다리며 멈추고, 풀의 모든 스레드가 락에 묶이면 시스템 정지.
+          외부 호출은 락 밖에서, 락 안에서는 메모리 작업만 하는 게 원칙.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          데드락 대응은 예방 / 회피 / 탐지 세 전략.
+          실무에서 가장 흔한 답은 예방 — 락 순서 통일로 Circular Wait 조건 깨기.
+          ReentrantLock의 tryLock(timeout)이 보조 방어선.
+          DB는 탐지 기반으로 자동 해결하므로 애플리케이션은 retry로 대응.
+        </p>
+
+        <p>
+          마지막 편은 실무 디버깅 — DB 데드락의 실제 모습과 jstack thread dump로 자바 데드락 진단하는 법.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>

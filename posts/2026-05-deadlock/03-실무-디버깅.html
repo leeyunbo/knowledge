@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deadlock 실무 디버깅 (3) · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
+
+    <article>
+      <header class="post-header">
+        <div class="post-date">2026.05.09 · 시리즈 3/3</div>
+        <h1>실무 — DB Deadlock과 jstack 디버깅</h1>
+        <p class="subtitle">
+          이론에서 진단으로. 자바와 DB에서 데드락이 실제로 어떻게 보이는지,
+          어떤 도구로 잡고 어떻게 해석하는가.
+        </p>
+      </header>
+
+      <nav class="series-nav">
+        <div class="series-label">Series</div>
+        <div class="series-title">Deadlock</div>
+        <ol>
+          <li><a href="./01-deadlock의-4가지-조건.html">Deadlock의 4가지 조건</a></li>
+          <li><a href="./02-예방-회피-탐지.html">예방 / 회피 / 탐지</a></li>
+          <li class="current">실무 — DB Deadlock과 jstack 디버깅</li>
+        </ol>
+      </nav>
+
+      <section class="post-body">
+
+        <h2>자바 Deadlock 진단 — Thread Dump</h2>
+
+        <p>
+          애플리케이션이 멈춘 것 같은데 GC 로그도 정상이고 외부 호출도 막힘이 없다면 데드락 의심.
+          가장 확실한 진단은 thread dump.
+        </p>
+
+        <h3>jstack으로 dump 뜨기</h3>
+
+        <pre><code class="language-bash">jstack &lt;pid&gt; &gt; thread-dump.txt</code></pre>
+
+        <p>
+          현재 JVM의 모든 스레드 상태와 stack trace를 출력.
+          데드락이 있으면 jstack이 자동으로 감지해 출력 끝에 "Found one Java-level deadlock" 같은 메시지를 붙인다.
+        </p>
+
+        <h3>jstack 출력 예시</h3>
+
+        <pre><code class="language-text">Found one Java-level deadlock:
+=============================
+"Thread-1":
+  waiting to lock monitor 0x00007f8b8c003e98 (object 0x0000000087654321, a java.lang.Object),
+  which is held by "Thread-0"
+"Thread-0":
+  waiting to lock monitor 0x00007f8b8c004a48 (object 0x00000000abcdef12, a java.lang.Object),
+  which is held by "Thread-1"
+
+Java stack information for the threads listed above:
+===================================================
+"Thread-1":
+    at com.example.DeadlockDemo.lambda$1(DeadlockDemo.java:25)
+    - waiting to lock &lt;0x0000000087654321&gt; (a java.lang.Object)
+    - locked &lt;0x00000000abcdef12&gt; (a java.lang.Object)
+
+"Thread-0":
+    at com.example.DeadlockDemo.lambda$0(DeadlockDemo.java:15)
+    - waiting to lock &lt;0x00000000abcdef12&gt; (a java.lang.Object)
+    - locked &lt;0x0000000087654321&gt; (a java.lang.Object)
+
+Found 1 deadlock.</code></pre>
+
+        <p>
+          출력의 핵심은 "Found 1 deadlock". 그 위로 어느 스레드가 어느 락을 들고 어느 락을 기다리는지가 명시.
+          이 정보로 코드의 어느 줄에서 락이 어긋나게 잡혔는지 추적.
+        </p>
+
+        <h3>JConsole / VisualVM</h3>
+
+        <p>
+          GUI로 thread dump를 확인하고 싶다면. JConsole의 Threads 탭, VisualVM의 Threads 탭에서
+          "Detect Deadlock" 버튼이 있다. 위 jstack 출력을 시각화해서 보여준다.
+          개발 중에는 GUI가 편하고, 운영에서는 jstack이 더 자주 쓰인다.
+        </p>
+
+        <h3>운영 환경에서의 dump</h3>
+
+        <p>
+          운영 중인 자바 프로세스에 jstack을 거는 건 안전하다 — 모든 스레드가 safepoint에 도달할 때까지 짧은 멈춤이 있지만 영향이 작음.
+          쿠버네티스 환경에선 컨테이너에 진입해서 jstack 실행, 또는 SIGQUIT 시그널을 보내면
+          stderr에 thread dump를 출력 (kill -3 &lt;pid&gt;).
+          APM 도구(Datadog, New Relic)는 자동으로 정기 thread dump를 수집해 분석에 활용.
+        </p>
+
+        <h2>스레드 상태 이해하기</h2>
+
+        <p>
+          thread dump를 읽으려면 스레드 상태(<code>Thread.State</code>)의 의미를 알아야 한다.
+        </p>
+
+        <table>
+          <thead>
+            <tr><th>상태</th><th>의미</th><th>데드락 의심?</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>RUNNABLE</code></td>
+              <td>실행 중 또는 OS 스케줄링 대기</td>
+              <td>X (정상)</td>
+            </tr>
+            <tr>
+              <td><code>BLOCKED</code></td>
+              <td>monitor 락 획득 대기 (synchronized)</td>
+              <td>O (락 어디서 막혔는지 확인)</td>
+            </tr>
+            <tr>
+              <td><code>WAITING</code></td>
+              <td>다른 스레드의 통지 대기 (Object.wait, Lock.lock 등)</td>
+              <td>O (Lock 기반 데드락 가능성)</td>
+            </tr>
+            <tr>
+              <td><code>TIMED_WAITING</code></td>
+              <td>일정 시간 대기 (sleep, wait(timeout))</td>
+              <td>X (자연 회복 가능)</td>
+            </tr>
+            <tr>
+              <td><code>NEW</code></td>
+              <td>아직 시작 안 됨</td>
+              <td>X</td>
+            </tr>
+            <tr>
+              <td><code>TERMINATED</code></td>
+              <td>종료됨</td>
+              <td>X</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          Thread dump에서 BLOCKED 상태의 스레드가 많고 모두 같은 락을 기다리고 있다면 그 락을 보유한 스레드를 추적.
+          그 스레드가 또 다른 락을 BLOCKED로 기다리고 있다면 데드락 패턴.
+        </p>
+
+        <h2>DB Deadlock — 실제로 어떻게 발생하나</h2>
+
+        <h3>전형적 시나리오 — 두 트랜잭션의 row lock 충돌</h3>
+
+        <pre><code class="language-sql">-- 트랜잭션 1
+BEGIN;
+UPDATE users SET balance = balance - 100 WHERE id = 1;   -- row 1 락 획득
+-- 잠시 대기 (네트워크, 다른 처리)
+UPDATE users SET balance = balance + 100 WHERE id = 2;   -- row 2 락 대기
+
+-- 트랜잭션 2 (거의 동시)
+BEGIN;
+UPDATE users SET balance = balance - 50 WHERE id = 2;    -- row 2 락 획득
+UPDATE users SET balance = balance + 50 WHERE id = 1;    -- row 1 락 대기</code></pre>
+
+        <p>
+          두 트랜잭션이 같은 두 row(1, 2)를 다른 순서로 잠근다.
+          T1은 1 → 2 순서, T2는 2 → 1 순서. 자바 데드락의 DB 버전이다.
+          MySQL InnoDB가 즉시 탐지해 한 트랜잭션을 롤백.
+        </p>
+
+        <pre><code class="language-text">ERROR 1213 (40001): Deadlock found when trying to get lock;
+try restarting transaction</code></pre>
+
+        <h3>InnoDB 데드락 정보 확인</h3>
+
+        <pre><code class="language-sql">SHOW ENGINE INNODB STATUS;</code></pre>
+
+        <p>
+          가장 마지막에 발생한 데드락의 상세 정보가 출력된다.
+          어느 두 트랜잭션이 충돌했는지, 각각 어떤 락을 들고 어떤 락을 기다렸는지, 어느 쪽이 victim으로 선택되었는지.
+        </p>
+
+        <pre><code class="language-text">LATEST DETECTED DEADLOCK
+------------------------
+*** (1) TRANSACTION:
+TRANSACTION 12345, ACTIVE 5 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1136, 2 row lock(s)
+MySQL thread id 100, OS thread handle 0x..., query id 1000 localhost user updating
+UPDATE users SET balance = balance + 100 WHERE id = 2
+
+*** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 5 page no 4 n bits 80 index PRIMARY of table users
+trx id 12345 lock_mode X locks rec but not gap waiting
+
+*** (2) TRANSACTION:
+TRANSACTION 12346, ACTIVE 4 sec starting index read
+...
+*** WE ROLL BACK TRANSACTION (2)</code></pre>
+
+        <p>
+          실제 출력은 더 길지만 핵심은 위. 충돌한 두 트랜잭션의 상태와 어떤 row의 락에서 막혔는지.
+          마지막 줄 "WE ROLL BACK TRANSACTION (2)"가 victim 선택 결과.
+        </p>
+
+        <h2>DB 데드락의 흔한 원인 4가지</h2>
+
+        <h3>1. 락 순서 어긋남</h3>
+
+        <p>
+          위 예시. 같은 row들을 다른 순서로 업데이트하는 트랜잭션이 동시 실행될 때.
+          코드 레벨에서 ID 정렬 후 처리하는 패턴이 표준 해법.
+        </p>
+
+        <pre><code class="language-java">public void transfer(long fromId, long toId, long amount) {
+    long first = Math.min(fromId, toId);
+    long second = Math.max(fromId, toId);
+
+    // SELECT ... FOR UPDATE를 정렬된 순서로
+    Account a = repo.lockById(first);
+    Account b = repo.lockById(second);
+
+    // 업데이트 로직
+}</code></pre>
+
+        <h3>2. Gap Lock과 Next-Key Lock의 충돌 (MySQL InnoDB)</h3>
+
+        <p>
+          REPEATABLE READ 격리 수준에서 InnoDB는 단순 row뿐 아니라 row 사이의 gap에도 락을 건다 (phantom read 방지).
+          이 gap lock이 다른 트랜잭션의 INSERT와 충돌해 데드락이 자주 발생한다.
+          MVCC와 잠금 시리즈에서 짚은 그것.
+        </p>
+
+        <p>
+          해결은 SELECT 범위를 좁히거나, 격리 수준을 READ COMMITTED로 낮추거나(gap lock 회피),
+          애초에 행 단위 락만 잡는 PK 기반 쿼리로 작성.
+        </p>
+
+        <h3>3. 외래키 (FK) 락</h3>
+
+        <p>
+          INSERT나 UPDATE가 FK를 검증하기 위해 부모 테이블에 shared lock을 잡는다.
+          여러 트랜잭션이 같은 부모 row를 참조하는 자식 row를 동시에 다루면 부모 row 락에서 충돌.
+          예상치 못한 자리에서 데드락이 생기는 흔한 패턴.
+        </p>
+
+        <h3>4. 인덱스 부족</h3>
+
+        <p>
+          인덱스가 없으면 InnoDB는 full table scan을 하면서 더 많은 row에 락을 건다.
+          좁은 락이 필요한 트랜잭션이 인덱스 부족으로 넓은 범위 락을 잡으면서 데드락 가능성이 폭증.
+          데드락이 자주 발생하면 EXPLAIN으로 인덱스 사용 여부부터 확인.
+        </p>
+
+        <h2>retry 로직 — DB 데드락 대응의 표준</h2>
+
+        <pre><code class="language-java">@Service
+public class TransferService {
+
+    @Retryable(
+        retryFor = DeadlockLoserDataAccessException.class,
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 100, multiplier = 2)
+    )
+    @Transactional
+    public void transfer(long fromId, long toId, long amount) {
+        // 트랜잭션 로직
+    }
+}</code></pre>
+
+        <p>
+          Spring Retry의 <code>@Retryable</code>로 데드락 발생 시 자동 재시도.
+          backoff로 100ms, 200ms, 400ms로 점점 늦추며 시도하면 같은 충돌이 반복되는 livelock 회피.
+          DB 데드락은 시스템 동작이 정상이라는 신호이기도 해서, retry로 풀리는 게 일반적.
+        </p>
+
+        <h3>Retry 가이드라인</h3>
+
+        <ul>
+          <li>retry 횟수는 3-5회. 그 이상이면 진짜 문제 (코드 로직 버그)</li>
+          <li>backoff는 jitter 포함 — 모든 재시도가 같은 타이밍에 겹치지 않도록</li>
+          <li>retry 횟수 모니터링 — 평소 0이어야 정상, 자주 발생하면 코드/스키마 점검</li>
+          <li>비즈니스 critical 작업이면 retry 실패 시 명확한 에러로 사용자에게 안내</li>
+        </ul>
+
+        <h2>분산 락의 데드락</h2>
+
+        <p>
+          Redis 분산 락(Redlock 등)이나 ZooKeeper 락도 자바/DB 데드락과 같은 패턴으로 데드락 가능.
+          여러 서비스가 외부 자원을 다른 순서로 잡으면 분산 데드락.
+        </p>
+
+        <p>
+          단일 노드 데드락보다 탐지가 훨씬 어렵다. 분산 환경에선 wait-for graph를 만들기도 힘들고
+          한 서비스의 thread dump만 봐선 전체 상황이 안 보인다.
+          그래서 분산 락은 보통 timeout 기반으로 강제 해제하는 패턴이 표준.
+        </p>
+
+        <pre><code class="language-java">RLock lock1 = redisson.getLock("resource:1");
+RLock lock2 = redisson.getLock("resource:2");
+
+// timeout으로 강제 해제 보장
+boolean acquired = lock1.tryLock(5, 30, TimeUnit.SECONDS);
+if (acquired) {
+    try {
+        // 작업
+    } finally {
+        lock1.unlock();
+    }
+}</code></pre>
+
+        <p>
+          Redisson의 <code>tryLock(waitTime, leaseTime, unit)</code>은 획득 timeout과 보유 timeout을 분리.
+          leaseTime 후 자동으로 풀리므로 누군가 죽어 락을 못 풀어도 영원히 막히지 않는다.
+          실무 분산 락의 표준 패턴.
+        </p>
+
+        <h2>예방을 위한 코딩 패턴 정리</h2>
+
+        <h3>코드 리뷰 체크포인트</h3>
+
+        <ul>
+          <li>두 개 이상의 락(synchronized, Lock, DB row 락)을 같은 메서드/트랜잭션에서 잡는가?</li>
+          <li>그렇다면 락 순서가 모든 코드에서 동일한가?</li>
+          <li>ID 정렬, 자연 정렬 키 활용 같은 sort-based locking이 적용됐는가?</li>
+          <li>락 안에서 외부 호출(HTTP, DB)이 있는가?</li>
+          <li>tryLock + timeout 또는 그에 상응하는 보호 장치가 있는가?</li>
+          <li>retry 로직이 있는가? backoff/jitter는?</li>
+        </ul>
+
+        <h3>모니터링 체크포인트</h3>
+
+        <ul>
+          <li>BLOCKED/WAITING 상태 스레드 수 추이 — 평소보다 늘어나면 의심</li>
+          <li>DB 데드락 발생률 — 평소 0이어야 정상, 자주 발생하면 코드/스키마 점검</li>
+          <li>Lock acquisition time p99 — 갑자기 튀면 락 경쟁 심화 신호</li>
+          <li>HikariCP의 connection wait time — DB 락 폭주의 간접 신호</li>
+        </ul>
+
+        <h2>면접 단골 질문</h2>
+
+        <h3>Q. 자바 데드락을 어떻게 진단?</h3>
+
+        <p>
+          jstack으로 thread dump를 떠서 분석. JVM이 데드락을 자동 탐지해 "Found N Java-level deadlocks" 메시지로 알려준다.
+          그 출력에 어느 스레드가 어느 락을 들고 어느 락을 기다리는지 명시되어 있어 코드의 어느 줄을 고쳐야 할지 추적 가능.
+          JConsole, VisualVM의 GUI Detect Deadlock도 같은 정보 제공.
+        </p>
+
+        <h3>Q. DB 데드락은 어떻게 처리?</h3>
+
+        <p>
+          DB가 자동으로 탐지하고 한 트랜잭션을 롤백한다. 애플리케이션은 "Deadlock found" 에러를 받으면 retry.
+          Spring Retry의 @Retryable + backoff가 표준 패턴. 3-5회 재시도하면 보통 풀린다.
+          retry 횟수 모니터링으로 비정상 빈도 감지가 중요.
+        </p>
+
+        <h3>Q. InnoDB의 데드락이 자주 발생하는 원인?</h3>
+
+        <p>
+          락 순서 어긋남, gap lock 충돌, 외래키 락, 인덱스 부족 4가지가 흔하다.
+          코드 레벨에서 ID 정렬해 트랜잭션 처리, 격리 수준 검토(READ COMMITTED로 gap lock 회피),
+          EXPLAIN으로 인덱스 활용 점검이 첫 단계 진단.
+        </p>
+
+        <h3>Q. 분산 락의 데드락은?</h3>
+
+        <p>
+          단일 노드 데드락과 본질적으로 같지만 탐지가 훨씬 어렵다.
+          분산 환경에선 timeout 기반으로 강제 해제하는 게 표준. Redisson의 tryLock(waitTime, leaseTime)이
+          획득과 보유 모두에 timeout을 두어 안전성 확보.
+          분산 wait-for graph를 만들려는 시도는 비현실적.
+        </p>
+
+        <h2>한 줄 정리</h2>
+
+        <p>
+          자바 데드락은 jstack thread dump로 진단. JVM이 "Found N Java-level deadlocks"로 자동 탐지해 알려준다.
+          DB 데드락은 InnoDB가 wait-for graph로 자동 탐지해 한 트랜잭션을 롤백 — 애플리케이션은 retry로 대응.
+          분산 락은 timeout 기반 강제 해제가 표준.
+          예방 코드 패턴은 ID 정렬 후 잠그기, 락 안에서 외부 호출 금지, tryLock + timeout, retry + backoff.
+        </p>
+
+        <p>
+          Deadlock 시리즈는 여기까지. 다음은 동시성 컬렉션의 핵심 — ConcurrentHashMap의 내부 메커니즘.
+        </p>
+
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    bok · 2026
+  </footer>
+  <script src="../../assets/toc.js"></script>
+</body>
+</html>
