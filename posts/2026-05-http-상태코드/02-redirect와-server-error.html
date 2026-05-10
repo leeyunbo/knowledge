@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Redirect와 Server Error의 함정 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Redirect와 Server Error의 함정"
+subtitle: "301과 308의 차이가 메소드 보존에 있다. 502, 503, 504의 의미를 정확히 알면 장애 디버깅이 빨라진다."
+dateText: "2026.05.06"
+episode: 2
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 2/2</div>
-        <h1>Redirect와 Server Error의 함정</h1>
-        <p class="subtitle">
-          301과 308의 차이가 메소드 보존에 있다.
-          502, 503, 504의 의미를 정확히 알면 장애 디버깅이 빨라진다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP 상태코드 — 헷갈리는 경계</div>
-        <ol>
-          <li><a href="./01-상태코드의-구조와-자주-헷갈리는-경계.html">상태코드의 구조와 자주 헷갈리는 경계</a></li>
-          <li class="current">Redirect와 Server Error의 함정</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>3xx — 리다이렉트의 종류</h2>
+<h2>3xx — 리다이렉트의 종류</h2>
 
         <pre><code>301 Moved Permanently  — 영구 이동
 302 Found             — 임시 이동 (예전 이름: Moved Temporarily)
@@ -279,15 +251,3 @@ If-None-Match: "abc123"   # 클라이언트가 가진 ETag
   504 — 프록시가 업스트림 응답 시간 초과 (Backend 슬로우)
 
 다음: synchronized & 모니터 락 — 동시성 시리즈 시작.</code></pre>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

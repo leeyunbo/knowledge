@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>쿠폰 발급 시스템의 성능 한계 (1) 문제 정의와 환경 재현 · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "쿠폰 발급 시스템의 성능 한계 (1) 문제 정의와 환경 재현"
+subtitle: "300명이 동시에 쿠폰을 받는데 65명만 성공한다. 15초 안에 전부 받게 하고 싶었고, 어디까지 갈 수 있는지 파봤다."
+dateText: "2026.04.14"
+episode: 1
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.14 · 시리즈 1/5</div>
-        <h1>쿠폰 발급 시스템의 성능 한계 (1)<br>문제 정의와 환경 재현</h1>
-        <p class="subtitle">
-          300명이 동시에 쿠폰을 받는데 65명만 성공한다. 15초 안에 전부 받게 하고 싶었고, 어디까지 갈 수 있는지 파봤다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
-        <ol>
-          <li class="current">문제 정의와 환경 재현</li>
-          <li><a href="./02-쿼리-수-줄이기.html">쿼리 수 줄이기, JPA가 숨기는 쿼리들</a></li>
-          <li><a href="./03-lock-sharding.html">Lock Sharding으로 경합 분산 시도</a></li>
-          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
-          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>시작</h2>
+<h2>시작</h2>
         <p>
           대용량 쿠폰 발급 시스템을 공부해보려고 가상의 요구사항을 만들어 풀어봤다.
           요구사항 자체는 단순하다.
@@ -212,24 +183,3 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
           CS 수업에서 "동시성 문제엔 락을 걸자"까지는 알려주는데, "락을 쪼개자"나
           "걸린 락은 건너뛰자"까지는 잘 안 다룬다. 이 시리즈는 거기까지 내려가는 이야기다.
         </p>
-      </section>
-
-      <footer class="post-footer">
-        <a href="../../index.html" class="prev">
-          <span class="label">← Index</span>
-          <span>전체 글 목록</span>
-        </a>
-        <a href="./02-쿼리-수-줄이기.html" class="next">
-          <span class="label">Next →</span>
-          <span>쿼리 수 줄이기</span>
-        </a>
-      </footer>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (1) Redis 도입과 새 문제 · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (1) Redis 도입과 새 문제"
+subtitle: "DB 튜닝으로 259건까지 끌어올렸는데 300은 안 됐다. Redis를 넣으니 순식간에 다 됐다. 그리고 다른 지옥이 열렸다."
+dateText: "2026.04.20"
+episode: 1
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.20 · 시리즈 1/5</div>
-        <h1>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (1)<br>Redis 도입과 새 문제</h1>
-        <p class="subtitle">
-          DB 튜닝으로 259건까지 끌어올렸는데 300은 안 됐다. Redis를 넣으니 순식간에 다 됐다. 그리고 다른 지옥이 열렸다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
-        <ol>
-          <li class="current">Redis 도입과 새 문제</li>
-          <li><a href="./02-장애-시나리오.html">장애 시나리오 4개를 테이블에 올리기</a></li>
-          <li><a href="./03-2-phase-reservation.html">2-phase Reservation과 pending 큐</a></li>
-          <li><a href="./04-스케줄러-3종.html">세 개의 스케줄러, 세 개의 방어선</a></li>
-          <li><a href="./05-redis-폴백.html">Redis가 아예 죽을 때 & 남은 숙제</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>전편 끝자락에서</h2>
+<h2>전편 끝자락에서</h2>
         <p>
           전 시리즈의 최종 결과는 <strong>300 중 259 성공</strong>이었다.
           <code>SELECT FOR UPDATE SKIP LOCKED</code>로 락 경합을 우회하면서 거의 다 긁어왔지만,
@@ -205,25 +176,3 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
           <strong>빈도-심각도-난이도 매트릭스</strong>에 올려놓고, 어디부터 어떻게 잡을지 정리한다.
           뒤에 나올 모든 설계는 이 표에서 출발한다.
         </p>
-
-      </section>
-
-      <footer class="post-footer">
-        <a href="../../index.html" class="prev">
-          <span class="label">← Index</span>
-          <span>전체 글 목록</span>
-        </a>
-        <a href="./02-장애-시나리오.html" class="next">
-          <span class="label">Next →</span>
-          <span>장애 시나리오 4개를 테이블에 올리기</span>
-        </a>
-      </footer>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

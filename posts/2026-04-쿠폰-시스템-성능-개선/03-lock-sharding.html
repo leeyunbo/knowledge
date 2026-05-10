@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>쿠폰 발급 시스템의 성능 한계 (3) Lock Sharding · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "쿠폰 발급 시스템의 성능 한계 (3) Lock Sharding으로 경합 분산 시도"
+subtitle: "하나의 핫스팟 행을 여러 행으로 쪼갠다. 될 줄 알았는데 안 됐다."
+dateText: "2026.04.14"
+episode: 3
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.14 · 시리즈 3/5</div>
-        <h1>쿠폰 발급 시스템의 성능 한계 (3)<br>Lock Sharding으로 경합 분산 시도</h1>
-        <p class="subtitle">
-          하나의 핫스팟 행을 여러 행으로 쪼갠다. 될 줄 알았는데 안 됐다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
-        <ol>
-          <li><a href="./01-문제-정의.html">문제 정의와 환경 재현</a></li>
-          <li><a href="./02-쿼리-수-줄이기.html">쿼리 수 줄이기, JPA가 숨기는 쿼리들</a></li>
-          <li class="current">Lock Sharding으로 경합 분산 시도</li>
-          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
-          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>직렬화가 진짜 문제였다</h2>
+<h2>직렬화가 진짜 문제였다</h2>
         <p>
           2편에서 쿼리를 7개에서 6개로 줄였는데도 성공률이 65 → 70으로 거의 안 올랐다.
           이때 깨달았다. 쿠폰 재고 UPDATE가 병목의 전부였던 거다.
@@ -230,24 +201,3 @@ couponStockRepository.saveAll(stocks);</code></pre>
         <p>
           다음 편에서 SKIP LOCKED가 뭔지, 그리고 75에서 259로 바뀌는 한 줄을 본다.
         </p>
-      </section>
-
-      <footer class="post-footer">
-        <a href="./02-쿼리-수-줄이기.html" class="prev">
-          <span class="label">← Prev</span>
-          <span>쿼리 수 줄이기</span>
-        </a>
-        <a href="./04-skip-locked.html" class="next">
-          <span class="label">Next →</span>
-          <span>SKIP LOCKED의 발견</span>
-        </a>
-      </footer>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

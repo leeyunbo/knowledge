@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AOP가 풀려는 문제 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "AOP가 풀려는 문제"
+subtitle: "코드 곳곳에 흩어지는 횡단 관심사. 그리고 그걸 한 곳에 모으자는 발상. AOP의 다섯 가지 핵심 용어로 그 그림이 풀린다."
+dateText: "2026.05.05"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 1/4</div>
-        <h1>AOP가 풀려는 문제</h1>
-        <p class="subtitle">
-          코드 곳곳에 흩어지는 횡단 관심사. 그리고 그걸 한 곳에 모으자는 발상.
-          AOP의 다섯 가지 핵심 용어로 그 그림이 풀린다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Spring AOP 내부 동작</div>
-        <ol>
-          <li class="current">AOP가 풀려는 문제</li>
-          <li><a href="./02-spring-aop의-동작.html">Spring AOP의 동작 원리 — Proxy Weaving</a></li>
-          <li><a href="./03-advice의-종류와-실행-흐름.html">Advice의 종류와 실행 흐름</a></li>
-          <li><a href="./04-pointcut과-spring-aop의-한계.html">Pointcut과 Spring AOP의 한계</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>같은 코드가 여기저기 반복되는 순간</h2>
+<h2>같은 코드가 여기저기 반복되는 순간</h2>
 
         <p>
           서비스 메서드를 짜다 보면 비슷한 패턴이 자꾸 반복된다.
@@ -372,15 +342,3 @@ Spring AOP:
           그리고 Bean 생명주기에서 본 "BeanPostProcessor.after에서 만들어지는 프록시"가
           정확히 어떤 객체인지 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

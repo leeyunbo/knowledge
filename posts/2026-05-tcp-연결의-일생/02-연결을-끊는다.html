@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>연결을 끊는 데 왜 4번이나 걸리나 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "연결을 끊는 데 왜 4번이나 걸리나"
+subtitle: "만들 땐 3번, 끊을 땐 4번. 그 차이가 어디서 오는지. 그리고 끊는 도중에 멈춰버리는 CLOSE_WAIT의 정체."
+dateText: "2026.05.01"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.01 · 시리즈 2/3</div>
-        <h1>연결을 끊는 데 왜 4번이나 걸리나</h1>
-        <p class="subtitle">
-          만들 땐 3번, 끊을 땐 4번. 그 차이가 어디서 오는지.
-          그리고 끊는 도중에 멈춰버리는 CLOSE_WAIT의 정체.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">TCP 연결의 일생</div>
-        <ol>
-          <li><a href="./01-연결을-만든다.html">TCP 연결을 만든다는 것</a></li>
-          <li class="current">연결을 끊는 데 왜 4번이나 걸리나</li>
-          <li><a href="./03-time-wait.html">TIME_WAIT가 ephemeral port를 잡아먹는다</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>만들 땐 3번이었는데</h2>
+<h2>만들 땐 3번이었는데</h2>
 
         <p>
           앞 편에서 TCP 연결은 3-way handshake로 만들어진다고 봤다.
@@ -240,14 +212,3 @@ socket.close();           // 이 줄까지 안 옴 → CLOSE_WAIT 발생</code><
           TIME_WAIT다. 다음 편에서 그 60초의 정체와,
           왜 그게 외부 API 호출 많은 클라이언트의 ephemeral port를 갉아먹는지 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

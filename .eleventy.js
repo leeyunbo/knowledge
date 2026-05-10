@@ -1,8 +1,8 @@
 module.exports = function(eleventyConfig) {
   eleventyConfig.addPassthroughCopy("assets");
-  eleventyConfig.addPassthroughCopy("posts");
   eleventyConfig.addPassthroughCopy("archive");
   eleventyConfig.addPassthroughCopy("curriculum");
+  eleventyConfig.addPassthroughCopy("posts/**/*.java");
   eleventyConfig.addPassthroughCopy({ "static/.nojekyll": ".nojekyll" });
 
   eleventyConfig.ignores.add("CLAUDE.md");
@@ -11,8 +11,8 @@ module.exports = function(eleventyConfig) {
   eleventyConfig.ignores.add(".claude");
   eleventyConfig.ignores.add("node_modules");
   eleventyConfig.ignores.add("_site");
+  eleventyConfig.ignores.add("scripts");
 
-  eleventyConfig.ignores.add("posts/**");
   eleventyConfig.ignores.add("archive/**");
   eleventyConfig.ignores.add("curriculum/**");
 

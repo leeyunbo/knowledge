@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "CLOSED → OPEN → HALF_OPEN 3-state 완전 이해"
+subtitle: "CircuitBreaker가 언제 열리고, 언제 닫히는지. Sliding Window와 minimum-number-of-calls가 오탐을 어떻게 막는지."
+dateText: "2026.04.22"
+episode: 2
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.22 · 시리즈 2/5</div>
-        <h1>CLOSED → OPEN → HALF_OPEN<br>3-state 완전 이해</h1>
-        <p class="subtitle">
-          CircuitBreaker가 언제 열리고, 언제 닫히는지.
-          Sliding Window와 minimum-number-of-calls가 오탐을 어떻게 막는지.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">CircuitBreaker 깊게 파기</div>
-        <ol>
-          <li><a href="./01-왜-필요한가.html">CircuitBreaker는 왜 필요한가</a></li>
-          <li class="current">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</li>
-          <li><a href="./03-어노테이션-하나로는-부족하다.html">@CircuitBreaker 어노테이션 하나로는 부족하다</a></li>
-          <li><a href="./04-retry-bulkhead-조합.html">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</a></li>
-          <li><a href="./05-분산-환경.html">분산 환경에서 CircuitBreaker</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>3가지 상태</h2>
+<h2>3가지 상태</h2>
 
         <pre><code>CLOSED ──실패율 초과──► OPEN ──wait-duration 후──► HALF_OPEN
   ▲                                                      │
@@ -145,14 +115,3 @@ call-3: SENT: recover-3  |  state=CLOSED</code></pre>
           다음 편에서는 이 기본 구조 위에서
           <code>@CircuitBreaker</code> 어노테이션만으로는 놓치게 되는 실전 설정들을 다룬다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

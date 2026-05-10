@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} · bok's notes</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ rootPath | default: './' }}assets/style.css">
+</head>
+<body>
+  <div class="reading-progress" id="readingProgress" aria-hidden="true"></div>
+  {% include "header.html" %}
+
+  <main class="post-wrap">
+    <article class="article-main">
+      <header class="post-header">
+        <div class="post-meta">
+          <time class="post-date">{{ dateText }}</time>
+          {% if episode %}<span class="post-meta-sep" aria-hidden="true"></span><span class="post-series-info">시리즈 {{ episode }}/{{ episodes }}</span>{% endif %}
+        </div>
+        <h1>{{ title }}</h1>
+        {% if subtitle %}<p class="post-subtitle">{{ subtitle }}</p>{% endif %}
+      </header>
+
+      <section class="post-body">
+        {{ content }}
+      </section>
+    </article>
+  </main>
+
+  {% include "footer.html" %}
+
+  <script>
+    (function() {
+      const bar = document.getElementById('readingProgress');
+      let rafId = null;
+      function update() {
+        const h = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+        const pct = h > 0 ? Math.min(100, Math.max(0, window.scrollY / h * 100)) : 0;
+        bar.style.width = pct + '%';
+      }
+      window.addEventListener('scroll', function() {
+        if (rafId) return;
+        rafId = requestAnimationFrame(function() { update(); rafId = null; });
+      }, { passive: true });
+      update();
+    })();
+  </script>
+</body>
+</html>

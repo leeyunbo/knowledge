@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>초기화 콜백과 BeanPostProcessor (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "초기화 콜백과 BeanPostProcessor"
+subtitle: "@PostConstruct는 정확히 언제 실행되나. BeanPostProcessor가 빈을 어떻게 변형하나. AOP 프록시가 만들어지는 진짜 자리."
+dateText: "2026.05.05"
+episode: 3
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 3/4</div>
-        <h1>초기화 콜백과 BeanPostProcessor</h1>
-        <p class="subtitle">
-          @PostConstruct는 정확히 언제 실행되나.
-          BeanPostProcessor가 빈을 어떻게 변형하나. AOP 프록시가 만들어지는 진짜 자리.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Spring Bean 생명주기</div>
-        <ol>
-          <li><a href="./01-bean이-만들어지기까지.html">Bean이 만들어지기까지</a></li>
-          <li><a href="./02-의존성-주입.html">의존성 주입의 시점과 방식</a></li>
-          <li class="current">초기화 콜백과 BeanPostProcessor</li>
-          <li><a href="./04-소멸.html">소멸 — Bean이 사라지기까지</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>의존성 주입 직후 일어나는 일</h2>
+<h2>의존성 주입 직후 일어나는 일</h2>
 
         <p>
           앞 편에서 의존성 주입이 끝났다. 이제 빈이 사용 준비를 마치기 직전 단계.
@@ -377,15 +347,3 @@ BeanPostProcessor의 두 메서드는 모든 빈에 호출됨.
           마지막 편에서 빈이 어떻게 소멸하는지를 본다.
           @PreDestroy, DisposableBean, 그리고 컨테이너 종료 흐름.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

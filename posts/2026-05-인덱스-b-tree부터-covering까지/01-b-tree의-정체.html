@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>인덱스가 왜 빠른가 — B+Tree의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "인덱스가 왜 빠른가 — B+Tree의 정체"
+subtitle: "1억 건 테이블에서 한 행을 찾는 데 디스크 읽기 3~4번이면 끝나는 이유. 그리고 왜 Hash가 아닌 B+Tree인가."
+dateText: "2026.05.03"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.03 · 시리즈 1/4</div>
-        <h1>인덱스가 왜 빠른가 — B+Tree의 정체</h1>
-        <p class="subtitle">
-          1억 건 테이블에서 한 행을 찾는 데 디스크 읽기 3~4번이면 끝나는 이유.
-          그리고 왜 Hash가 아닌 B+Tree인가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">인덱스 — B-Tree부터 Covering까지</div>
-        <ol>
-          <li class="current">인덱스가 왜 빠른가 — B+Tree의 정체</li>
-          <li><a href="./02-클러스터드-보조-커버링.html">클러스터드 vs 보조 — Back to Table과 커버링 인덱스</a></li>
-          <li><a href="./03-복합-인덱스-운영.html">복합 인덱스 운영 — Left-most Prefix와 카디널리티</a></li>
-          <li><a href="./04-explain-실전-튜닝.html">EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>인덱스가 빠른 진짜 이유</h2>
+<h2>인덱스가 빠른 진짜 이유</h2>
 
         <p>
           인덱스가 빠르다고 한다. 풀스캔보다 빠르다고 한다.
@@ -257,14 +228,3 @@ URL shortener, session store 등 단순 lookup 워크로드</code></pre>
           같은 흔한 면접 질문의 답이 된다.
           다음 편에서 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

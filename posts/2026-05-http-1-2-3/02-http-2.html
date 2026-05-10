@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HTTP/2 — 멀티플렉싱과 HPACK (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "HTTP/2 — 멀티플렉싱과 HPACK"
+subtitle: "한 연결에서 여러 요청을 동시에. 텍스트에서 바이너리로. HTTP/2가 1.1의 한계를 어떻게 깼는지 봐요."
+dateText: "2026.05.09"
+episode: 2
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 2/4</div>
-        <h1>HTTP/2 — 멀티플렉싱과 HPACK</h1>
-        <p class="subtitle">
-          한 연결에서 여러 요청을 동시에. 텍스트에서 바이너리로. HTTP/2가 1.1의 한계를 어떻게 깼는지 봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP/1.1 → 2 → 3</div>
-        <ol>
-          <li><a href="./01-http-1-1.html">HTTP/1.1과 그 한계</a></li>
-          <li class="current">HTTP/2 — 멀티플렉싱과 HPACK</li>
-          <li><a href="./03-http-3.html">HTTP/3 — QUIC 위의 새 시작</a></li>
-          <li><a href="./04-실무-비교.html">실무 비교</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>HTTP/2의 출발</h2>
+<h2>HTTP/2의 출발</h2>
 
         <p>
           2015년 RFC 7540으로 표준화됐어요. 출발점은 구글의 SPDY 프로토콜이고, 그게 HTTP/2로 IETF에 흡수됐어요.
@@ -417,14 +388,3 @@
         <p>
           다음 편에서는 이 한계를 풀려고 TCP를 버린 HTTP/3와 그 기반 프로토콜 QUIC를 살펴봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,44 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GC가 풀려는 문제 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "GC가 풀려는 문제"
+subtitle: "어떤 객체를 살리고 어떤 객체를 죽일지 정하는 일. 그리고 죽은 자리를 어떻게 다시 쓸 만하게 만들지의 선택. 모든 GC 알고리즘이 이 두 질문에 답한다."
+dateText: "2026.05.07"
+episode: 1
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 1/5</div>
-        <h1>GC가 풀려는 문제</h1>
-        <p class="subtitle">
-          어떤 객체를 살리고 어떤 객체를 죽일지 정하는 일.
-          그리고 죽은 자리를 어떻게 다시 쓸 만하게 만들지의 선택.
-          모든 GC 알고리즘이 이 두 질문에 답한다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">GC 진화사</div>
-        <ol>
-          <li class="current">GC가 풀려는 문제</li>
-          <li><a href="./02-serial-parallel.html">Serial / Parallel — 전통의 GC</a></li>
-          <li><a href="./03-cms-g1.html">CMS / G1 — Concurrent와 Region</a></li>
-          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
-          <li><a href="./05-gc-튜닝-실전.html">GC 튜닝 실전</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 GC인가</h2>
+<h2>왜 GC인가</h2>
 
         <p>
           C나 C++의 세계에서 메모리 관리는 개발자의 책임이다.
@@ -363,14 +331,3 @@
           다음 편은 가장 오래된 두 GC — Serial과 Parallel.
           STW에 정직하게 의존하면서도 멀티코어를 활용하기 시작한 단계.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

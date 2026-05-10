@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유"
+subtitle: "엔티티에 무심코 <code>@Data</code> 붙이는 순간 깔리는 세 가지 함정. ID 기반 해시도, 가변 필드도, Hibernate 프록시도 다 같은 곳에서 깨진다."
+dateText: "2026.04.29"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.29 · 시리즈 3/3</div>
-        <h1>JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유</h1>
-        <p class="subtitle">
-          엔티티에 무심코 <code>@Data</code> 붙이는 순간 깔리는 세 가지 함정.
-          ID 기반 해시도, 가변 필드도, Hibernate 프록시도 다 같은 곳에서 깨진다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">equals와 hashCode의 함정</div>
-        <ol>
-          <li><a href="./01-equals만-오버라이드하면.html">equals만 오버라이드하면 객체가 사라진다</a></li>
-          <li><a href="./02-hashcode-계약.html">hashCode 계약, 세 규칙과 위반 시 일어나는 일</a></li>
-          <li class="current">JPA 엔티티의 equals와 hashCode, Lombok @Data가 위험한 이유</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>흔한 패턴, 그리고 깨지는 순간</h2>
+<h2>흔한 패턴, 그리고 깨지는 순간</h2>
 
         <p>
           Spring Boot + JPA 프로젝트에서 엔티티는 보통 이렇게 시작한다.
@@ -239,14 +211,3 @@ public int hashCode() {
           <strong>해시 기반 자료구조에 들어갈 객체는, 한 번 결정된 해시가 객체 수명 동안 변하지 않아야 한다.</strong>
           이 규칙을 지키지 못하는 객체를 키로 쓰면 어디선가 조용히 깨진다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

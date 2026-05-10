@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝"
+subtitle: "앞 세 편이 이론이라면 이 편은 실전. 느린 쿼리를 받았을 때 EXPLAIN을 어떻게 읽고 어떻게 단계적으로 풀어가는가."
+dateText: "2026.05.03"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.03 · 시리즈 4/4</div>
-        <h1>EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</h1>
-        <p class="subtitle">
-          앞 세 편이 이론이라면 이 편은 실전.
-          느린 쿼리를 받았을 때 EXPLAIN을 어떻게 읽고 어떻게 단계적으로 풀어가는가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">인덱스 — B-Tree부터 Covering까지</div>
-        <ol>
-          <li><a href="./01-b-tree의-정체.html">인덱스가 왜 빠른가 — B+Tree의 정체</a></li>
-          <li><a href="./02-클러스터드-보조-커버링.html">클러스터드 vs 보조 — Back to Table과 커버링 인덱스</a></li>
-          <li><a href="./03-복합-인덱스-운영.html">복합 인덱스 운영 — Left-most Prefix와 카디널리티</a></li>
-          <li class="current">EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>EXPLAIN — 옵티마이저의 결정을 보는 창</h2>
+<h2>EXPLAIN — 옵티마이저의 결정을 보는 창</h2>
 
         <p>
           EXPLAIN은 쿼리를 실제로 실행하지 않고
@@ -435,14 +406,3 @@ SELECT * FROM sys.schema_unused_indexes;</code></pre>
           데이터 레이어의 시야가 한 단계 올라간다.
           평소 안 보이던 함정들이 미리 보이기 시작한다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

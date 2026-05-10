@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RejectedExecutionHandler와 Executors 함정 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "RejectedExecutionHandler와 Executors 함정"
+subtitle: "풀과 큐가 모두 가득 찼을 때의 마지막 방어선. 그리고 가장 흔한 함정인 Executors 팩토리 메서드의 본체."
+dateText: "2026.05.09"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 4/4</div>
-        <h1>RejectedExecutionHandler와 Executors 함정</h1>
-        <p class="subtitle">
-          풀과 큐가 모두 가득 찼을 때의 마지막 방어선.
-          그리고 가장 흔한 함정인 Executors 팩토리 메서드의 본체.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">ThreadPoolExecutor 7인자</div>
-        <ol>
-          <li><a href="./01-7인자-개요.html">7인자 개요와 작업 흐름</a></li>
-          <li><a href="./02-풀-사이징.html">풀 사이징 — CPU vs I/O bound</a></li>
-          <li><a href="./03-blockingqueue-4종.html">BlockingQueue 4종의 영향</a></li>
-          <li class="current">RejectedExecutionHandler와 Executors 함정</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>거부의 의미</h2>
+<h2>거부의 의미</h2>
 
         <p>
           1편에서 본 흐름의 마지막 단계. 풀의 스레드가 max까지 차고 큐도 가득 차면 더 이상 새 작업을 받을 수 없다.
@@ -401,14 +371,3 @@ public void shutdown() throws InterruptedException {
         <p>
           ThreadPoolExecutor 시리즈는 여기까지. 다음은 동시성의 고전 함정 — ThreadLocal.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CMS / G1 — Concurrent와 Region (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "CMS / G1 — Concurrent와 Region"
+subtitle: "GC를 application 스레드와 함께 돌리려는 첫 시도들. CMS의 좌절과 한계, 그리고 그 자리를 이어받은 G1의 Region 기반 설계."
+dateText: "2026.05.07"
+episode: 3
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 3/5</div>
-        <h1>CMS / G1 — Concurrent와 Region</h1>
-        <p class="subtitle">
-          GC를 application 스레드와 함께 돌리려는 첫 시도들.
-          CMS의 좌절과 한계, 그리고 그 자리를 이어받은 G1의 Region 기반 설계.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">GC 진화사</div>
-        <ol>
-          <li><a href="./01-gc가-풀려는-문제.html">GC가 풀려는 문제</a></li>
-          <li><a href="./02-serial-parallel.html">Serial / Parallel — 전통의 GC</a></li>
-          <li class="current">CMS / G1 — Concurrent와 Region</li>
-          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
-          <li><a href="./05-gc-튜닝-실전.html">GC 튜닝 실전</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Concurrent가 들어왔다 — CMS</h2>
+<h2>Concurrent가 들어왔다 — CMS</h2>
 
         <p>
           Concurrent Mark Sweep. 2002년 Java 1.4에서 도입돼 Java 8까지 latency 중시 환경의 표준이었던 GC.
@@ -284,14 +253,3 @@
           그 정도도 부담. 그래서 STW를 거의 ms 한 자릿수로 끌어내린 다음 세대 GC가 등장한다.
           ZGC와 Shenandoah가 다음 편의 주제.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

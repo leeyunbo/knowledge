@@ -1,39 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ABA 문제와 해결 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "ABA 문제와 AtomicStampedReference"
+subtitle: "CAS의 사각지대. 값이 잠깐 다른 값으로 갔다가 돌아왔을 때 변경을 감지 못하는 문제와 그 해결책이에요."
+dateText: "2026.05.09"
+episode: 2
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 2/2</div>
-        <h1>ABA 문제와 AtomicStampedReference</h1>
-        <p class="subtitle">
-          CAS의 사각지대. 값이 잠깐 다른 값으로 갔다가 돌아왔을 때 변경을 감지 못하는 문제와 그 해결책이에요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">CAS — Compare And Swap</div>
-        <ol>
-          <li><a href="./01-cas의-정체.html">CAS의 정체</a></li>
-          <li class="current">ABA 문제와 AtomicStampedReference</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>ABA 문제가 뭔가요</h2>
+<h2>ABA 문제가 뭔가요</h2>
 
         <p>
           이름 그대로 값이 A에서 B로 갔다가 다시 A로 돌아오는 상황이에요.
@@ -320,14 +293,3 @@ if (markHolder[0]) {
         <p>
           CAS 시리즈는 여기까지예요. 다음은 동시성 컬렉션의 핵심, ConcurrentHashMap의 내부로 들어가볼게요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

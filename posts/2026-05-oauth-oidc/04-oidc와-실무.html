@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OIDC와 실무 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "OIDC와 실무"
+subtitle: "OAuth 2.0이 인가 프로토콜이라면 OpenID Connect(OIDC)는 그 위에 인증을 얹은 표준이에요. 그리고 운영 환경의 패턴들까지요."
+dateText: "2026.05.10"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 4/4</div>
-        <h1>OIDC와 실무</h1>
-        <p class="subtitle">
-          OAuth 2.0이 인가 프로토콜이라면 OpenID Connect(OIDC)는 그 위에 인증을 얹은 표준이에요. 그리고 운영 환경의 패턴들까지요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">OAuth 2.0 / OIDC</div>
-        <ol>
-          <li><a href="./01-oauth의-정체.html">OAuth 2.0의 정체</a></li>
-          <li><a href="./02-authorization-code-flow.html">Authorization Code Flow</a></li>
-          <li><a href="./03-다른-flow와-pkce.html">다른 Flow들과 PKCE</a></li>
-          <li class="current">OIDC와 실무</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>OAuth 2.0의 빈 자리 — "사용자가 누구지?"</h2>
+<h2>OAuth 2.0의 빈 자리 — "사용자가 누구지?"</h2>
 
         <p>
           1편에서 말한 부분을 다시 짚어요. OAuth 2.0은 인가(Authorization) 프로토콜이에요.
@@ -439,14 +410,3 @@ public class SecurityConfig {
         <p>
           OAuth/OIDC 시리즈는 여기까지예요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>REQUIRED — 가장 흔하지만 가장 위험한 디폴트 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "REQUIRED — 가장 흔하지만 가장 위험한 디폴트"
+subtitle: "예외를 catch했는데 왜 UnexpectedRollbackException이 터지는가. REQUIRED의 logical/physical 구분이 만든 가장 유명한 함정."
+dateText: "2026.04.30"
+episode: 2
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.30 · 시리즈 2/4</div>
-        <h1>REQUIRED — 가장 흔하지만 가장 위험한 디폴트</h1>
-        <p class="subtitle">
-          예외를 catch했는데 왜 UnexpectedRollbackException이 터지는가.
-          REQUIRED의 logical/physical 구분이 만든 가장 유명한 함정.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">@Transactional Propagation 7가지</div>
-        <ol>
-          <li><a href="./01-propagation이-왜-있는가.html">Propagation이 왜 있는가</a></li>
-          <li class="current">REQUIRED — 가장 흔하지만 가장 위험한 디폴트</li>
-          <li><a href="./03-requires-new의-함정.html">REQUIRES_NEW — 진짜 새 트랜잭션의 함정</a></li>
-          <li><a href="./04-나머지-5가지.html">나머지 5가지와 선택 가이드</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 REQUIRED가 디폴트인가</h2>
+<h2>왜 REQUIRED가 디폴트인가</h2>
 
         <p>
           <code>@Transactional</code>에 propagation을 명시하지 않으면 REQUIRED다.
@@ -246,14 +217,3 @@ public class PaymentService {
           외부 tx와 완전히 독립된 새 connection을 쓴다. 그런데 그 독립성이
           DB 락과 만나면 자기 자신을 데드락에 빠뜨릴 수 있다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

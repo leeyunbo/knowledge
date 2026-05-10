@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>다른 Flow들과 PKCE (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "다른 Flow들과 PKCE"
+subtitle: "Authorization Code 외에 어떤 Flow가 있는지, 그리고 모바일/SPA에 필수인 PKCE 확장이 무엇인지 봐요."
+dateText: "2026.05.09"
+episode: 3
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 3/4</div>
-        <h1>다른 Flow들과 PKCE</h1>
-        <p class="subtitle">
-          Authorization Code 외에 어떤 Flow가 있는지, 그리고 모바일/SPA에 필수인 PKCE 확장이 무엇인지 봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">OAuth 2.0 / OIDC</div>
-        <ol>
-          <li><a href="./01-oauth의-정체.html">OAuth 2.0의 정체</a></li>
-          <li><a href="./02-authorization-code-flow.html">Authorization Code Flow</a></li>
-          <li class="current">다른 Flow들과 PKCE</li>
-          <li><a href="./04-oidc와-실무.html">OIDC와 실무</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>OAuth 2.0의 4가지 Flow</h2>
+<h2>OAuth 2.0의 4가지 Flow</h2>
 
         <p>
           OAuth 2.0 (RFC 6749)이 정의한 4가지 grant type을 먼저 정리할게요.
@@ -455,14 +426,3 @@ grant_type=urn:ietf:params:oauth:grant-type:device_code
         <p>
           마지막 편에서는 OIDC와 실무 패턴을 정리해요. 사용자 신원 확인, JWT 활용, refresh token rotation 같은 주제예요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

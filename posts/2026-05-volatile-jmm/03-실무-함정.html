@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>실무 함정 — DCL, AtomicXXX와 비교 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "실무 함정 — DCL, AtomicXXX와 비교"
+subtitle: "volatile이 적절한 자리와 부적절한 자리. 유명한 Double-Checked Locking의 미묘함과 AtomicXXX와의 경계까지."
+dateText: "2026.05.08"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.08 · 시리즈 3/3</div>
-        <h1>실무 함정 — DCL, AtomicXXX와 비교</h1>
-        <p class="subtitle">
-          volatile이 적절한 자리와 부적절한 자리.
-          유명한 Double-Checked Locking의 미묘함과 AtomicXXX와의 경계까지.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">volatile & JMM</div>
-        <ol>
-          <li><a href="./01-volatile의-정체.html">volatile의 정체</a></li>
-          <li><a href="./02-happens-before.html">JMM과 happens-before</a></li>
-          <li class="current">실무 함정 — DCL, AtomicXXX와 비교</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>고전 문제 — Double-Checked Locking</h2>
+<h2>고전 문제 — Double-Checked Locking</h2>
 
         <p>
           싱글턴을 lazy하게 만들면서 락 비용을 최소화하려는 패턴.
@@ -373,14 +344,3 @@ class LazyInit {
           volatile & JMM 시리즈는 여기까지.
           다음은 Spring 코어 마무리 — DI 방식 (생성자/세터/필드).
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

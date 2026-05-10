@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Deadlock 예방 / 회피 / 탐지 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "예방 / 회피 / 탐지"
+subtitle: "데드락에 대응하는 세 가지 전략. 애초에 못 만들거나, 만들 위험을 보고 피하거나, 발생한 뒤 풀어주거나."
+dateText: "2026.05.09"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 2/3</div>
-        <h1>예방 / 회피 / 탐지</h1>
-        <p class="subtitle">
-          데드락에 대응하는 세 가지 전략. 애초에 못 만들거나, 만들 위험을 보고 피하거나, 발생한 뒤 풀어주거나.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Deadlock</div>
-        <ol>
-          <li><a href="./01-deadlock의-4가지-조건.html">Deadlock의 4가지 조건</a></li>
-          <li class="current">예방 / 회피 / 탐지</li>
-          <li><a href="./03-실무-디버깅.html">실무 — DB Deadlock과 jstack 디버깅</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>세 전략의 차이</h2>
+<h2>세 전략의 차이</h2>
 
         <p>
           데드락 대응은 크게 세 가지 접근으로 나뉜다.
@@ -372,14 +344,3 @@ synchronized (lock) {
         <p>
           마지막 편은 실무 디버깅 — DB 데드락의 실제 모습과 jstack thread dump로 자바 데드락 진단하는 법.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

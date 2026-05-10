@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>둘의 비교와 Spring의 선택 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "둘의 비교와 Spring의 선택"
+subtitle: "JDK 동적 프록시 vs CGLIB. 두 메커니즘을 정리하고 Spring이 어떤 기준으로 둘 중 하나를 선택하는지, 실무에서 어떤 함정을 피해야 하는지."
+dateText: "2026.05.05"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 3/3</div>
-        <h1>둘의 비교와 Spring의 선택</h1>
-        <p class="subtitle">
-          JDK 동적 프록시 vs CGLIB. 두 메커니즘을 정리하고
-          Spring이 어떤 기준으로 둘 중 하나를 선택하는지, 실무에서 어떤 함정을 피해야 하는지.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">프록시 — JDK Dynamic vs CGLIB</div>
-        <ol>
-          <li><a href="./01-jdk-dynamic-proxy.html">JDK Dynamic Proxy의 정체</a></li>
-          <li><a href="./02-cglib-proxy.html">CGLIB Proxy의 정체</a></li>
-          <li class="current">둘의 비교와 Spring의 선택</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>한 표로 정리</h2>
+<h2>한 표로 정리</h2>
 
         <pre><code>                        JDK 동적 프록시              CGLIB
 ─────────────────────────────────────────────────────────────────────
@@ -325,15 +296,3 @@ final 안 쓰기, private 안 쓰기, 그것만 지키면 거의 함정 없음.<
         <p>
           이걸로 프록시 시리즈 끝. 다음은 DI 방식(생성자/세터/필드)으로 가서 Spring 코어 모듈 마무리.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

@@ -1,39 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cache Stampede 방어 패턴 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Cache Stampede 방어 패턴"
+subtitle: "5가지 표준 방어 패턴. 각각의 장단점과 적합한 자리를 정리해봐요."
+dateText: "2026.05.10"
+episode: 2
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 2/2</div>
-        <h1>Cache Stampede 방어 패턴</h1>
-        <p class="subtitle">
-          5가지 표준 방어 패턴. 각각의 장단점과 적합한 자리를 정리해봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Cache Stampede</div>
-        <ol>
-          <li><a href="./01-stampede의-정체.html">Stampede의 정체</a></li>
-          <li class="current">방어 패턴</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>방어 패턴 1 — Lock</h2>
+<h2>방어 패턴 1 — Lock</h2>
 
         <p>
           가장 직관적인 답. cache miss 시 lock을 잡고 첫 요청만 DB 조회. 나머지는 대기 또는 stale 반환.
@@ -393,14 +366,3 @@ LoadingCache&lt;Long, User&gt; cache = Caffeine.newBuilder()
         <p>
           Cache Stampede 시리즈는 여기까지예요. 다음은 Kafka 보장 모델로 마지막 시리즈.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spring RestClient + Apache HttpClient5 실전 설정 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Spring RestClient + Apache HttpClient5 실전 설정"
+subtitle: "앞서 본 원칙들을 코드로 옮기면 어떻게 생겼는지. Spring Boot 4.x 환경에서 운영 가능한 외부 API 클라이언트의 실제 모양."
+dateText: "2026.05.03"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.03 · 시리즈 4/4</div>
-        <h1>Spring RestClient + Apache HttpClient5 실전 설정</h1>
-        <p class="subtitle">
-          앞서 본 원칙들을 코드로 옮기면 어떻게 생겼는지.
-          Spring Boot 4.x 환경에서 운영 가능한 외부 API 클라이언트의 실제 모양.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP Connection Pool 운영</div>
-        <ol>
-          <li><a href="./01-keep-alive-운영.html">Keep-Alive를 운영한다는 것</a></li>
-          <li><a href="./02-stale-connection.html">Pool 안의 좀비 — Stale Connection 3중 방어</a></li>
-          <li><a href="./03-ephemeral-port-고갈.html">외부 API 호출이 ephemeral port를 갉아먹는다</a></li>
-          <li class="current">Spring RestClient + Apache HttpClient5 실전 설정</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 Apache HttpClient5인가</h2>
+<h2>왜 Apache HttpClient5인가</h2>
 
         <p>
           Spring RestClient는 기본으로 JDK의 HttpClient를 쓴다.
@@ -386,14 +357,3 @@ read-timeout: 10초      ← 응답이 10초 안에 안 오면 포기
           싱글톤 빈, 풀 사이즈, validate, eviction, ephemeral port까지 한 흐름으로 풀 수 있다면
           그게 시니어 백엔드의 시각이다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

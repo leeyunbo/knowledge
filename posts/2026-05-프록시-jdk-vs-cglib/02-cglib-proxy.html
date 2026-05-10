@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CGLIB Proxy의 정체 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "CGLIB Proxy의 정체"
+subtitle: "클래스 상속 기반 프록시. ASM이 바이트코드를 직접 만들고 Enhancer가 동적 서브클래스를 생성하는 메커니즘."
+dateText: "2026.05.05"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 2/3</div>
-        <h1>CGLIB Proxy의 정체</h1>
-        <p class="subtitle">
-          클래스 상속 기반 프록시. ASM이 바이트코드를 직접 만들고
-          Enhancer가 동적 서브클래스를 생성하는 메커니즘.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">프록시 — JDK Dynamic vs CGLIB</div>
-        <ol>
-          <li><a href="./01-jdk-dynamic-proxy.html">JDK Dynamic Proxy의 정체</a></li>
-          <li class="current">CGLIB Proxy의 정체</li>
-          <li><a href="./03-둘의-비교와-spring의-선택.html">둘의 비교와 Spring의 선택</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>CGLIB이 풀려는 문제 — 인터페이스 없이도</h2>
+<h2>CGLIB이 풀려는 문제 — 인터페이스 없이도</h2>
 
         <p>
           앞 편 끝에서 짚은 한계. JDK 동적 프록시는 인터페이스가 있어야 작동한다.
@@ -422,15 +393,3 @@ Spring Boot 2+ 기본 프록시 메커니즘.</code></pre>
           마지막 편에서 둘을 직접 비교하고, Spring이 어떤 기준으로 둘 중 하나를 선택하는지,
           실무에서 무엇을 쓸지 결정하는 가이드를 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OAuth 2.0의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "OAuth 2.0의 정체"
+subtitle: "\"구글로 로그인\" 같은 기능 뒤에 있는 표준. 비밀번호 없이 권한을 위임하는 메커니즘이 뭔지부터 봐요."
+dateText: "2026.05.09"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 1/4</div>
-        <h1>OAuth 2.0의 정체</h1>
-        <p class="subtitle">
-          "구글로 로그인" 같은 기능 뒤에 있는 표준. 비밀번호 없이 권한을 위임하는 메커니즘이 뭔지부터 봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">OAuth 2.0 / OIDC</div>
-        <ol>
-          <li class="current">OAuth 2.0의 정체</li>
-          <li><a href="./02-authorization-code-flow.html">Authorization Code Flow</a></li>
-          <li><a href="./03-다른-flow와-pkce.html">다른 Flow들과 PKCE</a></li>
-          <li><a href="./04-oidc와-실무.html">OIDC와 실무</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>풀려는 문제 — 비밀번호 없이 권한 위임</h2>
+<h2>풀려는 문제 — 비밀번호 없이 권한 위임</h2>
 
         <p>
           OAuth 2.0이 풀려는 문제를 한 시나리오로 시작해볼게요.
@@ -369,14 +340,3 @@ grant_type=refresh_token
         <p>
           다음 편에서는 가장 표준적인 흐름인 Authorization Code Flow를 단계별로 따라가봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

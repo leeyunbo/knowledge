@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pointcut과 Spring AOP의 한계 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Pointcut과 Spring AOP의 한계"
+subtitle: "Pointcut 표현식을 정확히 읽는 법. self-invocation, final 클래스 같은 한계와 AspectJ로 넘어가야 하는 경계."
+dateText: "2026.05.05"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 4/4</div>
-        <h1>Pointcut과 Spring AOP의 한계</h1>
-        <p class="subtitle">
-          Pointcut 표현식을 정확히 읽는 법.
-          self-invocation, final 클래스 같은 한계와 AspectJ로 넘어가야 하는 경계.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Spring AOP 내부 동작</div>
-        <ol>
-          <li><a href="./01-aop가-풀려는-문제.html">AOP가 풀려는 문제</a></li>
-          <li><a href="./02-spring-aop의-동작.html">Spring AOP의 동작 원리 — Proxy Weaving</a></li>
-          <li><a href="./03-advice의-종류와-실행-흐름.html">Advice의 종류와 실행 흐름</a></li>
-          <li class="current">Pointcut과 Spring AOP의 한계</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Pointcut 표현식의 구조</h2>
+<h2>Pointcut 표현식의 구조</h2>
 
         <p>
           가장 자주 쓰는 <code>execution</code>의 정확한 문법.
@@ -510,15 +480,3 @@ public class OrderService {
           이 시리즈에서 "프록시가 만들어진다"고 했는데, 실제로 그 두 프록시가 어떻게 다르고
           어떤 메서드 호출 메커니즘을 쓰는지가 다음 주제.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

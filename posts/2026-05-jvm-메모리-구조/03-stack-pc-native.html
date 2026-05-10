@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Stack / PC / Native — 스레드별 메모리 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Stack / PC / Native — 스레드별 메모리"
+subtitle: "스레드마다 따로 가지는 세 영역. 메서드 호출의 자리, 다음에 읽을 명령어 주소, 그리고 native 코드 호출용 별도 스택."
+dateText: "2026.05.07"
+episode: 3
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 3/4</div>
-        <h1>Stack / PC / Native — 스레드별 메모리</h1>
-        <p class="subtitle">
-          스레드마다 따로 가지는 세 영역. 메서드 호출의 자리, 다음에 읽을 명령어 주소,
-          그리고 native 코드 호출용 별도 스택.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">JVM 메모리 구조</div>
-        <ol>
-          <li><a href="./01-jvm-메모리-영역-개요.html">JVM 메모리 영역 개요</a></li>
-          <li><a href="./02-heap-deep-dive.html">Heap deep dive — Young/Old, TLAB</a></li>
-          <li class="current">Stack / PC / Native — 스레드별 메모리</li>
-          <li><a href="./04-off-heap-direct-memory.html">Off-heap — Direct Memory와 NIO</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>스레드별로 따로인 이유</h2>
+<h2>스레드별로 따로인 이유</h2>
 
         <p>
           스레드 하나가 메서드 A를 실행하다가 컨텍스트 스위칭으로 멈추고,
@@ -279,14 +249,3 @@ recursive();   // StackOverflowError</code></pre>
           ThreadPool, Reactive, Virtual Thread 같은 패턴이 이 문제를 풀려는 시도.
           마지막 편은 Off-heap — NIO와 Direct Memory가 만드는 또 다른 메모리 영역.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

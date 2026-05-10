@@ -1,30 +1,10 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>멱등성 — 토스페이먼츠 + Stripe 글 읽고 · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "멱등성 — 토스페이먼츠 + Stripe 글 읽고"
+subtitle: "멱등성을 다른 두 관점에서 본 글. 한국어 + 영어 페어로 읽으니 더 잘 들어왔다."
+dateText: "2026.05.07"
+---
 
-  <main class="container">
-    <a href="../../reading.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07</div>
-        <h1>멱등성 — 토스페이먼츠 + Stripe 글 읽고</h1>
-        <p class="subtitle">
-          멱등성을 다른 두 관점에서 본 글. 한국어 + 영어 페어로 읽으니 더 잘 들어왔다.
-        </p>
-      </header>
-
-      <section class="post-body">
-
-        <h2>토스페이먼츠 — 멱등성이 뭔가요?</h2>
+<h2>토스페이먼츠 — 멱등성이 뭔가요?</h2>
 
         <p>
           <strong>멱등성</strong>이란, 첫 번째 수행을 한 뒤 여러 차례 다시 수행해도 결과를 변경시키지 않는 작업의 속성.
@@ -159,13 +139,3 @@
           <li>Stripe 글은 <strong>"멱등성 + 클라이언트 retry"</strong> 측면 (jitter, thundering herd까지)</li>
           <li>두 관점이 짝을 이뤄야 진짜 견고한 API. 멱등성만으로 안 되고, 재시도만으로도 안 된다.</li>
         </ul>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-</body>
-</html>

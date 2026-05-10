@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SERIALIZABLE — 완전 직렬화의 비용 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "SERIALIZABLE — 완전 직렬화의 비용"
+subtitle: "모든 부정합을 막는 가장 강한 격리. 그런데 왜 거의 안 쓰는가. 그 비용과 trade-off, 그리고 PostgreSQL의 SSI라는 영리한 절충."
+dateText: "2026.05.04"
+episode: 4
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.04 · 시리즈 4/5</div>
-        <h1>SERIALIZABLE — 완전 직렬화의 비용</h1>
-        <p class="subtitle">
-          모든 부정합을 막는 가장 강한 격리. 그런데 왜 거의 안 쓰는가.
-          그 비용과 trade-off, 그리고 PostgreSQL의 SSI라는 영리한 절충.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">트랜잭션 격리 수준</div>
-        <ol>
-          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
-          <li><a href="./02-read-uncommitted-committed.html">READ UNCOMMITTED와 READ COMMITTED</a></li>
-          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
-          <li class="current">SERIALIZABLE — 완전 직렬화의 비용</li>
-          <li><a href="./05-mysql-innodb-실전.html">MySQL InnoDB의 REPEATABLE READ 실전</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>SERIALIZABLE의 의미</h2>
+<h2>SERIALIZABLE의 의미</h2>
 
         <p>
           SERIALIZABLE은 ANSI SQL의 가장 강한 격리 수준이다.
@@ -257,15 +226,3 @@ SERIALIZABLE      → 모두 차단. 동시성 비용 큼</code></pre>
           SKIP LOCKED 같은 실전 옵션이 어떻게 동작하는지 본다.
           본인 쿠폰 시스템 narrative와 자연스럽게 연결되는 부분.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

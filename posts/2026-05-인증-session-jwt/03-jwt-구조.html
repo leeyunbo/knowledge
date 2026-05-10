@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JWT의 구조 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "JWT의 구조"
+subtitle: "세 부분으로 분할된 토큰. Base64로 인코딩된 메타데이터와 클레임, 그리고 그것이 위조되지 않았음을 증명하는 서명. 그 안을 정확히 들여다본다."
+dateText: "2026.05.08"
+episode: 3
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.08 · 시리즈 3/5</div>
-        <h1>JWT의 구조</h1>
-        <p class="subtitle">
-          세 부분으로 분할된 토큰. Base64로 인코딩된 메타데이터와 클레임,
-          그리고 그것이 위조되지 않았음을 증명하는 서명. 그 안을 정확히 들여다본다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">인증 — Session vs JWT</div>
-        <ol>
-          <li><a href="./01-http-stateless와-인증.html">HTTP stateless와 인증</a></li>
-          <li><a href="./02-session-인증.html">Session 인증 — 동작과 scale-out</a></li>
-          <li class="current">JWT의 구조</li>
-          <li><a href="./04-jwt-함정.html">JWT의 함정</a></li>
-          <li><a href="./05-session-vs-jwt-refresh-token.html">Session vs JWT + Refresh Token</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>JWT는 무엇인가</h2>
+<h2>JWT는 무엇인가</h2>
 
         <p>
           JSON Web Token. RFC 7519에 명세된 토큰 형식.
@@ -346,14 +315,3 @@ public class JwtService {
         <p>
           다음 편은 JWT의 함정들 — 토큰 무효화의 어려움, alg=none 같은 보안 공격, 그리고 토큰 크기 문제.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

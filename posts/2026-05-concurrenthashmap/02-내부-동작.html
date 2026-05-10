@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Java 8 내부 동작 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Java 8 내부 동작"
+subtitle: "fine-grained locking과 CAS가 어떻게 결합되는지, 그리고 resize는 어떻게 동시성 안전하게 처리되는지 들여다봐요."
+dateText: "2026.05.09"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 2/3</div>
-        <h1>Java 8 내부 동작</h1>
-        <p class="subtitle">
-          fine-grained locking과 CAS가 어떻게 결합되는지, 그리고 resize는 어떻게 동시성 안전하게 처리되는지 들여다봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">ConcurrentHashMap</div>
-        <ol>
-          <li><a href="./01-정체와-진화.html">정체와 진화</a></li>
-          <li class="current">Java 8 내부 동작</li>
-          <li><a href="./03-실무-패턴.html">실무 사용 패턴과 함정</a></li>
-          <li><a href="./04-핫-키와-longadder.html">핫 키와 LongAdder, False Sharing</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>전체 구조</h2>
+<h2>전체 구조</h2>
 
         <p>
           Java 8의 ConcurrentHashMap은 사실 HashMap과 매우 닮았어요.
@@ -417,14 +388,3 @@ if (e instanceof ForwardingNode) {
         <p>
           마지막 편에서는 이 강력한 도구를 어떻게 잘 쓰는지, 그리고 어떤 함정이 있는지 봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

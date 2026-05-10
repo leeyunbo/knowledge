@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>쿠폰 발급 시스템의 성능 한계 (2) 쿼리 수 줄이기 · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "쿠폰 발급 시스템의 성능 한계 (2) 쿼리 수 줄이기, JPA가 숨기는 쿼리들"
+subtitle: "커넥션 타임아웃이 나는 진짜 이유는 쿼리 개수다. 하나 줄일 때마다 성공률이 바뀐다."
+dateText: "2026.04.14"
+episode: 2
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.14 · 시리즈 2/5</div>
-        <h1>쿠폰 발급 시스템의 성능 한계 (2)<br>쿼리 수 줄이기, JPA가 숨기는 쿼리들</h1>
-        <p class="subtitle">
-          커넥션 타임아웃이 나는 진짜 이유는 쿼리 개수다. 하나 줄일 때마다 성공률이 바뀐다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">쿠폰 발급 시스템의 성능 한계를 뚫은 과정</div>
-        <ol>
-          <li><a href="./01-문제-정의.html">문제 정의와 환경 재현</a></li>
-          <li class="current">쿼리 수 줄이기, JPA가 숨기는 쿼리들</li>
-          <li><a href="./03-lock-sharding.html">Lock Sharding으로 경합 분산 시도</a></li>
-          <li><a href="./04-skip-locked.html">SKIP LOCKED의 발견</a></li>
-          <li><a href="./05-배운-점.html">배운 점 정리</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 쿼리 수가 중요한가</h2>
+<h2>왜 쿼리 수가 중요한가</h2>
         <p>
           계산해보면 답이 나온다.
         </p>
@@ -281,24 +252,3 @@ public void sendIssueNotification(CouponIssuedEvent event) {
           그래서 다음 편에서는 <strong>Lock Sharding</strong>을 도입한다. 하나의 쿠폰 행에 몰리는 경합을
           여러 행으로 쪼개보는 시도다. 결론부터 말하면, 예상대로 되진 않았다.
         </p>
-      </section>
-
-      <footer class="post-footer">
-        <a href="./01-문제-정의.html" class="prev">
-          <span class="label">← Prev</span>
-          <span>문제 정의와 환경 재현</span>
-        </a>
-        <a href="./03-lock-sharding.html" class="next">
-          <span class="label">Next →</span>
-          <span>Lock Sharding 시도</span>
-        </a>
-      </footer>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

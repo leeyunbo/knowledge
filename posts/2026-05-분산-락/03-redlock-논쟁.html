@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Redlock 논쟁과 안전한 패턴 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Redlock 논쟁과 안전한 패턴"
+subtitle: "Redis 분산 락의 안전성을 둘러싼 유명한 학계 논쟁. 그리고 그 논쟁이 알려주는 진짜 안전한 패턴이에요."
+dateText: "2026.05.10"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 3/3</div>
-        <h1>Redlock 논쟁과 안전한 패턴</h1>
-        <p class="subtitle">
-          Redis 분산 락의 안전성을 둘러싼 유명한 학계 논쟁. 그리고 그 논쟁이 알려주는 진짜 안전한 패턴이에요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">분산 락</div>
-        <ol>
-          <li><a href="./01-분산-락의-필요와-함정.html">분산 락의 필요와 함정</a></li>
-          <li><a href="./02-redis-구현.html">Redis 기반 구현</a></li>
-          <li class="current">Redlock 논쟁과 안전한 패턴</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Redlock의 등장</h2>
+<h2>Redlock의 등장</h2>
 
         <p>
           2016년 Redis 창시자 Salvatore Sanfilippo가 발표한 알고리즘이에요.
@@ -439,14 +411,3 @@ public class ResourceController {
         <p>
           분산 락 시리즈는 여기까지예요. 다음은 분산 락의 단순한 대안이 되는 Idempotency Key 설계로 가요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

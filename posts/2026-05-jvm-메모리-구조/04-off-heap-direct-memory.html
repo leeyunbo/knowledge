@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Off-heap — Direct Memory와 NIO (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Off-heap — Direct Memory와 NIO"
+subtitle: "JVM Spec 바깥의 메모리 영역. NIO 도입 후 실무에서 매우 중요해졌고 GC가 닿지 않아 누수 위험이 가장 큰 자리."
+dateText: "2026.05.07"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 4/4</div>
-        <h1>Off-heap — Direct Memory와 NIO</h1>
-        <p class="subtitle">
-          JVM Spec 바깥의 메모리 영역. NIO 도입 후 실무에서 매우 중요해졌고
-          GC가 닿지 않아 누수 위험이 가장 큰 자리.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">JVM 메모리 구조</div>
-        <ol>
-          <li><a href="./01-jvm-메모리-영역-개요.html">JVM 메모리 영역 개요</a></li>
-          <li><a href="./02-heap-deep-dive.html">Heap deep dive — Young/Old, TLAB</a></li>
-          <li><a href="./03-stack-pc-native.html">Stack / PC / Native — 스레드별 메모리</a></li>
-          <li class="current">Off-heap — Direct Memory와 NIO</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Off-heap이란</h2>
+<h2>Off-heap이란</h2>
 
         <p>
           Heap, Metaspace, Stack 같은 JVM이 관리하는 영역과 별개로,
@@ -292,14 +262,3 @@ for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBe
         <p>
           JVM 메모리 시리즈는 여기까지. 다음은 동시성으로 돌아가서 volatile과 JMM의 happens-before 규칙으로 들어간다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

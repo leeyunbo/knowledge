@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3가지 메시지 보장 모델 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "3가지 메시지 보장 모델"
+subtitle: "At-most-once, At-least-once, Exactly-once. 이름은 단순하지만 분산 메시징의 가장 깊은 주제예요."
+dateText: "2026.05.10"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 1/4</div>
-        <h1>3가지 메시지 보장 모델</h1>
-        <p class="subtitle">
-          At-most-once, At-least-once, Exactly-once. 이름은 단순하지만 분산 메시징의 가장 깊은 주제예요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Kafka 보장 모델</div>
-        <ol>
-          <li class="current">3가지 보장 모델</li>
-          <li><a href="./02-kafka-기본-보장.html">Kafka의 기본 보장</a></li>
-          <li><a href="./03-exactly-once.html">Exactly-Once Semantics</a></li>
-          <li><a href="./04-consumer-측-처리.html">Consumer 측 처리</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>메시지 보장이란</h2>
+<h2>메시지 보장이란</h2>
 
         <p>
           분산 메시징 시스템에서 메시지가 어떻게 전달될지에 대한 약속이에요.
@@ -303,14 +274,3 @@
         <p>
           다음 편에서는 Kafka의 At-least-once가 어떻게 동작하는지, ack, ISR, replication 같은 메커니즘을 봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

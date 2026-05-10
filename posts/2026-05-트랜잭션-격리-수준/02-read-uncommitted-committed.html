@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>READ UNCOMMITTED와 READ COMMITTED (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "READ UNCOMMITTED와 READ COMMITTED"
+subtitle: "가장 약한 두 단계. 무엇을 허용하고 무엇을 막는가. 그리고 Dirty Read를 막는 데 어떤 비용이 드는가."
+dateText: "2026.05.04"
+episode: 2
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.04 · 시리즈 2/5</div>
-        <h1>READ UNCOMMITTED와 READ COMMITTED</h1>
-        <p class="subtitle">
-          가장 약한 두 단계. 무엇을 허용하고 무엇을 막는가.
-          그리고 Dirty Read를 막는 데 어떤 비용이 드는가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">트랜잭션 격리 수준</div>
-        <ol>
-          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
-          <li class="current">READ UNCOMMITTED와 READ COMMITTED</li>
-          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
-          <li><a href="./04-serializable.html">SERIALIZABLE — 완전 직렬화의 비용</a></li>
-          <li><a href="./05-mysql-innodb-실전.html">MySQL InnoDB의 REPEATABLE READ 실전</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>READ UNCOMMITTED — 거의 안 막는 격리</h2>
+<h2>READ UNCOMMITTED — 거의 안 막는 격리</h2>
 
         <p>
           ANSI SQL의 가장 약한 격리 수준.
@@ -208,15 +177,3 @@ READ COMMITTED   — Dirty Read 차단. 가장 흔한 실무 선택.
           그런데 REPEATABLE READ도 ANSI 정의대로면 Phantom Read는 못 막는다.
           그 디테일이 다음 편 주제다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

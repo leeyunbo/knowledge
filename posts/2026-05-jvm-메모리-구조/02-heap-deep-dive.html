@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Heap deep dive — Young/Old, TLAB (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Heap deep dive — Young/Old, TLAB"
+subtitle: "모든 객체가 자리 잡는 영역은 단일하지 않다. 세대별 가설로 설계된 Young과 Old, 그리고 동시 할당 비용을 줄이는 TLAB까지."
+dateText: "2026.05.07"
+episode: 2
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 2/4</div>
-        <h1>Heap deep dive — Young/Old, TLAB</h1>
-        <p class="subtitle">
-          모든 객체가 자리 잡는 영역은 단일하지 않다.
-          세대별 가설로 설계된 Young과 Old, 그리고 동시 할당 비용을 줄이는 TLAB까지.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">JVM 메모리 구조</div>
-        <ol>
-          <li><a href="./01-jvm-메모리-영역-개요.html">JVM 메모리 영역 개요</a></li>
-          <li class="current">Heap deep dive — Young/Old, TLAB</li>
-          <li><a href="./03-stack-pc-native.html">Stack / PC / Native — 스레드별 메모리</a></li>
-          <li><a href="./04-off-heap-direct-memory.html">Off-heap — Direct Memory와 NIO</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 Heap을 나누나 — 세대별 가설</h2>
+<h2>왜 Heap을 나누나 — 세대별 가설</h2>
 
         <p>
           힙을 한 덩어리로 두지 않고 영역을 분리한 출발점은 <strong>Weak Generational Hypothesis</strong>라는 관찰이다.
@@ -290,14 +260,3 @@
           여기까지가 메모리 영역 측면. GC 알고리즘 자체(Serial, Parallel, CMS, G1, ZGC)는
           별도 시리즈에서 깊게 다룬다. 다음 편은 스레드별 영역 — Stack, PC Register, Native Method Stack.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

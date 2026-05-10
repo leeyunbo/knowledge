@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CircuitBreaker는 왜 필요한가 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "CircuitBreaker는 왜 필요한가"
+subtitle: "외부 API 하나가 느려지는 순간, 내 서버 전체가 멈추는 과정. 그리고 CircuitBreaker가 그 사이에서 하는 일."
+dateText: "2026.04.22"
+episode: 1
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.22 · 시리즈 1/5</div>
-        <h1>CircuitBreaker는 왜 필요한가</h1>
-        <p class="subtitle">
-          외부 API 하나가 느려지는 순간, 내 서버 전체가 멈추는 과정.
-          그리고 CircuitBreaker가 그 사이에서 하는 일.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">CircuitBreaker 깊게 파기</div>
-        <ol>
-          <li class="current">CircuitBreaker는 왜 필요한가</li>
-          <li><a href="./02-3-state-완전-이해.html">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</a></li>
-          <li><a href="./03-어노테이션-하나로는-부족하다.html">@CircuitBreaker 어노테이션 하나로는 부족하다</a></li>
-          <li><a href="./04-retry-bulkhead-조합.html">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</a></li>
-          <li><a href="./05-분산-환경.html">분산 환경에서 CircuitBreaker</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>외부 API를 쓰는 순간 생기는 새로운 위험</h2>
+<h2>외부 API를 쓰는 순간 생기는 새로운 위험</h2>
 
         <p>
           서비스가 커지면 외부 API 의존성이 생긴다. 카카오 알림톡, 결제 PG, 지도 API 같은 것들.
@@ -135,14 +105,3 @@
           다음 편에서는 CircuitBreaker의 3가지 상태가 어떻게 전이되는지,
           그 내부 메커니즘을 실험과 함께 파헤친다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

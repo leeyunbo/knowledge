@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>메모리 가시성과 happens-before (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "메모리 가시성과 happens-before"
+subtitle: "synchronized는 단순한 mutex가 아니에요. CPU 캐시와 컴파일러 재정렬을 다스리는 메모리 도구이기도 해요. 그 다른 면을 봐요."
+dateText: "2026.05.10"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 3/3</div>
-        <h1>메모리 가시성과 happens-before</h1>
-        <p class="subtitle">
-          synchronized는 단순한 mutex가 아니에요. CPU 캐시와 컴파일러 재정렬을 다스리는 메모리 도구이기도 해요. 그 다른 면을 봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">synchronized & 모니터 락</div>
-        <ol>
-          <li><a href="./01-synchronized의-정체.html">synchronized의 정체</a></li>
-          <li><a href="./02-객체-헤더와-락-진화.html">객체 헤더와 락 진화</a></li>
-          <li class="current">메모리 가시성과 happens-before</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>가시성 문제 — mutex만으로는 부족해요</h2>
+<h2>가시성 문제 — mutex만으로는 부족해요</h2>
 
         <p>
           한 가지 시나리오로 시작해볼게요. 한 스레드가 다른 스레드를 멈추게 하는 단순한 코드예요.
@@ -622,14 +594,3 @@ if (sharedRef != null) {
           synchronized 시리즈는 여기까지예요.
           한 키워드 뒤에 모니터 락, Mark Word, 락 진화 4단계, JMM과 happens-before, 메모리 배리어가 다 들어있는 게 보였길 바라요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

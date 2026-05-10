@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Propagation이 왜 있는가 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Propagation이 왜 있는가"
+subtitle: "@Transactional 두 개가 만났을 때 무슨 일이 생기나. 그리고 Spring이 7가지 답을 준비한 이유."
+dateText: "2026.04.30"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.30 · 시리즈 1/4</div>
-        <h1>Propagation이 왜 있는가</h1>
-        <p class="subtitle">
-          @Transactional 두 개가 만났을 때 무슨 일이 생기나.
-          그리고 Spring이 7가지 답을 준비한 이유.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">@Transactional Propagation 7가지</div>
-        <ol>
-          <li class="current">Propagation이 왜 있는가</li>
-          <li><a href="./02-required의-함정.html">REQUIRED — 가장 흔하지만 가장 위험한 디폴트</a></li>
-          <li><a href="./03-requires-new의-함정.html">REQUIRES_NEW — 진짜 새 트랜잭션의 함정</a></li>
-          <li><a href="./04-나머지-5가지.html">나머지 5가지와 선택 가이드</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>트랜잭션은 메서드 단위가 아니다</h2>
+<h2>트랜잭션은 메서드 단위가 아니다</h2>
 
         <p>
           <code>@Transactional</code>을 메서드에 붙이면 그 메서드는 트랜잭션 안에서 돈다.
@@ -183,14 +154,3 @@ NEVER         외부 tx 있으면 예외, 없으면 tx 없이</code></pre>
           다음 편에서는 디폴트인 REQUIRED를 깊게 본다.
           합류 메커니즘, rollback-only 마킹, 그리고 catch했는데도 트랜잭션이 죽는 함정.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

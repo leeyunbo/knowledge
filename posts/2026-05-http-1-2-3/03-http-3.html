@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HTTP/3 — QUIC 위의 새 시작 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "HTTP/3 — QUIC 위의 새 시작"
+subtitle: "TCP를 버리고 UDP 위에 새로 쌓은 프로토콜. 왜 그렇게까지 했는지, 무엇을 얻었는지 봐요."
+dateText: "2026.05.09"
+episode: 3
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 3/4</div>
-        <h1>HTTP/3 — QUIC 위의 새 시작</h1>
-        <p class="subtitle">
-          TCP를 버리고 UDP 위에 새로 쌓은 프로토콜. 왜 그렇게까지 했는지, 무엇을 얻었는지 봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP/1.1 → 2 → 3</div>
-        <ol>
-          <li><a href="./01-http-1-1.html">HTTP/1.1과 그 한계</a></li>
-          <li><a href="./02-http-2.html">HTTP/2 — 멀티플렉싱과 HPACK</a></li>
-          <li class="current">HTTP/3 — QUIC 위의 새 시작</li>
-          <li><a href="./04-실무-비교.html">실무 비교</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 TCP를 버렸을까요</h2>
+<h2>왜 TCP를 버렸을까요</h2>
 
         <p>
           HTTP/2가 멀티플렉싱으로 HTTP 레벨의 head-of-line blocking을 풀었지만, TCP 레벨의 HOL blocking은 그대로 남았어요.
@@ -326,14 +297,3 @@ QUIC 재연결: 0 RTT (캐시된 키로 즉시)</code></pre>
         <p>
           마지막 편에서는 1.1, 2, 3 중 무엇을 언제 쓸지, 어떻게 마이그레이션할지 정리해요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

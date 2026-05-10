@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>생성자 주입을 권장하는 이유 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "생성자 주입을 권장하는 이유"
+subtitle: "Spring 공식 가이드, IntelliJ 경고, 모범 사례 모두가 한 방향을 가리킨다. 그 이유 다섯 가지와 함정들."
+dateText: "2026.05.08"
+episode: 2
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.08 · 시리즈 2/2</div>
-        <h1>생성자 주입을 권장하는 이유</h1>
-        <p class="subtitle">
-          Spring 공식 가이드, IntelliJ 경고, 모범 사례 모두가 한 방향을 가리킨다.
-          그 이유 다섯 가지와 함정들.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">DI 방식</div>
-        <ol>
-          <li><a href="./01-3가지-방식.html">DI 3가지 방식</a></li>
-          <li class="current">생성자 주입을 권장하는 이유</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>이유 1 — 객체가 처음부터 완전한 상태</h2>
+<h2>이유 1 — 객체가 처음부터 완전한 상태</h2>
 
         <p>
           생성자 주입은 의존성을 매개변수로 받아 final 필드에 저장하므로,
@@ -326,14 +298,3 @@ public class OrderService {
         <p>
           DI 방식 시리즈 끝. 다음은 보안 — JWT 구조와 Session vs JWT 묶음.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

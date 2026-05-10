@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MySQL InnoDB의 REPEATABLE READ 실전 (5) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "MySQL InnoDB의 REPEATABLE READ 실전"
+subtitle: "ANSI 정의를 넘어 Phantom까지 막는 InnoDB의 메커니즘. 갭 락, 넥스트 키 락, 그리고 SKIP LOCKED 같은 실전 옵션."
+dateText: "2026.05.04"
+episode: 5
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.04 · 시리즈 5/5</div>
-        <h1>MySQL InnoDB의 REPEATABLE READ 실전</h1>
-        <p class="subtitle">
-          ANSI 정의를 넘어 Phantom까지 막는 InnoDB의 메커니즘.
-          갭 락, 넥스트 키 락, 그리고 SKIP LOCKED 같은 실전 옵션.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">트랜잭션 격리 수준</div>
-        <ol>
-          <li><a href="./01-왜-4단계인가.html">격리 수준이 왜 4단계로 나뉘는가</a></li>
-          <li><a href="./02-read-uncommitted-committed.html">READ UNCOMMITTED와 READ COMMITTED</a></li>
-          <li><a href="./03-repeatable-read.html">REPEATABLE READ — Non-Repeatable과 Phantom</a></li>
-          <li><a href="./04-serializable.html">SERIALIZABLE — 완전 직렬화의 비용</a></li>
-          <li class="current">MySQL InnoDB의 REPEATABLE READ 실전</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>InnoDB의 REPEATABLE READ가 특별한 이유</h2>
+<h2>InnoDB의 REPEATABLE READ가 특별한 이유</h2>
 
         <p>
           3편에서 짚었듯, MySQL InnoDB의 REPEATABLE READ는 ANSI 정의보다 강하다.
@@ -360,15 +329,3 @@ SELECT * FROM information_schema.innodb_trx;</code></pre>
           "어느 격리에서 무슨 일이 일어나는지" 즉시 그려진다.
           그게 곧 시니어 백엔드의 시각이다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (4) 세 개의 스케줄러, 세 개의 방어선 · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (4) 세 개의 스케줄러, 세 개의 방어선"
+subtitle: "자주 돌리는 것, 가끔 돌리는 것, 사람 불러서 돌리는 것. 비용과 커버 범위를 다르게 잡아서 겹쳐놓는다."
+dateText: "2026.04.20"
+episode: 4
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.20 · 시리즈 4/5</div>
-        <h1>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (4)<br>세 개의 스케줄러, 세 개의 방어선</h1>
-        <p class="subtitle">
-          자주 돌리는 것, 가끔 돌리는 것, 사람 불러서 돌리는 것. 비용과 커버 범위를 다르게 잡아서 겹쳐놓는다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
-        <ol>
-          <li><a href="./01-redis-도입.html">Redis 도입과 새 문제</a></li>
-          <li><a href="./02-장애-시나리오.html">장애 시나리오 4개를 테이블에 올리기</a></li>
-          <li><a href="./03-2-phase-reservation.html">2-phase Reservation과 pending 큐</a></li>
-          <li class="current">세 개의 스케줄러, 세 개의 방어선</li>
-          <li>Redis가 아예 죽을 때 & 남은 숙제</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>하나로 퉁치지 않는 이유</h2>
+<h2>하나로 퉁치지 않는 이유</h2>
         <p>
           가장 나이브한 설계는 스케줄러 하나 만들어서 "주기적으로 전부 검사" 돌리는 거다.
           근데 "전부 검사"는 비용이 크고, 트래픽이 도는 시간대엔 위험하다.
@@ -260,25 +231,3 @@ public void triggerReverseSweep() {
           처음엔 DB 폴백으로 버텨보려고 했는데, 파고들다 보니 <strong>오히려 깔끔하게 실패시키는 게 낫다</strong>는 결론에 도달했다.
           왜 그랬는지, 완벽한 자동 복구라는 목표 자체가 왜 환상인지 정리하면서 시리즈를 마무리한다.
         </p>
-
-      </section>
-
-      <footer class="post-footer">
-        <a href="./03-2-phase-reservation.html" class="prev">
-          <span class="label">← Prev</span>
-          <span>2-phase Reservation과 pending 큐</span>
-        </a>
-        <a href="./05-redis-폴백.html" class="next">
-          <span class="label">Next →</span>
-          <span>Redis가 아예 죽을 때 & 남은 숙제</span>
-        </a>
-      </footer>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

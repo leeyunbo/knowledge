@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>synchronized의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "synchronized의 정체"
+subtitle: "모든 자바 객체에 숨어있는 모니터 락. 한 줄짜리 키워드 뒤에 어떤 메커니즘이 있는지부터 시작해봐요."
+dateText: "2026.05.10"
+episode: 1
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 1/3</div>
-        <h1>synchronized의 정체</h1>
-        <p class="subtitle">
-          모든 자바 객체에 숨어있는 모니터 락. 한 줄짜리 키워드 뒤에 어떤 메커니즘이 있는지부터 시작해봐요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">synchronized & 모니터 락</div>
-        <ol>
-          <li class="current">synchronized의 정체</li>
-          <li><a href="./02-객체-헤더와-락-진화.html">객체 헤더와 락 진화</a></li>
-          <li><a href="./03-synchronized와-메모리-가시성.html">메모리 가시성과 happens-before</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>풀려는 문제 — Race Condition</h2>
+<h2>풀려는 문제 — Race Condition</h2>
 
         <p>
           가장 단순한 카운터 코드부터 시작해볼게요. 여러 스레드가 같은 카운터를 증가시키는 시나리오예요.
@@ -476,14 +448,3 @@ class Container {
           다음 편에서는 그 모니터 락이 객체의 어디에 어떻게 저장되는지, 어떻게 진화해왔는지 들어가요.
           Mark Word, biased lock, lightweight lock, heavyweight lock의 4단계 메커니즘이에요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

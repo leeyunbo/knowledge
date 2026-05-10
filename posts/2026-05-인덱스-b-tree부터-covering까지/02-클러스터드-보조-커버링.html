@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>클러스터드 vs 보조 — Back to Table과 커버링 인덱스 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "클러스터드 vs 보조 — Back to Table과 커버링 인덱스"
+subtitle: "왜 PK는 짧게 잡아야 하는가. 인덱스 탔는데 왜 풀스캔보다 느린가. Random I/O와 Sequential I/O가 만드는 진짜 차이."
+dateText: "2026.05.03"
+episode: 2
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.03 · 시리즈 2/4</div>
-        <h1>클러스터드 vs 보조 — Back to Table과 커버링 인덱스</h1>
-        <p class="subtitle">
-          왜 PK는 짧게 잡아야 하는가. 인덱스 탔는데 왜 풀스캔보다 느린가.
-          Random I/O와 Sequential I/O가 만드는 진짜 차이.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">인덱스 — B-Tree부터 Covering까지</div>
-        <ol>
-          <li><a href="./01-b-tree의-정체.html">인덱스가 왜 빠른가 — B+Tree의 정체</a></li>
-          <li class="current">클러스터드 vs 보조 — Back to Table과 커버링 인덱스</li>
-          <li><a href="./03-복합-인덱스-운영.html">복합 인덱스 운영 — Left-most Prefix와 카디널리티</a></li>
-          <li><a href="./04-explain-실전-튜닝.html">EXPLAIN으로 진단하기 — 1억 건 테이블 튜닝</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>두 종류의 인덱스</h2>
+<h2>두 종류의 인덱스</h2>
 
         <p>
           InnoDB의 인덱스는 두 종류다. 리프 노드에 무엇이 저장되느냐로 갈린다.
@@ -368,14 +339,3 @@ Random I/O (랜덤 읽기):
           <code>(A, B, C)</code>로 만들었는데 <code>WHERE B = ?</code>으로 검색하면 인덱스를 못 탄다.
           왜 그런지, 어떻게 컬럼 순서를 정해야 하는지가 다음 편이다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

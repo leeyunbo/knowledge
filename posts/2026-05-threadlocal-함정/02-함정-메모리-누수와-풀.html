@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ThreadLocal 함정 — 메모리 누수와 풀 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "함정 — 메모리 누수, 스레드풀 상극"
+subtitle: "ThreadLocal이 가지는 두 큰 위험. 명시적 정리 없이 쓰면 메모리가 새고, 스레드풀과 결합하면 데이터가 다음 사용자에게 새어나간다."
+dateText: "2026.05.09"
+episode: 2
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 2/2</div>
-        <h1>함정 — 메모리 누수, 스레드풀 상극</h1>
-        <p class="subtitle">
-          ThreadLocal이 가지는 두 큰 위험. 명시적 정리 없이 쓰면 메모리가 새고,
-          스레드풀과 결합하면 데이터가 다음 사용자에게 새어나간다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">ThreadLocal 함정</div>
-        <ol>
-          <li><a href="./01-threadlocal의-정체.html">ThreadLocal의 정체</a></li>
-          <li class="current">함정 — 메모리 누수, 스레드풀 상극</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>함정 1 — 메모리 누수</h2>
+<h2>함정 1 — 메모리 누수</h2>
 
         <p>
           1편에서 봤던 비대칭 — 키(ThreadLocal 인스턴스)는 WeakReference, 값은 strong reference.
@@ -342,14 +314,3 @@ executor.submit(() -&gt; {
         <p>
           ThreadLocal 시리즈는 여기까지. 다음은 Deadlock — 동시성의 또 다른 고전 함정.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

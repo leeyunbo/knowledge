@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>hashCode 계약, 세 규칙과 위반 시 일어나는 일 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "hashCode 계약, 세 규칙과 위반 시 일어나는 일"
+subtitle: "\"두 객체가 같으면 같은 해시여야 한다\"는 사실 두 번째 규칙이다. 첫 번째를 깨면, 같은 객체조차 HashMap에서 사라진다."
+dateText: "2026.04.29"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.29 · 시리즈 2/3</div>
-        <h1>hashCode 계약, 세 규칙과 위반 시 일어나는 일</h1>
-        <p class="subtitle">
-          "두 객체가 같으면 같은 해시여야 한다"는 사실 두 번째 규칙이다.
-          첫 번째를 깨면, 같은 객체조차 HashMap에서 사라진다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">equals와 hashCode의 함정</div>
-        <ol>
-          <li><a href="./01-equals만-오버라이드하면.html">equals만 오버라이드하면 객체가 사라진다</a></li>
-          <li class="current">hashCode 계약, 세 규칙과 위반 시 일어나는 일</li>
-          <li><a href="./03-jpa-엔티티.html">JPA 엔티티의 equals/hashCode — Lombok @Data가 위험한 이유</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>계약은 한 줄이 아니다</h2>
+<h2>계약은 한 줄이 아니다</h2>
 
         <p>
           1편에서 다룬 "<code>equals</code>가 같으면 <code>hashCode</code>도 같아야 한다"는
@@ -228,14 +200,3 @@ public int hashCode() {
           이 모든 함정에 정면으로 빠진다.
           다음 편에서 이걸 본격적으로 푼다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>상태코드의 구조와 자주 헷갈리는 경계 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "상태코드의 구조와 자주 헷갈리는 경계"
+subtitle: "1xx / 2xx / 3xx / 4xx / 5xx의 의미. 그리고 면접에서 단골로 나오는 헷갈리는 경계 — 401 vs 403, 400 vs 422."
+dateText: "2026.05.06"
+episode: 1
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 1/2</div>
-        <h1>상태코드의 구조와 자주 헷갈리는 경계</h1>
-        <p class="subtitle">
-          1xx / 2xx / 3xx / 4xx / 5xx의 의미.
-          그리고 면접에서 단골로 나오는 헷갈리는 경계 — 401 vs 403, 400 vs 422.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP 상태코드 — 헷갈리는 경계</div>
-        <ol>
-          <li class="current">상태코드의 구조와 자주 헷갈리는 경계</li>
-          <li><a href="./02-redirect와-server-error.html">Redirect와 Server Error의 함정</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>5개의 클래스</h2>
+<h2>5개의 클래스</h2>
 
         <pre><code>1xx (Informational): 정보 — 요청 받음, 처리 진행 중
 2xx (Successful):    성공 — 요청 정상 처리됨
@@ -270,15 +242,3 @@ Rate Limiting 시리즈에서 자세히</code></pre>
   400 vs 422: 형식 깨짐 vs 룰 위반
 
 다음 편: 3xx 리다이렉트와 5xx 서버 오류의 미묘함.</code></pre>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

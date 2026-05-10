@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TCP 연결을 만든다는 것 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "TCP 연결을 만든다는 것"
+subtitle: "HTTP 요청 한 번 보내기 직전, 클라이언트와 서버는 무슨 대화를 나누는가. 그리고 그 대화는 얼마나 비싼가."
+dateText: "2026.05.01"
+episode: 1
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.01 · 시리즈 1/3</div>
-        <h1>TCP 연결을 만든다는 것</h1>
-        <p class="subtitle">
-          HTTP 요청 한 번 보내기 직전, 클라이언트와 서버는 무슨 대화를 나누는가.
-          그리고 그 대화는 얼마나 비싼가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">TCP 연결의 일생</div>
-        <ol>
-          <li class="current">TCP 연결을 만든다는 것</li>
-          <li><a href="./02-연결을-끊는다.html">연결을 끊는 데 왜 4번이나 걸리나</a></li>
-          <li><a href="./03-time-wait.html">TIME_WAIT가 ephemeral port를 잡아먹는다</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>HTTP 요청 한 번이 진짜로 보내지기까지</h2>
+<h2>HTTP 요청 한 번이 진짜로 보내지기까지</h2>
 
         <p>
           코드에서는 한 줄이다.
@@ -255,14 +227,3 @@ TLS 1.3이라면           : 1   RTT  →  30ms
           그리고 그 4번이 끝난 다음에 60초 동안 뭘 기다리는지.
           다음 편에서 이어진다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

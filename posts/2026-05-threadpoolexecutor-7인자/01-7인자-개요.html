@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ThreadPoolExecutor 7인자 개요 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "ThreadPoolExecutor 7인자 개요"
+subtitle: "작업이 들어왔을 때 풀이 어떻게 행동할지 결정하는 7개의 인자. 그 인자들이 만들어내는 한 가지 기본 흐름을 먼저 머릿속에 박아두는 것이 출발점."
+dateText: "2026.05.09"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 1/4</div>
-        <h1>ThreadPoolExecutor 7인자 개요</h1>
-        <p class="subtitle">
-          작업이 들어왔을 때 풀이 어떻게 행동할지 결정하는 7개의 인자.
-          그 인자들이 만들어내는 한 가지 기본 흐름을 먼저 머릿속에 박아두는 것이 출발점.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">ThreadPoolExecutor 7인자</div>
-        <ol>
-          <li class="current">7인자 개요와 작업 흐름</li>
-          <li><a href="./02-풀-사이징.html">풀 사이징 — CPU vs I/O bound</a></li>
-          <li><a href="./03-blockingqueue-4종.html">BlockingQueue 4종의 영향</a></li>
-          <li><a href="./04-rejected-handler.html">RejectedExecutionHandler와 Executors 함정</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 ThreadPool인가</h2>
+<h2>왜 ThreadPool인가</h2>
 
         <p>
           매 작업마다 새 스레드를 만드는 건 비싸다.
@@ -321,14 +291,3 @@
         <p>
           다음 편은 풀 사이징의 원칙 — CPU bound vs I/O bound, 그리고 Little's Law.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

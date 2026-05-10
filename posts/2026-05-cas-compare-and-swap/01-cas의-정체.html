@@ -1,39 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CAS의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "CAS의 정체"
+subtitle: "락 없이 동시성을 처리하는 CPU 명령어 한 줄. 짧지만 j.u.c의 거의 모든 도구가 이 위에 서 있어요."
+dateText: "2026.05.09"
+episode: 1
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 1/2</div>
-        <h1>CAS의 정체</h1>
-        <p class="subtitle">
-          락 없이 동시성을 처리하는 CPU 명령어 한 줄. 짧지만 j.u.c의 거의 모든 도구가 이 위에 서 있어요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">CAS — Compare And Swap</div>
-        <ol>
-          <li class="current">CAS의 정체</li>
-          <li><a href="./02-aba-문제.html">ABA 문제와 AtomicStampedReference</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>락이 비싼 이유부터</h2>
+<h2>락이 비싼 이유부터</h2>
 
         <p>
           여러 스레드가 같은 값을 동시에 바꿀 때 가장 먼저 떠오르는 도구가 <code>synchronized</code>예요.
@@ -291,14 +264,3 @@ long total = counter.sum();   // 합산할 때만 모음</code></pre>
         <p>
           다음 편에서는 ABA 문제가 정확히 뭔지, <code>AtomicStampedReference</code>로 어떻게 해결하는지 살펴봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

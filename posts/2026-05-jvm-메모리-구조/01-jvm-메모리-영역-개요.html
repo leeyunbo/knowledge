@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JVM 메모리 영역 개요 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "JVM 메모리 영역 개요"
+subtitle: "자바 프로세스가 잡고 있는 메모리는 한 덩어리가 아니다. 역할이 다른 6개의 영역이 따로 살림을 차린다. 면접 전에 이 그림이 머리에 박혀야 한다."
+dateText: "2026.05.07"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 1/4</div>
-        <h1>JVM 메모리 영역 개요</h1>
-        <p class="subtitle">
-          자바 프로세스가 잡고 있는 메모리는 한 덩어리가 아니다.
-          역할이 다른 6개의 영역이 따로 살림을 차린다. 면접 전에 이 그림이 머리에 박혀야 한다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">JVM 메모리 구조</div>
-        <ol>
-          <li class="current">JVM 메모리 영역 개요</li>
-          <li><a href="./02-heap-deep-dive.html">Heap deep dive — Young/Old, TLAB</a></li>
-          <li><a href="./03-stack-pc-native.html">Stack / PC / Native — 스레드별 메모리</a></li>
-          <li><a href="./04-off-heap-direct-memory.html">Off-heap — Direct Memory와 NIO</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>전체 그림</h2>
+<h2>전체 그림</h2>
 
         <p>
           JVM이 실행될 때 운영체제로부터 받는 메모리는 크게 세 종류로 나뉜다.
@@ -359,14 +329,3 @@ ByteBuffer directBuffer = ByteBuffer.allocateDirect(1024);  // Off-heap</code></
           가장 많은 질문이 쏟아지는 곳은 Heap이다. 다음 편은 Heap 안으로 들어가서
           Young Generation의 Eden과 Survivor, Old Generation, TLAB 같은 디테일을 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

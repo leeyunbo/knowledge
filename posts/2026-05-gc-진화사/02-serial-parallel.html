@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Serial / Parallel — 전통의 GC (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Serial / Parallel — 전통의 GC"
+subtitle: "GC 진화의 출발점 두 GC. 단일 스레드로 도는 가장 단순한 Serial, 그리고 멀티코어를 활용해 처리량을 끌어올린 Parallel."
+dateText: "2026.05.07"
+episode: 2
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 2/5</div>
-        <h1>Serial / Parallel — 전통의 GC</h1>
-        <p class="subtitle">
-          GC 진화의 출발점 두 GC. 단일 스레드로 도는 가장 단순한 Serial,
-          그리고 멀티코어를 활용해 처리량을 끌어올린 Parallel.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">GC 진화사</div>
-        <ol>
-          <li><a href="./01-gc가-풀려는-문제.html">GC가 풀려는 문제</a></li>
-          <li class="current">Serial / Parallel — 전통의 GC</li>
-          <li><a href="./03-cms-g1.html">CMS / G1 — Concurrent와 Region</a></li>
-          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
-          <li><a href="./05-gc-튜닝-실전.html">GC 튜닝 실전</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Serial GC — 가장 단순한 시작점</h2>
+<h2>Serial GC — 가장 단순한 시작점</h2>
 
         <p>
           이름 그대로 단일 스레드 하나로 모든 GC 작업을 도는 가장 단순한 알고리즘.
@@ -240,14 +209,3 @@ java -XX:ParallelGCThreads=8 MyApp</code></pre>
           다음 편은 그 진화의 첫 시도 — CMS와 G1.
           Concurrent라는 새로운 차원이 GC에 들어온다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

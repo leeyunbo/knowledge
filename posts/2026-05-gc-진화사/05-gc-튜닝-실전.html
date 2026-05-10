@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GC 튜닝 실전 (5) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "GC 튜닝 실전"
+subtitle: "어떤 GC를 언제 쓰고, 어떤 메트릭을 보고, 어떤 함정을 피할지. 이론에서 운영으로 넘어가는 마지막 편."
+dateText: "2026.05.07"
+episode: 5
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.07 · 시리즈 5/5</div>
-        <h1>GC 튜닝 실전</h1>
-        <p class="subtitle">
-          어떤 GC를 언제 쓰고, 어떤 메트릭을 보고, 어떤 함정을 피할지.
-          이론에서 운영으로 넘어가는 마지막 편.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">GC 진화사</div>
-        <ol>
-          <li><a href="./01-gc가-풀려는-문제.html">GC가 풀려는 문제</a></li>
-          <li><a href="./02-serial-parallel.html">Serial / Parallel — 전통의 GC</a></li>
-          <li><a href="./03-cms-g1.html">CMS / G1 — Concurrent와 Region</a></li>
-          <li><a href="./04-zgc-shenandoah.html">ZGC / Shenandoah — Low-latency</a></li>
-          <li class="current">GC 튜닝 실전</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>GC 선택 가이드</h2>
+<h2>GC 선택 가이드</h2>
 
         <p>
           GC 튜닝의 첫 번째 결정은 어떤 GC를 쓸지. Heap 크기와 워크로드 특성에 따라 합리적인 디폴트가 있다.
@@ -296,14 +265,3 @@
         <p>
           GC 시리즈는 여기까지. 다음은 다시 동시성으로 돌아가서 volatile과 JMM의 happens-before로 들어간다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

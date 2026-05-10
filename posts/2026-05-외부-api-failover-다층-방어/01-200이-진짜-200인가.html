@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>200이 진짜 200인가 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "200이 진짜 200인가"
+subtitle: "외부 API 통합에서 마주치는 가장 흔한 함정. HTTP 응답 코드와 비즈니스 결과 코드가 다른 이야기를 하는 순간."
+dateText: "2026.05.02"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.02 · 시리즈 1/4</div>
-        <h1>200이 진짜 200인가</h1>
-        <p class="subtitle">
-          외부 API 통합에서 마주치는 가장 흔한 함정.
-          HTTP 응답 코드와 비즈니스 결과 코드가 다른 이야기를 하는 순간.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">외부 API Failover 다층 방어</div>
-        <ol>
-          <li class="current">200이 진짜 200인가</li>
-          <li>LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</li>
-          <li>CircuitBreaker가 LB로 못 잡는 것</li>
-          <li>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>알림톡 실패율이 갑자기 30%로 튀었다</h2>
+<h2>알림톡 실패율이 갑자기 30%로 튀었다</h2>
 
         <p>
           ALIO-GW에서 카카오 알림톡 발송 모니터링을 보고 있었다.
@@ -289,14 +260,3 @@ public SendResult classify(KakaoResponse res) {
           별도 서버, sidecar, client-side 라이브러리 — 세 패턴의 trade-off와
           각 환경에 맞는 선택이 무엇인지.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>해결 방법 4가지와 트레이드오프 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "해결 방법 4가지와 트레이드오프"
+subtitle: "self-invocation 함정에서 빠져나오는 4가지 방법. 메서드 분리, 자기 주입, AopContext, AspectJ. 무엇을 언제 쓰는가."
+dateText: "2026.05.05"
+episode: 2
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 2/2</div>
-        <h1>해결 방법 4가지와 트레이드오프</h1>
-        <p class="subtitle">
-          self-invocation 함정에서 빠져나오는 4가지 방법.
-          메서드 분리, 자기 주입, AopContext, AspectJ. 무엇을 언제 쓰는가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">@Transactional self-invocation 함정</div>
-        <ol>
-          <li><a href="./01-왜-self-invocation은-안-걸리는가.html">왜 self-invocation은 안 걸리는가</a></li>
-          <li class="current">해결 방법 4가지와 트레이드오프</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>해법 1: 메서드를 다른 빈으로 분리 (가장 깔끔)</h2>
+<h2>해법 1: 메서드를 다른 빈으로 분리 (가장 깔끔)</h2>
 
         <pre><code class="language-java">@Service
 public class OrderService {
@@ -337,15 +309,3 @@ public class OrderService {
           Spring 코어 시리즈 (Bean 생명주기 → AOP → 프록시 → self-invocation)가 한 묶음으로 끝났다.
           다음은 DI 방식(생성자 / 세터 / 필드)으로 가서 Spring 코어 마무리.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

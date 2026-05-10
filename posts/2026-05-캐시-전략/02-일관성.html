@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>캐시 일관성 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "캐시 일관성"
+subtitle: "캐시와 DB가 다른 값을 보여주는 일관성 문제. 그리고 흔한 race condition들과 해결 패턴이에요."
+dateText: "2026.05.10"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 2/3</div>
-        <h1>캐시 일관성</h1>
-        <p class="subtitle">
-          캐시와 DB가 다른 값을 보여주는 일관성 문제. 그리고 흔한 race condition들과 해결 패턴이에요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">캐시 전략</div>
-        <ol>
-          <li><a href="./01-4가지-패턴.html">4가지 패턴</a></li>
-          <li class="current">캐시 일관성</li>
-          <li><a href="./03-분산-캐시.html">분산 캐시</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>일관성 문제의 본질</h2>
+<h2>일관성 문제의 본질</h2>
 
         <p>
           캐시는 본질적으로 DB의 복사본이에요. 두 곳에 같은 데이터가 있으면 언젠가 둘이 어긋날 가능성이 생겨요.
@@ -312,14 +284,3 @@ public class DistributedCache {
         <p>
           다음 편에서는 분산 캐시의 구조와 partitioning, replication을 봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

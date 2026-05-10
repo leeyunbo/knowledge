@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Keep-Alive를 운영한다는 것 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Keep-Alive를 운영한다는 것"
+subtitle: "연결을 재사용하면 빠르다. 그런데 누가 그 연결을 들고 있는가. Connection Pool이라는 운영 단위의 시작."
+dateText: "2026.05.03"
+episode: 1
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.03 · 시리즈 1/4</div>
-        <h1>Keep-Alive를 운영한다는 것</h1>
-        <p class="subtitle">
-          연결을 재사용하면 빠르다. 그런데 누가 그 연결을 들고 있는가.
-          Connection Pool이라는 운영 단위의 시작.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP Connection Pool 운영</div>
-        <ol>
-          <li class="current">Keep-Alive를 운영한다는 것</li>
-          <li><a href="./02-stale-connection.html">Pool 안의 좀비 — Stale Connection 3중 방어</a></li>
-          <li><a href="./03-ephemeral-port-고갈.html">외부 API 호출이 ephemeral port를 갉아먹는다</a></li>
-          <li><a href="./04-spring-restclient-실전.html">Spring RestClient + Apache HttpClient5 실전 설정</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>매 요청마다 잃는 100ms</h2>
+<h2>매 요청마다 잃는 100ms</h2>
 
         <p>
           외부 API를 부르는 코드 한 줄.
@@ -282,14 +253,3 @@ maxPerRoute        = 도메인 하나당 최대 동시 연결 수</code></pre>
           내가 모르는 사이 좀비가 된 연결을 들고 있다가 다음 호출에 터진다.
           이걸 stale connection이라고 부르는데, 이걸 어떻게 막는지가 다음 편이다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

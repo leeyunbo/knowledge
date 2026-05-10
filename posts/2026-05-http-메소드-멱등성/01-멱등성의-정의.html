@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>멱등성의 정의 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "멱등성의 정의"
+subtitle: "RFC 9110의 정의. safe와 idempotent의 구분. 왜 PUT은 멱등하고 POST는 아닌가."
+dateText: "2026.05.06"
+episode: 1
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 1/2</div>
-        <h1>멱등성의 정의</h1>
-        <p class="subtitle">
-          RFC 9110의 정의. safe와 idempotent의 구분.
-          왜 PUT은 멱등하고 POST는 아닌가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP 메소드와 멱등성</div>
-        <ol>
-          <li class="current">멱등성의 정의</li>
-          <li><a href="./02-실무-함정.html">실무 함정 — Idempotency Key, PATCH/DELETE</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>RFC 9110의 두 정의</h2>
+<h2>RFC 9110의 두 정의</h2>
 
         <pre><code>RFC 9110 §9.2.1 (Safe Methods):
   "A request method is considered safe if its defined semantics
@@ -294,15 +266,3 @@ neither: POST, PATCH
 의미: 네트워크 재시도, 캐싱, 분산 시스템 일관성의 토대.
 
 다음 편: 비멱등 POST에서 중복 방지 — Idempotency Key, 그리고 DELETE/PATCH의 미묘함.</code></pre>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

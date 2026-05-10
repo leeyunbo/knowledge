@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>실무 사용 패턴과 함정 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "실무 사용 패턴과 함정"
+subtitle: "ConcurrentHashMap을 잘 쓰는 패턴들. 그리고 모르고 쓰면 멀티스레드 안전이 깨지는 함정들이에요."
+dateText: "2026.05.09"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 3/3</div>
-        <h1>실무 사용 패턴과 함정</h1>
-        <p class="subtitle">
-          ConcurrentHashMap을 잘 쓰는 패턴들. 그리고 모르고 쓰면 멀티스레드 안전이 깨지는 함정들이에요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">ConcurrentHashMap</div>
-        <ol>
-          <li><a href="./01-정체와-진화.html">정체와 진화</a></li>
-          <li><a href="./02-내부-동작.html">Java 8 내부 동작</a></li>
-          <li class="current">실무 사용 패턴과 함정</li>
-          <li><a href="./04-핫-키와-longadder.html">핫 키와 LongAdder, False Sharing</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>가장 흔한 함정 — get 후 put</h2>
+<h2>가장 흔한 함정 — get 후 put</h2>
 
         <p>
           ConcurrentHashMap을 쓰는데 멀티스레드 안전이 깨지는 가장 흔한 패턴이에요. 코드부터 보세요.
@@ -361,14 +332,3 @@ activeUsers.remove("alice");</code></pre>
           단, ConcurrentHashMap도 만능은 아니에요. 한 키에 트래픽이 몰리는 핫 키 시나리오에서는 버킷 락 직렬화로 성능이 크게 떨어질 수 있어요.
           이걸 풀려면 LongAdder와 합성해서 책임을 분리하는 패턴이 필요해요. 마지막 편의 주제예요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

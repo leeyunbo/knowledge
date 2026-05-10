@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spring AOP의 동작 원리 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Spring AOP의 동작 원리 — Proxy Weaving"
+subtitle: "어노테이션 한 줄이 어떻게 메서드 호출을 가로채는가. BeanPostProcessor가 만드는 프록시의 정확한 정체."
+dateText: "2026.05.05"
+episode: 2
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 2/4</div>
-        <h1>Spring AOP의 동작 원리 — Proxy Weaving</h1>
-        <p class="subtitle">
-          어노테이션 한 줄이 어떻게 메서드 호출을 가로채는가.
-          BeanPostProcessor가 만드는 프록시의 정확한 정체.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Spring AOP 내부 동작</div>
-        <ol>
-          <li><a href="./01-aop가-풀려는-문제.html">AOP가 풀려는 문제</a></li>
-          <li class="current">Spring AOP의 동작 원리 — Proxy Weaving</li>
-          <li><a href="./03-advice의-종류와-실행-흐름.html">Advice의 종류와 실행 흐름</a></li>
-          <li><a href="./04-pointcut과-spring-aop의-한계.html">Pointcut과 Spring AOP의 한계</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>핵심 한 줄</h2>
+<h2>핵심 한 줄</h2>
 
         <p>
           Spring AOP의 동작 원리는 한 줄로 정리된다.
@@ -361,15 +331,3 @@ JDK 동적 프록시도 마찬가지:
           다음 편에서 Advice 5종(@Before, @After, @AfterReturning, @AfterThrowing, @Around)이
           정확히 메서드 호출 흐름의 어디에 끼어들고, 여러 개가 같이 있을 때 어떤 순서로 실행되는지 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

@@ -1,42 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>실무 함정 — MultipleBagFetchException, 페이지네이션 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "실무 함정 — MultipleBagFetchException, 페이지네이션"
+subtitle: "fetch 도구를 안다고 끝나지 않는다. List 둘 fetch 시 폭발하는 예외, 페이지네이션이 메모리에서 잘리는 함정, 그리고 진짜 답인 DTO 프로젝션까지."
+dateText: "2026.05.06"
+episode: 3
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 3/3</div>
-        <h1>실무 함정 — MultipleBagFetchException, 페이지네이션</h1>
-        <p class="subtitle">
-          fetch 도구를 안다고 끝나지 않는다.
-          List 둘 fetch 시 폭발하는 예외, 페이지네이션이 메모리에서 잘리는 함정,
-          그리고 진짜 답인 DTO 프로젝션까지.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">N+1과 fetch 전략</div>
-        <ol>
-          <li><a href="./01-n+1이-무엇이고-왜-발생하는가.html">N+1이 무엇이고 왜 발생하는가</a></li>
-          <li><a href="./02-해결-방법-fetch-join-entitygraph-batchsize.html">해결 방법 — Fetch Join / EntityGraph / BatchSize</a></li>
-          <li class="current">실무 함정 — MultipleBagFetchException, 페이지네이션</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>함정 1: MultipleBagFetchException</h2>
+<h2>함정 1: MultipleBagFetchException</h2>
 
         <pre><code class="language-java">@Entity
 public class Order {
@@ -363,15 +333,3 @@ List&lt;OrderSummaryDto&gt; findOrderSummaries();
   단순 조회는 DTO Projection
 
 다음: Spring 코어 마무리 — DI 방식 (생성자/세터/필드).</code></pre>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

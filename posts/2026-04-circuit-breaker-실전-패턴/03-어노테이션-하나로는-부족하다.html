@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>@CircuitBreaker 어노테이션 하나로는 부족하다 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "@CircuitBreaker 어노테이션 하나로는 부족하다"
+subtitle: "ignoreExceptions로 비즈니스 예외를 분리하고, fallback을 예외 타입별로 쪼개고, 상태 전이를 이벤트로 잡는다."
+dateText: "2026.04.22"
+episode: 3
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.22 · 시리즈 3/5</div>
-        <h1>@CircuitBreaker 어노테이션 하나로는<br>부족하다</h1>
-        <p class="subtitle">
-          ignoreExceptions로 비즈니스 예외를 분리하고,
-          fallback을 예외 타입별로 쪼개고,
-          상태 전이를 이벤트로 잡는다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">CircuitBreaker 깊게 파기</div>
-        <ol>
-          <li><a href="./01-왜-필요한가.html">CircuitBreaker는 왜 필요한가</a></li>
-          <li><a href="./02-3-state-완전-이해.html">CLOSED → OPEN → HALF_OPEN, 3-state 완전 이해</a></li>
-          <li class="current">@CircuitBreaker 어노테이션 하나로는 부족하다</li>
-          <li><a href="./04-retry-bulkhead-조합.html">@Retry + @Bulkhead 조합, 순서가 왜 중요한가</a></li>
-          <li><a href="./05-분산-환경.html">분산 환경에서 CircuitBreaker</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>기본 설정이 놓치는 것들</h2>
+<h2>기본 설정이 놓치는 것들</h2>
 
         <p>CircuitBreaker를 처음 붙이면 보통 이렇게 끝낸다.</p>
 
@@ -187,14 +156,3 @@ public void subscribe() {
           다음 편에서는 <code>@Retry</code>와 <code>@Bulkhead</code>를 함께 쓸 때
           왜 순서가 중요한지 다룬다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

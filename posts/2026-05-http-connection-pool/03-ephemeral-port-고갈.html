@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>외부 API 호출이 ephemeral port를 갉아먹는다 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "외부 API 호출이 ephemeral port를 갉아먹는다"
+subtitle: "새벽에 갑자기 \"Cannot assign requested address\" 가 폭발한다. 풀 사이즈는 충분한데 왜? 클라이언트 측 TIME_WAIT의 정체."
+dateText: "2026.05.03"
+episode: 3
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.03 · 시리즈 3/4</div>
-        <h1>외부 API 호출이 ephemeral port를 갉아먹는다</h1>
-        <p class="subtitle">
-          새벽에 갑자기 "Cannot assign requested address" 가 폭발한다.
-          풀 사이즈는 충분한데 왜? 클라이언트 측 TIME_WAIT의 정체.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">HTTP Connection Pool 운영</div>
-        <ol>
-          <li><a href="./01-keep-alive-운영.html">Keep-Alive를 운영한다는 것</a></li>
-          <li><a href="./02-stale-connection.html">Pool 안의 좀비 — Stale Connection 3중 방어</a></li>
-          <li class="current">외부 API 호출이 ephemeral port를 갉아먹는다</li>
-          <li><a href="./04-spring-restclient-실전.html">Spring RestClient + Apache HttpClient5 실전 설정</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>풀 사이즈 100인데 왜 새 연결을 못 만들지</h2>
+<h2>풀 사이즈 100인데 왜 새 연결을 못 만들지</h2>
 
         <p>
           Connection Pool 사이즈는 넉넉하게 100으로 잡았다.
@@ -336,14 +307,3 @@ OS 통계가 보여주는 것:
           Spring Boot 4.x + RestClient + Apache HttpClient5 조합으로
           위 원칙들이 다 들어간 운영 가능한 설정이 어떻게 생겼는지가 마지막 편이다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

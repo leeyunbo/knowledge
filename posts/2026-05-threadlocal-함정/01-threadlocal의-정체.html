@@ -1,40 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ThreadLocal의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "ThreadLocal의 정체"
+subtitle: "스레드마다 자기만의 값을 가지는 변수. 편리한 추상화이지만 그 아래 자료구조를 알아야 다음 편의 함정이 보인다."
+dateText: "2026.05.09"
+episode: 1
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.09 · 시리즈 1/2</div>
-        <h1>ThreadLocal의 정체</h1>
-        <p class="subtitle">
-          스레드마다 자기만의 값을 가지는 변수.
-          편리한 추상화이지만 그 아래 자료구조를 알아야 다음 편의 함정이 보인다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">ThreadLocal 함정</div>
-        <ol>
-          <li class="current">ThreadLocal의 정체</li>
-          <li><a href="./02-함정-메모리-누수와-풀.html">함정 — 메모리 누수, 스레드풀 상극</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>풀려는 문제</h2>
+<h2>풀려는 문제</h2>
 
         <p>
           여러 스레드가 같은 객체를 공유하면 동기화가 필요하다. synchronized, volatile, Atomic 등 동시성 도구의 출발점.
@@ -319,14 +291,3 @@ static class ThreadLocalMap {
         <p>
           다음 편은 그 함정 — 메모리 누수, 스레드풀 환경에서의 데이터 오염, InheritableThreadLocal의 한계.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

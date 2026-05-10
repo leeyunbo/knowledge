@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>해결 방법 — Fetch Join / EntityGraph / BatchSize (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "해결 방법 — Fetch Join / EntityGraph / BatchSize"
+subtitle: "명시적 fetch 도구 3가지. 각자 다른 메커니즘으로 N+1을 잡고, 각자 다른 함정과 적용 범위를 갖는다."
+dateText: "2026.05.06"
+episode: 2
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.06 · 시리즈 2/3</div>
-        <h1>해결 방법 — Fetch Join / EntityGraph / BatchSize</h1>
-        <p class="subtitle">
-          명시적 fetch 도구 3가지. 각자 다른 메커니즘으로 N+1을 잡고,
-          각자 다른 함정과 적용 범위를 갖는다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">N+1과 fetch 전략</div>
-        <ol>
-          <li><a href="./01-n+1이-무엇이고-왜-발생하는가.html">N+1이 무엇이고 왜 발생하는가</a></li>
-          <li class="current">해결 방법 — Fetch Join / EntityGraph / BatchSize</li>
-          <li><a href="./03-실무-함정.html">실무 함정 — MultipleBagFetchException, 페이지네이션</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>해법 1: Fetch Join (JPQL)</h2>
+<h2>해법 1: Fetch Join (JPQL)</h2>
 
         <pre><code class="language-java">@Query("select m from Member m left join fetch m.orders")
 List&lt;Member&gt; findAllWithOrders();</code></pre>
@@ -296,15 +267,3 @@ BatchSize: 페이지네이션과 호환되는 안전망, 전역 기본값
   default_batch_fetch_size 전역 설정 + 핫패스는 EntityGraph + 페이지네이션은 BatchSize에 의존
 
 다음 편: 함정 시리즈 — MultipleBagFetchException, fetch join + 페이지네이션, DTO 프로젝션.</code></pre>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

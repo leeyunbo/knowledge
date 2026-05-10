@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CircuitBreaker가 LB로 못 잡는 것 (3) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "CircuitBreaker가 LB로 못 잡는 것"
+subtitle: "외형적 health vs 의미적 health. LB의 한계와 CircuitBreaker의 정밀도, 그리고 둘을 같이 쓸 때의 그림."
+dateText: "2026.05.02"
+episode: 3
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.02 · 시리즈 3/4</div>
-        <h1>CircuitBreaker가 LB로 못 잡는 것</h1>
-        <p class="subtitle">
-          외형적 health vs 의미적 health.
-          LB의 한계와 CircuitBreaker의 정밀도, 그리고 둘을 같이 쓸 때의 그림.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">외부 API Failover 다층 방어</div>
-        <ol>
-          <li><a href="./01-200이-진짜-200인가.html">200이 진짜 200인가</a></li>
-          <li><a href="./02-loadbalancer-패턴-비교.html">LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</a></li>
-          <li class="current">CircuitBreaker가 LB로 못 잡는 것</li>
-          <li>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>LB의 health check가 보는 것</h2>
+<h2>LB의 health check가 보는 것</h2>
 
         <p>
           LoadBalancer는 backend가 살아있는지 어떻게 아는가.
@@ -519,14 +490,3 @@ public KakaoResponse fallback(KakaoRequest req, Throwable ex) {
           ALIO-GW에서 RabbitMQ Fanout Exchange로 어떻게 일괄 Failover를 만들었는지,
           그리고 그게 LB/CircuitBreaker와 어떻게 같이 살아있는지 본다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

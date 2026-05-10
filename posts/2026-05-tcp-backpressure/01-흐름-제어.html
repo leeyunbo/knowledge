@@ -1,39 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TCP 흐름 제어의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "TCP 흐름 제어의 정체"
+subtitle: "4GB 파일을 받아 외부 API로 흘려보내는 서버가 왜 메모리 8KB만 쓰고 끝나는지. 그 마법의 진짜 이름은 backpressure다."
+dateText: "2026.05.01"
+episode: 1
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.01 · 시리즈 1/2</div>
-        <h1>TCP 흐름 제어의 정체</h1>
-        <p class="subtitle">
-          4GB 파일을 받아 외부 API로 흘려보내는 서버가
-          왜 메모리 8KB만 쓰고 끝나는지. 그 마법의 진짜 이름은 backpressure다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">TCP Backpressure</div>
-        <ol>
-          <li class="current">TCP 흐름 제어의 정체</li>
-          <li><a href="./02-spring-실전.html">Spring 코드에서 backpressure를 살리는 법</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>4GB는 어디 있는가</h2>
+<h2>4GB는 어디 있는가</h2>
 
         <p>
           4GB 파일을 클라이언트로부터 받아 외부 API로 흘려보내는 게이트웨이가 있다고 하자.
@@ -262,14 +235,3 @@ receive window가 64KB라면:
           다음 편에서는 Spring Boot 환경에서 이 흐름 제어를 살리는 코드 패턴과
           실수로 망가뜨리는 패턴을 본다. 4GB 카카오 동영상 업로드 게이트웨이 케이스로.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

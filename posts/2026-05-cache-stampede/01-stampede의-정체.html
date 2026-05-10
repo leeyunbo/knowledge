@@ -1,39 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cache Stampede의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Cache Stampede의 정체"
+subtitle: "인기 키의 TTL이 만료되는 순간 일어나는 사고. 캐시가 오히려 시스템 붕괴의 원인이 될 수 있어요."
+dateText: "2026.05.10"
+episode: 1
+episodes: 2
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 1/2</div>
-        <h1>Cache Stampede의 정체</h1>
-        <p class="subtitle">
-          인기 키의 TTL이 만료되는 순간 일어나는 사고. 캐시가 오히려 시스템 붕괴의 원인이 될 수 있어요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Cache Stampede</div>
-        <ol>
-          <li class="current">Stampede의 정체</li>
-          <li><a href="./02-방어-패턴.html">방어 패턴</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>이름의 의미</h2>
+<h2>이름의 의미</h2>
 
         <p>
           Stampede는 동물 무리가 한꺼번에 우르르 달리는 현상이에요.
@@ -242,14 +215,3 @@ T100ms+ 이후 요청: cache hit</code></pre>
         <p>
           다음 편에서는 stampede를 막는 구체적 방어 패턴 5가지를 봐요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>volatile의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "volatile의 정체"
+subtitle: "한 키워드로 메모리 배리어를 박는 가벼운 도구. 가시성과 순서는 보장하지만 원자성은 보장하지 않는, 그 정확한 경계를 짚어본다."
+dateText: "2026.05.08"
+episode: 1
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.08 · 시리즈 1/3</div>
-        <h1>volatile의 정체</h1>
-        <p class="subtitle">
-          한 키워드로 메모리 배리어를 박는 가벼운 도구.
-          가시성과 순서는 보장하지만 원자성은 보장하지 않는, 그 정확한 경계를 짚어본다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">volatile & JMM</div>
-        <ol>
-          <li class="current">volatile의 정체</li>
-          <li><a href="./02-happens-before.html">JMM과 happens-before</a></li>
-          <li><a href="./03-실무-함정.html">실무 함정 — DCL, AtomicXXX와 비교</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 volatile이 필요한가 — 가시성 문제</h2>
+<h2>왜 volatile이 필요한가 — 가시성 문제</h2>
 
         <p>
           synchronized 시리즈에서 본 그림을 다시 꺼낸다. 한 스레드가 변수에 값을 썼는데
@@ -271,14 +242,3 @@
           다음 편은 volatile이 의지하는 더 큰 약속 — JMM의 happens-before 관계.
           volatile이 어떻게 다른 일반 변수의 가시성까지 보장하게 만드는지 그 메커니즘.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

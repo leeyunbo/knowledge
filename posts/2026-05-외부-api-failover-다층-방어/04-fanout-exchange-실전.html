@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover"
+subtitle: "여러 sender 프로세스의 CircuitBreaker가 split-brain 상태에 빠지는 문제. 그리고 RabbitMQ Fanout Exchange로 푼 방법."
+dateText: "2026.05.02"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.02 · 시리즈 4/4</div>
-        <h1>카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</h1>
-        <p class="subtitle">
-          여러 sender 프로세스의 CircuitBreaker가 split-brain 상태에 빠지는 문제.
-          그리고 RabbitMQ Fanout Exchange로 푼 방법.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">외부 API Failover 다층 방어</div>
-        <ol>
-          <li><a href="./01-200이-진짜-200인가.html">200이 진짜 200인가</a></li>
-          <li><a href="./02-loadbalancer-패턴-비교.html">LoadBalancer 패턴 비교 — Standalone, Sidecar, Client-side</a></li>
-          <li><a href="./03-circuitbreaker가-잡는-것.html">CircuitBreaker가 LB로 못 잡는 것</a></li>
-          <li class="current">카카오 발송 GW의 실전 — Fanout Exchange로 일괄 Failover</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>ALIO-GW의 구성</h2>
+<h2>ALIO-GW의 구성</h2>
 
         <p>
           ALIO-GW는 카카오 알림톡을 발송하는 게이트웨이다.
@@ -377,14 +348,3 @@ Fanout 신호    운영자/외부 감지 시스템 결정       즉시 (사람 �
           여러 인스턴스가 같은 결정을 내리고 있는가.
           이런 질문이 자연스럽게 떠오르면 그게 시니어 백엔드의 시각이다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

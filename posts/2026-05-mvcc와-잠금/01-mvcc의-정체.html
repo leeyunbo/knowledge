@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MVCC의 정체 (1) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "MVCC의 정체 — 같은 행을 여러 버전으로"
+subtitle: "어떻게 읽기와 쓰기가 서로 안 막을 수 있는가. ReadView, Undo Log, 트랜잭션 ID가 만드는 그림."
+dateText: "2026.05.05"
+episode: 1
+episodes: 3
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.05 · 시리즈 1/3</div>
-        <h1>MVCC의 정체 — 같은 행을 여러 버전으로</h1>
-        <p class="subtitle">
-          어떻게 읽기와 쓰기가 서로 안 막을 수 있는가.
-          ReadView, Undo Log, 트랜잭션 ID가 만드는 그림.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">MVCC와 잠금</div>
-        <ol>
-          <li class="current">MVCC의 정체</li>
-          <li><a href="./02-innodb-잠금-구조.html">InnoDB 잠금의 구조</a></li>
-          <li><a href="./03-mvcc-잠금이-만나는-지점.html">MVCC와 잠금이 만나는 지점</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>왜 MVCC가 필요했는가</h2>
+<h2>왜 MVCC가 필요했는가</h2>
 
         <p>
           전통적 락 기반 동시성 제어를 생각해보자.
@@ -314,15 +285,3 @@ T1의 의도는 "10000에서 1000 빼기"였는데 T2의 -1000이 사라짐.</co
           나머지 절반이 잠금. 다음 편에서 InnoDB 잠금의 종류와 동작을 본다.
           격리 수준 시리즈 5편에서 짚었던 next-key lock도 정확히 어떤 메커니즘인지 풀린다.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
-</content>

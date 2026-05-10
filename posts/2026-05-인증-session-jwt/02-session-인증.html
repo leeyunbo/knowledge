@@ -1,43 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Session 인증 (2) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Session 인증 — 동작과 scale-out"
+subtitle: "서버가 상태를 들고 있는 가장 전통적인 방식. 단일 서버에서 단순했던 패턴이 분산 환경으로 가면 어떤 도전을 만나는가."
+dateText: "2026.05.08"
+episode: 2
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.08 · 시리즈 2/5</div>
-        <h1>Session 인증 — 동작과 scale-out</h1>
-        <p class="subtitle">
-          서버가 상태를 들고 있는 가장 전통적인 방식.
-          단일 서버에서 단순했던 패턴이 분산 환경으로 가면 어떤 도전을 만나는가.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">인증 — Session vs JWT</div>
-        <ol>
-          <li><a href="./01-http-stateless와-인증.html">HTTP stateless와 인증</a></li>
-          <li class="current">Session 인증 — 동작과 scale-out</li>
-          <li><a href="./03-jwt-구조.html">JWT의 구조</a></li>
-          <li><a href="./04-jwt-함정.html">JWT의 함정</a></li>
-          <li><a href="./05-session-vs-jwt-refresh-token.html">Session vs JWT + Refresh Token</a></li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Session 인증의 흐름</h2>
+<h2>Session 인증의 흐름</h2>
 
         <p>
           전통적인 Session 인증은 단순한 두 단계 흐름으로 동작한다. 로그인 시점에 서버가 세션을 만들고,
@@ -331,14 +300,3 @@ public User me(HttpSession session) {
         <p>
           다음 편은 정반대 방향 — 토큰 자체에 정보를 넣어 서버를 stateless로 만드는 JWT의 구조.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Consumer 측 처리 (4) · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "Consumer 측 처리"
+subtitle: "Consumer가 외부 시스템과 인터랙션할 때의 보장 패턴. End-to-end EOS의 진짜 어려움이 여기예요."
+dateText: "2026.05.10"
+episode: 4
+episodes: 4
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.05.10 · 시리즈 4/4</div>
-        <h1>Consumer 측 처리</h1>
-        <p class="subtitle">
-          Consumer가 외부 시스템과 인터랙션할 때의 보장 패턴. End-to-end EOS의 진짜 어려움이 여기예요.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">Kafka 보장 모델</div>
-        <ol>
-          <li><a href="./01-3가지-보장-모델.html">3가지 보장 모델</a></li>
-          <li><a href="./02-kafka-기본-보장.html">Kafka의 기본 보장</a></li>
-          <li><a href="./03-exactly-once.html">Exactly-Once Semantics</a></li>
-          <li class="current">Consumer 측 처리</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>Consumer + 외부 시스템의 어려움</h2>
+<h2>Consumer + 외부 시스템의 어려움</h2>
 
         <p>
           Kafka EOS는 Kafka 내부에서만 보장이에요. Consumer가 메시지 받아 외부 시스템(DB, API, 다른 메시지 큐)에 쓰는 경우, 그 인터랙션은 별개 문제.
@@ -387,14 +358,3 @@ streams.start();</code></pre>
         <p>
           Kafka 시리즈는 여기까지예요.
         </p>
-
-      </section>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>

@@ -1,41 +1,12 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (3) 2-phase Reservation과 pending 큐 · bok's notes</title>
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="../../assets/style.css">
-</head>
-<body>
+---
+title: "쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (3) 2-phase Reservation과 pending 큐"
+subtitle: "보상이 실패할 수 있다는 걸 인정하고 나면, 남은 선택지는 \"실패한 걸 나중에 주워 담을 수 있게 해놓기\"다. 그 주워 담는 범위를 최대한 좁혀본다."
+dateText: "2026.04.20"
+episode: 3
+episodes: 5
+---
 
-  <main class="container">
-    <a href="../../index.html" class="back-link" onclick="event.preventDefault(); history.length > 1 ? history.back() : location.href=this.href;">← 뒤로</a>
-    <article>
-      <header class="post-header">
-        <div class="post-date">2026.04.20 · 시리즈 3/5</div>
-        <h1>쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제 (3)<br>2-phase Reservation과 pending 큐</h1>
-        <p class="subtitle">
-          보상이 실패할 수 있다는 걸 인정하고 나면, 남은 선택지는 "실패한 걸 나중에 주워 담을 수 있게 해놓기"다. 그 주워 담는 범위를 최대한 좁혀본다.
-        </p>
-      </header>
-
-      <nav class="series-nav">
-        <div class="series-label">Series</div>
-        <div class="series-title">쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제</div>
-        <ol>
-          <li><a href="./01-redis-도입.html">Redis 도입과 새 문제</a></li>
-          <li><a href="./02-장애-시나리오.html">장애 시나리오 4개를 테이블에 올리기</a></li>
-          <li class="current">2-phase Reservation과 pending 큐</li>
-          <li>세 개의 스케줄러, 세 개의 방어선</li>
-          <li>Redis가 아예 죽을 때 & 남은 숙제</li>
-        </ol>
-      </nav>
-
-      <section class="post-body">
-
-        <h2>보상은 왜 약한가</h2>
+<h2>보상은 왜 약한가</h2>
         <p>
           1편에서 나왔던 구조를 다시 보자.
         </p>
@@ -217,25 +188,3 @@ public CouponIssue issueCoupon(Long userId, Long couponId) {
           <a href="./04-스케줄러-3종.html">4편</a>에서는 정합성을 지키는 <strong>세 종류의 스케줄러</strong>를 본다.
           각자 다른 주기, 다른 비용, 다른 상황을 커버한다.
         </p>
-
-      </section>
-
-      <footer class="post-footer">
-        <a href="./02-장애-시나리오.html" class="prev">
-          <span class="label">← Prev</span>
-          <span>장애 시나리오 4개를 테이블에 올리기</span>
-        </a>
-        <a href="./04-스케줄러-3종.html" class="next">
-          <span class="label">Next →</span>
-          <span>세 개의 스케줄러, 세 개의 방어선</span>
-        </a>
-      </footer>
-    </article>
-  </main>
-
-  <footer class="site-footer">
-    bok · 2026
-  </footer>
-  <script src="../../assets/toc.js"></script>
-</body>
-</html>
