@@ -841,8 +841,9 @@ a:hover { color: var(--accent); }
   background: var(--bg);
   white-space: pre;
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  line-height: 1.65;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
   align-self: stretch;
 }
 .cb-code {
