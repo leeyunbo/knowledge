@@ -182,8 +182,15 @@ const cards = cardOrder.map(key => {
   return buildCard(key, data);
 });
 
+const totals = cards.reduce((acc, c) => ({
+  done: acc.done + c.done,
+  total: acc.total + c.total
+}), { done: 0, total: 0 });
+totals.percent = totals.total > 0 ? Math.round(totals.done / totals.total * 100) : 0;
+
 module.exports = {
   java,
   concurrency,
-  cards
+  cards,
+  totals
 };
