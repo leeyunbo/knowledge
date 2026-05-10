@@ -5,7 +5,12 @@
       <span class="site-brand-dot" aria-hidden="true"></span>
       <span class="site-brand-name">bok's notes</span>
     </a>
-    <nav class="site-nav">
+    <button class="site-nav-toggle" type="button" id="navToggle" aria-label="메뉴" aria-expanded="false" aria-controls="siteNav">
+      <span class="nav-toggle-bar"></span>
+      <span class="nav-toggle-bar"></span>
+      <span class="nav-toggle-bar"></span>
+    </button>
+    <nav class="site-nav" id="siteNav">
       <a href="{{ root }}cs.html">cs</a>
       <a href="{{ root }}narrative.html">개발 노트</a>
       <a href="{{ root }}reading.html">읽은 글</a>
@@ -32,11 +37,29 @@
 {% include "cmdk.html" %}
 <script>
 (function() {
-  var btn = document.getElementById('themeToggle');
-  if (!btn) return;
-  btn.addEventListener('click', function() {
-    var isDark = document.documentElement.classList.toggle('dark');
-    try { localStorage.setItem('bok:theme', isDark ? 'dark' : 'light'); } catch (e) {}
-  });
+  var themeBtn = document.getElementById('themeToggle');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', function() {
+      var isDark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('bok:theme', isDark ? 'dark' : 'light'); } catch (e) {}
+    });
+  }
+  var navBtn = document.getElementById('navToggle');
+  var nav = document.getElementById('siteNav');
+  if (navBtn && nav) {
+    navBtn.addEventListener('click', function() {
+      var open = nav.classList.toggle('open');
+      navBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      navBtn.classList.toggle('open', open);
+    });
+    document.addEventListener('click', function(e) {
+      if (!nav.classList.contains('open')) return;
+      if (e.target === navBtn || navBtn.contains(e.target)) return;
+      if (nav.contains(e.target)) return;
+      nav.classList.remove('open');
+      navBtn.classList.remove('open');
+      navBtn.setAttribute('aria-expanded', 'false');
+    });
+  }
 })();
 </script>
