@@ -1,0 +1,14 @@
+{
+  "name": "bok-knowledge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "bok's notes — backend / CS / interview deep-dives",
+  "scripts": {
+    "build": "eleventy",
+    "serve": "eleventy --serve",
+    "clean": "rm -rf _site"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^3.0.0"
+  }
+}
