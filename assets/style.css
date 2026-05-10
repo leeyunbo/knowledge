@@ -739,110 +739,197 @@ a:hover { color: var(--accent); }
   margin: 3rem 0;
 }
 
-/* === CODE === */
+/* === INLINE CODE === */
 .post-body code {
   font-family: var(--font-mono);
-  font-size: 14px;
-  background: var(--bg-code);
+  font-size: 13.5px;
+  background: var(--surface-code);
   border-radius: 4px;
-  padding: 2px 6px;
+  padding: 1px 6px;
   color: var(--code-color);
   letter-spacing: -0.005em;
   word-break: break-word;
   font-weight: 500;
 }
-.post-body pre {
-  background: var(--bg-pre);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.5rem 1.75rem;
-  margin: 2rem 0;
-  overflow-x: auto;
-  font-size: 13.5px;
-  line-height: 1.78;
-}
-.post-body pre code {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--text);
-  font-size: 13.5px;
-  letter-spacing: 0;
-  font-weight: 400;
-}
-.post-body pre::-webkit-scrollbar {
-  height: 8px;
-}
-.post-body pre::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
-}
 
-/* === SYNTAX HIGHLIGHTING (Prism custom theme) === */
-.post-body pre[class*="language-"],
-.post-body code[class*="language-"] {
-  color: var(--text);
-  text-shadow: none;
-  background: none;
-  font-family: var(--font-mono);
-  word-spacing: normal;
-  word-break: normal;
-  word-wrap: normal;
-  tab-size: 4;
-  hyphens: none;
+/* === CODE BLOCK (cb) === */
+.cb {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 1.85rem 0;
 }
-.token.comment,
-.token.prolog,
-.token.cdata {
-  color: #8b95a1;
+.cb-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--surface-code);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.cb-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.lang-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-soft);
+  background: var(--accent-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.cb-filename {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cb-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 0;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.cb-copy:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+.cb-copy.copied {
+  color: var(--code-str);
+}
+.cb-copy svg {
+  flex-shrink: 0;
+}
+.cb-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  background: var(--surface);
+  overflow: hidden;
+}
+.cb-gutter {
+  text-align: right;
+  padding: 14px 12px 14px 16px;
+  color: var(--text-faint);
+  user-select: none;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1.65;
+  align-self: stretch;
+}
+.cb-code {
+  padding: 14px 16px;
+  margin: 0;
+  white-space: pre;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 0;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  min-width: 0;
+}
+.cb-code code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.cb-code .ln {
+  display: block;
+  padding: 0 10px;
+  margin: 0 -10px;
+}
+.cb-code .ln.hl {
+  background: rgba(37, 99, 217, 0.07);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.cb-code::-webkit-scrollbar { height: 8px; }
+.cb-code::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+
+/* === SYNTAX HIGHLIGHTING (Prism token colors) === */
+.cb-code .token.comment,
+.cb-code .token.prolog,
+.cb-code .token.cdata,
+.cb-code .token.doctype {
+  color: var(--code-com);
   font-style: italic;
 }
-.token.punctuation { color: #4e5968; }
-.token.namespace { opacity: 0.7; }
-.token.property,
-.token.tag,
-.token.boolean,
-.token.number,
-.token.constant,
-.token.symbol {
-  color: #1b64da;
+.cb-code .token.punctuation,
+.cb-code .token.operator { color: var(--text-soft); }
+.cb-code .token.namespace { opacity: 0.7; }
+.cb-code .token.string,
+.cb-code .token.char,
+.cb-code .token.attr-value,
+.cb-code .token.regex {
+  color: var(--code-str);
 }
-.token.selector,
-.token.attr-name,
-.token.string,
-.token.char,
-.token.builtin {
-  color: #2e7d32;
+.cb-code .token.number,
+.cb-code .token.boolean,
+.cb-code .token.symbol,
+.cb-code .token.constant {
+  color: var(--code-num);
 }
-.token.operator,
-.token.entity,
-.token.url,
-.language-css .token.string,
-.style .token.string {
-  color: #4e5968;
-}
-.token.atrule,
-.token.attr-value,
-.token.keyword {
-  color: #c4302b;
+.cb-code .token.keyword,
+.cb-code .token.atrule,
+.cb-code .token.important {
+  color: var(--code-key);
   font-weight: 500;
 }
-.token.function,
-.token.class-name {
-  color: #6a1b9a;
+.cb-code .token.tag,
+.cb-code .token.property,
+.cb-code .token.builtin {
+  color: var(--code-key);
 }
-.token.regex,
-.token.important,
-.token.variable {
-  color: #c4302b;
+.cb-code .token.attr-name,
+.cb-code .token.selector { color: var(--code-num); }
+.cb-code .token.function,
+.cb-code .token.class-name {
+  color: var(--accent);
 }
-.token.annotation {
-  color: #c4302b;
+.cb-code .token.annotation,
+.cb-code .token.decorator {
+  color: var(--code-key);
   font-weight: 500;
 }
-.token.important,
-.token.bold { font-weight: 700; }
-.token.italic { font-style: italic; }
+.cb-code .token.variable,
+.cb-code .token.entity { color: var(--text); }
+.cb-code .token.url { color: var(--accent); }
+.cb-code .token.bold { font-weight: 700; }
+.cb-code .token.italic { font-style: italic; }
 
 /* === CALLOUT === */
 .callout {

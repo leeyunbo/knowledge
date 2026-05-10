@@ -1,3 +1,5 @@
+const { transformCodeBlocks } = require("./_lib/code-block-transform.js");
+
 module.exports = function(eleventyConfig) {
   eleventyConfig.addPassthroughCopy("assets");
   eleventyConfig.addPassthroughCopy("archive");
@@ -12,6 +14,12 @@ module.exports = function(eleventyConfig) {
   eleventyConfig.ignores.add("node_modules");
   eleventyConfig.ignores.add("_site");
   eleventyConfig.ignores.add("scripts");
+  eleventyConfig.ignores.add("_lib");
+
+  eleventyConfig.addTransform("codeBlocks", function(content) {
+    if (!this.page.outputPath || !this.page.outputPath.endsWith(".html")) return content;
+    return transformCodeBlocks(content);
+  });
 
   eleventyConfig.ignores.add("archive/**");
   eleventyConfig.ignores.add("curriculum/**");

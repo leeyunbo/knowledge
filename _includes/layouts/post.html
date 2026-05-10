@@ -96,6 +96,28 @@
       }, { passive: true });
       update();
     })();
+
+    (function() {
+      document.querySelectorAll('.cb-copy').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const cb = btn.closest('.cb');
+          if (!cb) return;
+          const code = cb.querySelector('.cb-code code') || cb.querySelector('.cb-code');
+          if (!code) return;
+          const text = code.innerText.replace(/​/g, '');
+          if (!navigator.clipboard) return;
+          navigator.clipboard.writeText(text).then(function() {
+            const label = btn.querySelector('.cb-copy-text');
+            if (label) label.textContent = '복사됨';
+            btn.classList.add('copied');
+            setTimeout(function() {
+              if (label) label.textContent = '복사';
+              btn.classList.remove('copied');
+            }, 1500);
+          });
+        });
+      });
+    })();
   </script>
 </body>
 </html>
