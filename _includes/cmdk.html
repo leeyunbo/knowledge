@@ -1,0 +1,21 @@
+<div class="cmdk" id="cmdk" role="dialog" aria-modal="true" aria-label="검색" hidden>
+  <div class="cmdk-overlay" data-cmdk-close></div>
+  <div class="cmdk-box">
+    <div class="cmdk-input-row">
+      <svg class="cmdk-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input class="cmdk-input" id="cmdkInput" type="text" placeholder="검색..." autocomplete="off" spellcheck="false" />
+      <span class="cmdk-esc">esc</span>
+    </div>
+    <div class="cmdk-results" id="cmdkResults"></div>
+    <div class="cmdk-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
+      <span><kbd>↵</kbd> 열기</span>
+      <span><kbd>esc</kbd> 닫기</span>
+    </div>
+  </div>
+</div>
+<script>window.cmdkIndexPath = '{{ rootPath | default: "./" }}cmdk-index.json';</script>
+<script src="{{ rootPath | default: "./" }}assets/cmdk.js" defer></script>

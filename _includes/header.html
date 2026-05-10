@@ -9,7 +9,15 @@
       <a href="{{ root }}cs.html">cs</a>
       <a href="{{ root }}narrative.html">개발 노트</a>
       <a href="{{ root }}reading.html">읽은 글</a>
+      <button class="site-nav-cmdk" type="button" id="cmdkTrigger" aria-label="검색 (⌘K)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <kbd>⌘K</kbd>
+      </button>
       <a href="https://github.com/leeyunbo" target="_blank" rel="noopener">github</a>
     </nav>
   </div>
 </header>
+{% include "cmdk.html" %}
