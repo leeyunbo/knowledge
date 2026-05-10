@@ -29,8 +29,58 @@
   --code-str: #15803d;
   --code-num: #1d4ed8;
   --code-com: #94928a;
+
+  --header-bg: rgba(250, 250, 247, 0.92);
+  --hover-overlay: rgba(0, 0, 0, 0.04);
+  --selection-bg: rgba(37, 99, 217, 0.15);
+  --hl-line-bg: rgba(37, 99, 217, 0.07);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.18);
+  --overlay-bg: rgba(20, 22, 26, 0.5);
+
   --font-sans: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+
+  color-scheme: light;
+}
+
+:root.dark {
+  --bg: #0e1014;
+  --bg-card: #15181e;
+  --surface: #15181e;
+  --bg-subtle: #1c2028;
+  --bg-soft: #1c2028;
+  --surface-soft: #1c2028;
+  --bg-code: #0a0c10;
+  --surface-code: #0a0c10;
+  --bg-pre: #0a0c10;
+  --border: #262a33;
+  --border-strong: #353a45;
+  --border-hover: #4a4f5b;
+  --text: #e8eaed;
+  --text-soft: #c2c5cb;
+  --text-muted: #8b8f98;
+  --text-faint: #5a5e68;
+  --accent: #5b8cf5;
+  --accent-soft: #7ba3ff;
+  --accent-bg: rgba(91, 140, 245, 0.12);
+  --accent-border: rgba(91, 140, 245, 0.35);
+  --accent-line: rgba(91, 140, 245, 0.35);
+  --code-color: #f0a075;
+  --code-key: #f0884f;
+  --code-str: #7fc086;
+  --code-num: #6ea8fe;
+  --code-com: #5a5e68;
+
+  --header-bg: rgba(14, 16, 20, 0.92);
+  --hover-overlay: rgba(255, 255, 255, 0.06);
+  --selection-bg: rgba(91, 140, 245, 0.2);
+  --hl-line-bg: rgba(91, 140, 245, 0.1);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.5);
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
 }
 
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
@@ -46,7 +96,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-::selection { background: rgba(49, 130, 246, 0.15); color: var(--text); }
+::selection { background: var(--selection-bg); color: var(--text); }
 
 a { color: inherit; text-decoration: none; }
 a:hover { color: var(--accent); }
@@ -121,7 +171,7 @@ a:hover { color: var(--accent); }
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(250, 250, 247, 0.92);
+  background: var(--header-bg);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
@@ -191,6 +241,25 @@ a:hover { color: var(--accent); }
   font-size: 11px;
   letter-spacing: 0.02em;
 }
+.site-nav-theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px 7px;
+  border-radius: 5px;
+  transition: color 0.15s, background 0.15s;
+}
+.site-nav-theme:hover {
+  color: var(--text);
+  background: var(--hover-overlay);
+}
+.site-nav-theme .icon-dark { display: none; }
+:root.dark .site-nav-theme .icon-light { display: none; }
+:root.dark .site-nav-theme .icon-dark { display: block; }
 @media (max-width: 640px) {
   .site-header-inner { padding: 12px 18px; }
   .site-nav { gap: 16px; font-size: 12px; }
@@ -850,7 +919,7 @@ a:hover { color: var(--accent); }
   flex-shrink: 0;
 }
 .cb-copy:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--hover-overlay);
   color: var(--text);
 }
 .cb-copy.copied {
@@ -911,7 +980,7 @@ a:hover { color: var(--accent); }
   margin: 0 -10px;
 }
 .cb-code .ln.hl {
-  background: rgba(37, 99, 217, 0.07);
+  background: var(--hl-line-bg);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .cb-code::-webkit-scrollbar { height: 8px; }
@@ -1238,7 +1307,7 @@ figcaption .fig-num {
 .cmdk-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(20, 22, 26, 0.5);
+  background: var(--overlay-bg);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   animation: cmdkFade 0.15s ease-out;
@@ -1253,7 +1322,7 @@ figcaption .fig-num {
   margin: 80px auto 0;
   background: var(--surface);
   border-radius: 12px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
   display: flex;
   flex-direction: column;
