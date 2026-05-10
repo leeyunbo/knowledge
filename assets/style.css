@@ -726,12 +726,25 @@ a:hover { color: var(--accent); }
   border-bottom-color: var(--accent);
 }
 .post-body blockquote {
-  border-left: 3px solid var(--border-strong);
-  padding: 0.25rem 0 0.25rem 1.4rem;
-  margin: 2rem 0;
-  color: var(--text-soft);
-  font-size: 16px;
-  line-height: 1.8;
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 22px;
+  margin: 1.75rem 0;
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.6;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+.post-body blockquote p { margin: 0 0 0.5rem; }
+.post-body blockquote p:last-child { margin-bottom: 0; }
+.post-body blockquote .cite {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 .post-body hr {
   border: none;
@@ -934,57 +947,150 @@ a:hover { color: var(--accent); }
 
 /* === CALLOUT === */
 .callout {
-  background: var(--bg-soft);
+  padding: 16px 20px;
+  margin: 1.75rem 0;
+  background: var(--surface-soft);
   border-left: 3px solid var(--border-strong);
   border-radius: 4px;
-  padding: 1rem 1.3rem;
-  margin: 1.85rem 0;
-  font-size: 15px;
+  font-size: 14.5px;
   color: var(--text-soft);
-  line-height: 1.75;
+  line-height: 1.65;
 }
-.callout.blue { border-left-color: var(--accent); background: var(--accent-bg); }
+.callout p { margin: 0; }
+.callout p + p { margin-top: 0.6em; }
 .callout strong { color: var(--text); }
+.callout.blue {
+  background: var(--accent-bg);
+  border-left-color: var(--accent);
+}
 
 /* === TABLE === */
 .post-body table {
   width: 100%;
   border-collapse: collapse;
   margin: 1.85rem 0;
-  font-size: 15px;
+  font-size: 14px;
 }
 .post-body thead th {
   text-align: left;
-  padding: 0.85rem 1rem;
-  border-bottom: 2px solid var(--border-strong);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   font-weight: 700;
-  background: var(--bg-soft);
-  font-size: 14px;
-  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--border-strong);
 }
 .post-body tbody td {
-  padding: 0.85rem 1rem;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--text-soft);
+  letter-spacing: -0.005em;
 }
+.post-body tbody tr:last-child td { border-bottom: none; }
 .post-body tbody td strong { color: var(--text); }
+.post-body tbody td code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent-soft);
+  background: var(--accent-bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
 
 /* === FIGURE === */
 figure {
-  margin: 2.5rem 0;
+  margin: 2.25rem 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
 }
-figure img, figure svg {
+figure img,
+figure svg {
   width: 100%;
   display: block;
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border-radius: 0;
+  border: 0;
 }
 figcaption {
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: baseline;
   font-size: 13px;
-  color: var(--text-faint);
-  text-align: center;
-  margin-top: 0.7rem;
+  font-family: var(--font-sans);
+  color: var(--text-muted);
+  text-align: left;
+  margin-top: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  letter-spacing: -0.005em;
+}
+figcaption .fig-num {
   font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+/* === FOOTNOTES === */
+.footnotes {
+  margin-top: 56px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.footnotes-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 0.85rem;
+}
+.footnotes ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: footnotes;
+}
+.footnotes li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.footnotes li::before {
+  content: counter(footnotes);
+  counter-increment: footnotes;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Inline footnote ref */
+.post-body sup.fn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  border-bottom: 1px dashed var(--accent);
+  padding: 0 2px;
+  vertical-align: super;
+  text-decoration: none;
 }
 
 /* === POST FOOTER === */
