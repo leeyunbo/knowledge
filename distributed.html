@@ -29,7 +29,7 @@ permalink: distributed.html
     .node-ring { fill: none; opacity: 0; pointer-events: none; }
     .node-label { font-size: 10.5px; font-weight: 500; text-anchor: middle; pointer-events: none; fill: var(--text); transition: fill 0.3s ease; }
 
-    .node[data-state="locked"] .node-circle { fill: #ffffff; stroke: var(--border); stroke-width: 1.5; }
+    .node[data-state="locked"] .node-circle { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
     .node[data-state="locked"] .node-label { fill: var(--text-faint); }
     .node[data-state="locked"] { cursor: default; }
 
@@ -49,10 +49,10 @@ permalink: distributed.html
     .group-E { --node-color: #10b981; }
     .group-F { --node-color: #8b5cf6; }
 
-    .tooltip { position: fixed; background: var(--text); color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; max-width: 280px; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity 0.2s ease, transform 0.2s ease; z-index: 100; }
+    .tooltip { position: fixed; background: var(--text); color: var(--surface); padding: 8px 12px; border-radius: 6px; font-size: 12px; max-width: 280px; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity 0.2s ease, transform 0.2s ease; z-index: 100; }
     .tooltip.show { opacity: 1; transform: translateY(0); }
     .tooltip-title { font-weight: 600; margin-bottom: 3px; font-size: 12.5px; }
-    .tooltip-desc { color: rgba(255,255,255,0.75); font-size: 11px; line-height: 1.5; }
+    .tooltip-desc { color: var(--surface); opacity: 0.75; font-size: 11px; line-height: 1.5; }
 
     .group-list { margin-top: 3rem; }
     .group-section { margin-bottom: 2rem; border-left: 3px solid var(--group-color); padding-left: 1.25rem; }

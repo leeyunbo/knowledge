@@ -108,7 +108,7 @@ permalink: network.html
 
     /* === 상태별 노드 === */
     .node[data-state="locked"] .node-circle {
-      fill: #ffffff;
+      fill: var(--surface);
       stroke: var(--border);
       stroke-width: 1.5;
     }
@@ -160,7 +160,7 @@ permalink: network.html
     .tooltip {
       position: fixed;
       background: var(--text);
-      color: #fff;
+      color: var(--surface);
       padding: 8px 12px;
       border-radius: 6px;
       font-size: 12px;
@@ -176,7 +176,7 @@ permalink: network.html
       transform: translateY(0);
     }
     .tooltip-title { font-weight: 600; margin-bottom: 3px; font-size: 12.5px; }
-    .tooltip-desc { color: rgba(255,255,255,0.75); font-size: 11px; line-height: 1.5; }
+    .tooltip-desc { color: var(--surface); opacity: 0.75; font-size: 11px; line-height: 1.5; }
 
     /* === 그룹 + 시리즈 카드 === */
     .group-list { margin-top: 3rem; }
