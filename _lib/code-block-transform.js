@@ -86,7 +86,7 @@ function buildCb(lang, source, filename, hlSet) {
     const cls = hlSet.has(i + 1) ? "ln hl" : "ln";
     const content = line === "" ? "&#8203;" : line;
     return `<span class="${cls}">${content}</span>`;
-  }).join("\n");
+  }).join("");
 
   const langLabel = LANG_DISPLAY[lang] || lang.toUpperCase();
   const langPill = `<span class="lang-pill">${escapeHtml(langLabel)}</span>`;
