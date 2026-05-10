@@ -124,6 +124,50 @@ const java = {
   ]
 };
 
+const seriesTitles = {
+  "2026-04-circuit-breaker-실전-패턴": "CircuitBreaker 깊게 파기",
+  "2026-04-equals-hashcode-계약": "equals와 hashCode의 함정",
+  "2026-04-transactional-propagation-7가지": "@Transactional Propagation 7가지",
+  "2026-04-쿠폰-시스템-redis-정합성": "쿠폰 발급에 Redis를 도입하고 맞닥뜨린 정합성 문제",
+  "2026-04-쿠폰-시스템-성능-개선": "쿠폰 발급 시스템의 성능 한계를 뚫은 과정",
+  "2026-05-aop-내부-동작": "Spring AOP 내부 동작",
+  "2026-05-bean-생명주기": "Spring Bean 생명주기",
+  "2026-05-cache-stampede": "Cache Stampede",
+  "2026-05-cap-정리": "CAP 정리",
+  "2026-05-cas-compare-and-swap": "CAS — Compare And Swap",
+  "2026-05-concurrenthashmap": "ConcurrentHashMap",
+  "2026-05-cors-깊이-이해": "CORS 깊이 이해",
+  "2026-05-deadlock": "Deadlock",
+  "2026-05-di-방식": "DI 방식",
+  "2026-05-gc-진화사": "GC 진화사",
+  "2026-05-hashmap-내부": "HashMap 내부",
+  "2026-05-http-1-2-3": "HTTP/1.1 → 2 → 3",
+  "2026-05-http-connection-pool": "HTTP Connection Pool 운영",
+  "2026-05-http-메소드-멱등성": "HTTP 메소드와 멱등성",
+  "2026-05-http-상태코드": "HTTP 상태코드 — 헷갈리는 경계",
+  "2026-05-idempotency-key": "Idempotency Key 설계",
+  "2026-05-jvm-메모리-구조": "JVM 메모리 구조",
+  "2026-05-kafka-보장-모델": "Kafka 보장 모델",
+  "2026-05-mvcc와-잠금": "MVCC와 잠금",
+  "2026-05-n+1과-fetch-전략": "N+1과 fetch 전략",
+  "2026-05-oauth-oidc": "OAuth 2.0 / OIDC",
+  "2026-05-synchronized-모니터-락": "synchronized & 모니터 락",
+  "2026-05-tcp-backpressure": "TCP Backpressure",
+  "2026-05-tcp-연결의-일생": "TCP 연결의 일생",
+  "2026-05-threadlocal-함정": "ThreadLocal 함정",
+  "2026-05-threadpoolexecutor-7인자": "ThreadPoolExecutor 7인자",
+  "2026-05-transactional-self-invocation": "@Transactional self-invocation 함정",
+  "2026-05-volatile-jmm": "volatile & JMM",
+  "2026-05-분산-락": "분산 락",
+  "2026-05-외부-api-failover-다층-방어": "외부 API Failover 다층 방어",
+  "2026-05-인덱스-b-tree부터-covering까지": "인덱스 — B-Tree부터 Covering까지",
+  "2026-05-인증-session-jwt": "인증 — Session vs JWT",
+  "2026-05-캐시-전략": "캐시 전략",
+  "2026-05-트랜잭션-격리-수준": "트랜잭션 격리 수준",
+  "2026-05-패킷-한-개의-여정": "패킷 한 개의 여정",
+  "2026-05-프록시-jdk-vs-cglib": "프록시 — JDK Dynamic vs CGLIB"
+};
+
 const cardOnly = {
   spring: { title: "Spring", cardDesc: "코어 internals, 트랜잭션, 부트 동작", page: "spring.html", done: 3, total: 12 },
   db: { title: "DB", cardDesc: "인덱스, 트랜잭션, 락, 모델링", page: "db.html", done: 3, total: 13 },
@@ -192,5 +236,6 @@ module.exports = {
   java,
   concurrency,
   cards,
-  totals
+  totals,
+  seriesTitles
 };

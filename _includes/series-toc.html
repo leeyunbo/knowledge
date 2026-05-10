@@ -1,0 +1,27 @@
+{%- assign episodes = collections.postsBySeries[seriesSlug] -%}
+{%- if episodes and episodes.size > 1 -%}
+{%- assign seriesTitle = series.seriesTitles[seriesSlug] | default: seriesSlug -%}
+{%- assign nav = episodes | seriesNav: page.url -%}
+<aside class="series-toc">
+  <div class="series-toc-head">
+    <div class="series-toc-head-meta">
+      <span class="series-toc-label">Series · {{ episodes.size }}편</span>
+      <span class="series-toc-title">{{ seriesTitle }}</span>
+    </div>
+    <span class="series-toc-progress">{{ nav.index | plus: 1 }} / {{ episodes.size }}</span>
+  </div>
+  <ol class="series-toc-list">
+    {%- for ep in episodes -%}
+    {%- assign epFile = ep.url | split: "/" | last -%}
+    <li class="ep-row{% if ep.url == page.url %} cur{% endif %}">
+      <span class="ep">{{ forloop.index | padNum }}</span>
+      {%- if ep.url == page.url -%}
+      <span class="ep-title">{{ ep.data.title }}</span>
+      {%- else -%}
+      <a class="ep-title" href="./{{ epFile }}">{{ ep.data.title }}</a>
+      {%- endif -%}
+    </li>
+    {%- endfor -%}
+  </ol>
+</aside>
+{%- endif -%}

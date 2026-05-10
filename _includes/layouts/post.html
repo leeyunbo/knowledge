@@ -23,9 +23,13 @@
         {% if subtitle %}<p class="post-subtitle">{{ subtitle }}</p>{% endif %}
       </header>
 
+      {% include "series-toc.html" %}
+
       <section class="post-body">
         {{ content }}
       </section>
+
+      {% include "series-nav.html" %}
     </article>
   </main>
 

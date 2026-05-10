@@ -1,0 +1,33 @@
+{%- assign episodes = collections.postsBySeries[seriesSlug] -%}
+{%- if episodes and episodes.size > 1 -%}
+{%- assign nav = episodes | seriesNav: page.url -%}
+{%- if nav.prev or nav.next -%}
+<nav class="post-nav">
+  {%- if nav.prev -%}
+  {%- assign prevFile = nav.prev.url | split: "/" | last -%}
+  <a class="post-nav-item prev" href="./{{ prevFile }}">
+    <span class="post-nav-label">← 이전</span>
+    <span class="post-nav-row">
+      <span class="post-nav-num">{{ nav.index | padNum }}</span>
+      <span class="post-nav-title">{{ nav.prev.data.title }}</span>
+    </span>
+  </a>
+  {%- else -%}
+  <span class="post-nav-spacer" aria-hidden="true"></span>
+  {%- endif -%}
+  {%- if nav.next -%}
+  {%- assign nextFile = nav.next.url | split: "/" | last -%}
+  {%- assign nextNum = nav.index | plus: 2 -%}
+  <a class="post-nav-item next" href="./{{ nextFile }}">
+    <span class="post-nav-label">다음 →</span>
+    <span class="post-nav-row">
+      <span class="post-nav-title">{{ nav.next.data.title }}</span>
+      <span class="post-nav-num">{{ nextNum | padNum }}</span>
+    </span>
+  </a>
+  {%- else -%}
+  <span class="post-nav-spacer" aria-hidden="true"></span>
+  {%- endif -%}
+</nav>
+{%- endif -%}
+{%- endif -%}
