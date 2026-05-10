@@ -354,14 +354,95 @@ a:hover { color: var(--accent); }
 
 /* === POST WRAP / ARTICLE LAYOUT === */
 .post-wrap {
-  max-width: 1000px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 56px 32px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 700px) 200px;
+  gap: 56px;
+  justify-content: center;
+  align-items: start;
 }
 .article-main {
   max-width: 700px;
-  margin: 0 auto;
   min-width: 0;
+}
+
+/* === POST TOC (sidebar) === */
+.post-toc {
+  position: sticky;
+  top: 100px;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.55;
+  align-self: start;
+}
+.post-toc-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.85rem;
+}
+.post-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.post-toc-list li { margin: 0; }
+.post-toc-list a {
+  display: block;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+  margin-left: -10px;
+  letter-spacing: -0.005em;
+  transition: color 0.15s, border-color 0.15s;
+  word-break: keep-all;
+}
+.post-toc-list a:hover { color: var(--text); }
+.post-toc-list a.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.post-toc-foot {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.post-toc-bar {
+  height: 3px;
+  background: var(--surface-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.post-toc-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.15s linear;
+}
+
+@media (max-width: 1024px) {
+  .post-wrap { display: block; max-width: 720px; }
+  .article-main { max-width: 100%; margin: 0 auto; }
+  .post-toc { display: none; }
 }
 
 /* === POST HEADER === */

@@ -31,6 +31,15 @@
 
       {% include "series-nav.html" %}
     </article>
+
+    <aside class="post-toc" id="postToc" aria-label="On this page">
+      <div class="post-toc-label">ON THIS PAGE</div>
+      <ul class="post-toc-list" id="postTocList"></ul>
+      <div class="post-toc-foot">
+        <span class="post-toc-pct" id="postTocPct">0%</span>
+        <div class="post-toc-bar"><div class="post-toc-fill" id="postTocFill"></div></div>
+      </div>
+    </aside>
   </main>
 
   {% include "footer.html" %}
@@ -38,11 +47,48 @@
   <script>
     (function() {
       const bar = document.getElementById('readingProgress');
+      const tocPct = document.getElementById('postTocPct');
+      const tocFill = document.getElementById('postTocFill');
+      const tocList = document.getElementById('postTocList');
+      const tocAside = document.getElementById('postToc');
+
+      const headings = Array.from(document.querySelectorAll('.post-body h2'));
+      let items = [];
+
+      if (headings.length > 0) {
+        headings.forEach(function(h, i) {
+          if (!h.id) h.id = 'h-' + i;
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = '#' + h.id;
+          a.textContent = h.textContent.trim();
+          li.appendChild(a);
+          tocList.appendChild(li);
+          items.push({ heading: h, link: a });
+        });
+      } else {
+        tocAside.style.display = 'none';
+      }
+
       let rafId = null;
       function update() {
-        const h = document.documentElement.scrollHeight - document.documentElement.clientHeight;
-        const pct = h > 0 ? Math.min(100, Math.max(0, window.scrollY / h * 100)) : 0;
+        const docH = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+        const pct = docH > 0 ? Math.min(100, Math.max(0, window.scrollY / docH * 100)) : 0;
         bar.style.width = pct + '%';
+        if (tocPct) tocPct.textContent = Math.round(pct) + '%';
+        if (tocFill) tocFill.style.width = pct + '%';
+
+        if (items.length > 0) {
+          let activeIdx = -1;
+          for (let i = 0; i < items.length; i++) {
+            const top = items[i].heading.getBoundingClientRect().top;
+            if (top <= 100) activeIdx = i;
+            else break;
+          }
+          items.forEach(function(it, i) {
+            it.link.classList.toggle('active', i === activeIdx);
+          });
+        }
       }
       window.addEventListener('scroll', function() {
         if (rafId) return;
