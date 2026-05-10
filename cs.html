@@ -12,16 +12,16 @@ permalink: cs.html
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="./assets/style.css">
   <style>
-    .cs-container { max-width: 1400px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+    .cs-container { max-width: 1080px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
     .cs-hero { margin-bottom: 2.5rem; }
     .cs-hero h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
 
-    .galaxy-canvas { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 2rem 1.5rem 1.5rem; margin-bottom: 3.5rem; }
-    .galaxy-meta { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.25rem; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .galaxy-svg { display: block; width: 100%; max-width: 1300px; margin: 0 auto; height: auto; }
+    .galaxy-canvas { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.25rem 1rem; margin-bottom: 3.5rem; }
+    .galaxy-meta { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 0.85rem; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .galaxy-svg { display: block; width: 100%; max-width: 1000px; margin: 0 auto; height: auto; }
 
-    .category-label { font-size: 14px; font-weight: 700; fill: var(--text); letter-spacing: -0.01em; pointer-events: none; }
-    .category-label-meta { font-size: 10.5px; fill: var(--text-muted); font-family: var(--font-mono); pointer-events: none; }
+    .category-label { font-size: 12px; font-weight: 700; fill: var(--text); letter-spacing: -0.01em; pointer-events: none; }
+    .category-label-meta { font-size: 10px; fill: var(--text-muted); font-family: var(--font-mono); pointer-events: none; }
     .category-bg { pointer-events: none; fill: var(--text); fill-opacity: 0.025; }
 
     .node-label-done {
@@ -57,14 +57,14 @@ permalink: cs.html
     .node-circle { transition: transform 0.3s ease, stroke 0.3s ease; transform-box: fill-box; transform-origin: center; }
     .node-ring { fill: none; opacity: 0; pointer-events: none; }
 
-    .node[data-state="locked"] .node-circle { fill: var(--surface); stroke: var(--border); stroke-width: 1.2; }
+    .node[data-state="locked"] .node-circle { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.3; }
     .node[data-state="locked"] { cursor: pointer; }
 
     .node[data-state="done"] .node-circle { fill: var(--node-color); stroke: var(--node-color); stroke-width: 1.2; }
-    .node[data-state="done"] .node-ring { stroke: var(--node-color); stroke-width: 1.2; opacity: 0.35; animation: ringPulse 4s ease-in-out infinite; animation-delay: var(--ring-delay, 0s); }
-    @keyframes ringPulse { 0%, 100% { r: 9; opacity: 0.35; } 50% { r: 15; opacity: 0; } }
+    .node[data-state="done"] .node-ring { stroke: var(--node-color); stroke-width: 1.2; opacity: 0.3; animation: ringPulse 4s ease-in-out infinite; animation-delay: var(--ring-delay, 0s); }
+    @keyframes ringPulse { 0%, 100% { r: 8; opacity: 0.3; } 50% { r: 13; opacity: 0; } }
 
-    .node:hover .node-circle { transform: scale(1.5); }
+    .node:hover .node-circle { transform: scale(1.4); }
     .galaxy-svg.hovering .node:not(.is-active) { opacity: 0.2; transition: opacity 0.3s ease; }
 
     .group-A, .group-B, .group-C, .group-D, .group-E, .group-F, .group-G { --node-color: var(--text); }
@@ -161,507 +161,350 @@ permalink: cs.html
         <span><span id="totalText">40 / 103</span> · <span id="totalPct">39%</span></span>
       </div>
 
-      <svg class="galaxy-svg" viewBox="0 0 1400 1200" xmlns="http://www.w3.org/2000/svg" aria-label="백엔드 CS 토픽 별자리">
+      <svg class="galaxy-svg" viewBox="0 0 960 470" xmlns="http://www.w3.org/2000/svg" aria-label="백엔드 CS 토픽 별자리">
 
-        <!-- 카테고리 영역 배경 -->
-        <rect class="category-bg bg-A" x="50" y="70" width="320" height="210" rx="14" />
-        <rect class="category-bg bg-E" x="440" y="60" width="470" height="400" rx="14" />
-        <rect class="category-bg bg-D" x="985" y="60" width="370" height="320" rx="14" />
-        <rect class="category-bg bg-B" x="60" y="400" width="360" height="290" rx="14" />
-        <rect class="category-bg bg-C" x="995" y="420" width="380" height="370" rx="14" />
-        <rect class="category-bg bg-F" x="460" y="560" width="470" height="520" rx="14" />
-        <rect class="category-bg bg-G" x="60" y="780" width="380" height="200" rx="14" />
-
-        <!-- 카테고리 영역 라벨 -->
-        <text class="category-label" data-group="A" x="70" y="95">Java</text>
-        <text class="category-label-meta" data-group="A" x="70" y="112">9 토픽</text>
-
-        <text class="category-label" data-group="E" x="460" y="95">동시성</text>
-        <text class="category-label-meta" data-group="E" x="460" y="112">23 토픽</text>
-
-        <text class="category-label" data-group="D" x="1005" y="95">네트워크</text>
-        <text class="category-label-meta" data-group="D" x="1005" y="112">12 토픽</text>
-
-        <text class="category-label" data-group="B" x="80" y="425">Spring</text>
-        <text class="category-label-meta" data-group="B" x="80" y="442">12 토픽</text>
-
-        <text class="category-label" data-group="C" x="1015" y="445">DB</text>
-        <text class="category-label-meta" data-group="C" x="1015" y="462">13 토픽</text>
-
-        <text class="category-label" data-group="F" x="480" y="585">분산 시스템 설계</text>
-        <text class="category-label-meta" data-group="F" x="480" y="602">29 토픽</text>
-
-        <text class="category-label" data-group="G" x="80" y="805">보안</text>
-        <text class="category-label-meta" data-group="G" x="80" y="822">5 토픽</text>
-
-        <!-- 연결선 (카테고리 내부만) -->
-        <g id="cross-links">
-          <!-- Java 내부 -->
-          <line class="link" x1="132" y1="151" x2="160" y2="228" />
-          <line class="link" x1="132" y1="151" x2="104" y2="228" />
-          <line class="link" x1="160" y1="228" x2="104" y2="228" />
-          <line class="link" x1="160" y1="228" x2="220" y2="151" />
-          <line class="link" x1="220" y1="151" x2="248" y2="228" />
-          <line class="link" x1="220" y1="151" x2="192" y2="228" />
-          <line class="link" x1="248" y1="228" x2="192" y2="228" />
-          <line class="link" x1="248" y1="228" x2="292" y2="228" />
-          <line class="link" x1="220" y1="151" x2="292" y2="228" />
-          <line class="link" x1="320" y1="151" x2="348" y2="228" />
-          <line class="link" x1="320" y1="151" x2="292" y2="228" />
-          <line class="link" x1="348" y1="228" x2="292" y2="228" />
-
-          <!-- Spring 내부 -->
-          <line class="link" x1="128" y1="452" x2="173" y2="501" />
-          <line class="link" x1="128" y1="452" x2="101" y2="501" />
-          <line class="link" x1="128" y1="452" x2="141" y2="557" />
-          <line class="link" x1="173" y1="501" x2="101" y2="501" />
-          <line class="link" x1="101" y1="501" x2="195" y2="634" />
-          <line class="link" x1="173" y1="501" x2="231" y2="490" />
-          <line class="link" x1="231" y1="490" x2="240" y2="573" />
-          <line class="link" x1="231" y1="490" x2="195" y2="634" />
-          <line class="link" x1="240" y1="573" x2="101" y2="501" />
-          <line class="link" x1="312" y1="452" x2="353" y2="518" />
-          <line class="link" x1="312" y1="452" x2="272" y2="590" />
-          <line class="link" x1="353" y1="518" x2="272" y2="590" />
-          <line class="link" x1="272" y1="590" x2="128" y2="452" />
-          <line class="link" x1="375" y1="601" x2="312" y2="452" />
-          <line class="link" x1="326" y1="662" x2="141" y2="557" />
-          <line class="link" x1="326" y1="662" x2="375" y2="601" />
-
-          <!-- DB 내부 -->
-          <line class="link" x1="1058" y1="500" x2="1103" y2="555" />
-          <line class="link" x1="1058" y1="500" x2="1031" y2="555" />
-          <line class="link" x1="1103" y1="555" x2="1031" y2="555" />
-          <line class="link" x1="1103" y1="555" x2="1247" y2="500" />
-          <line class="link" x1="1170" y1="500" x2="1202" y2="573" />
-          <line class="link" x1="1202" y1="573" x2="1071" y2="653" />
-          <line class="link" x1="1202" y1="573" x2="1134" y2="702" />
-          <line class="link" x1="1071" y1="653" x2="1134" y2="702" />
-          <line class="link" x1="1134" y1="702" x2="1031" y2="702" />
-          <line class="link" x1="1170" y1="500" x2="1134" y2="702" />
-          <line class="link" x1="1247" y1="500" x2="1319" y2="714" />
-          <line class="link" x1="1283" y1="653" x2="1242" y2="714" />
-          <line class="link" x1="1283" y1="653" x2="1319" y2="714" />
-          <line class="link" x1="1242" y1="714" x2="1319" y2="714" />
-          <line class="link" x1="1305" y1="561" x2="1170" y2="500" />
-          <line class="link" x1="1305" y1="561" x2="1283" y2="653" />
-
-          <!-- 네트워크 내부 -->
-          <line class="link" x1="1056" y1="139" x2="1089" y2="207" />
-          <line class="link" x1="1056" y1="139" x2="1022" y2="207" />
-          <line class="link" x1="1056" y1="139" x2="1013" y2="139" />
-          <line class="link" x1="1089" y1="207" x2="1022" y2="207" />
-          <line class="link" x1="1174" y1="148" x2="1212" y2="116" />
-          <line class="link" x1="1174" y1="148" x2="1146" y2="116" />
-          <line class="link" x1="1212" y1="116" x2="1146" y2="116" />
-          <line class="link" x1="1265" y1="179" x2="1293" y2="234" />
-          <line class="link" x1="1293" y1="234" x2="1236" y2="265" />
-          <line class="link" x1="1056" y1="139" x2="1265" y2="179" />
-          <line class="link" x1="1174" y1="148" x2="1265" y2="179" />
-          <line class="link" x1="1056" y1="139" x2="1122" y2="301" />
-          <line class="link" x1="1089" y1="207" x2="1122" y2="301" />
-          <line class="link" x1="1122" y1="301" x2="1222" y2="324" />
-          <line class="link" x1="1174" y1="148" x2="1222" y2="324" />
-
-          <!-- 보안 내부 -->
-          <line class="link" x1="174" y1="829" x2="237" y2="887" />
-          <line class="link" x1="174" y1="829" x2="111" y2="887" />
-          <line class="link" x1="237" y1="887" x2="111" y2="887" />
-          <line class="link" x1="345" y1="841" x2="345" y2="922" />
-          <line class="link" x1="345" y1="922" x2="237" y2="887" />
-
-          <!-- 동시성 내부 -->
-          <line class="link" x1="675" y1="114" x2="600" y2="156" />
-          <line class="link" x1="675" y1="114" x2="750" y2="156" />
-          <line class="link" x1="750" y1="156" x2="811" y2="190" />
-          <line class="link" x1="600" y1="156" x2="642" y2="197" />
-          <line class="link" x1="642" y1="197" x2="675" y2="239" />
-          <line class="link" x1="675" y1="239" x2="736" y2="266" />
-          <line class="link" x1="525" y1="177" x2="515" y2="221" />
-          <line class="link" x1="515" y1="221" x2="572" y2="266" />
-          <line class="link" x1="515" y1="221" x2="487" y2="270" />
-          <line class="link" x1="515" y1="221" x2="619" y2="315" />
-          <line class="link" x1="619" y1="315" x2="567" y2="356" />
-          <line class="link" x1="769" y1="315" x2="825" y2="280" />
-          <line class="link" x1="769" y1="315" x2="849" y2="335" />
-          <line class="link" x1="849" y1="335" x2="868" y2="380" />
-          <line class="link" x1="868" y1="380" x2="802" y2="415" />
-          <line class="link" x1="675" y1="114" x2="670" y2="391" />
-          <line class="link" x1="670" y1="391" x2="713" y2="425" />
-          <line class="link" x1="600" y1="156" x2="614" y2="415" />
-          <line class="link" x1="525" y1="177" x2="487" y2="391" />
-          <line class="link" x1="515" y1="221" x2="496" y2="335" />
-
-          <!-- 분산 시스템 내부 -->
-          <line class="link" x1="553" y1="689" x2="590" y2="737" />
-          <line class="link" x1="553" y1="689" x2="516" y2="737" />
-          <line class="link" x1="553" y1="689" x2="590" y2="624" />
-          <line class="link" x1="516" y1="737" x2="553" y2="794" />
-          <line class="link" x1="511" y1="624" x2="590" y2="624" />
-          <line class="link" x1="590" y1="737" x2="553" y2="794" />
-          <line class="link" x1="677" y1="641" x2="714" y2="705" />
-          <line class="link" x1="677" y1="641" x2="640" y2="842" />
-          <line class="link" x1="714" y1="705" x2="640" y2="705" />
-          <line class="link" x1="640" y1="705" x2="705" y2="866" />
-          <line class="link" x1="672" y1="786" x2="728" y2="786" />
-          <line class="link" x1="728" y1="786" x2="640" y2="842" />
-          <line class="link" x1="640" y1="842" x2="705" y2="866" />
-          <line class="link" x1="792" y1="641" x2="847" y2="641" />
-          <line class="link" x1="792" y1="641" x2="824" y2="721" />
-          <line class="link" x1="792" y1="641" x2="774" y2="721" />
-          <line class="link" x1="847" y1="641" x2="824" y2="721" />
-          <line class="link" x1="847" y1="786" x2="893" y2="850" />
-          <line class="link" x1="847" y1="786" x2="810" y2="850" />
-          <line class="link" x1="893" y1="850" x2="810" y2="850" />
-          <line class="link" x1="889" y1="955" x2="847" y2="1011" />
-          <line class="link" x1="847" y1="1011" x2="810" y2="1011" />
-          <line class="link" x1="889" y1="955" x2="810" y2="1011" />
-          <line class="link" x1="548" y1="931" x2="603" y2="931" />
-          <line class="link" x1="548" y1="931" x2="562" y2="1052" />
-          <line class="link" x1="654" y1="947" x2="511" y2="995" />
-          <line class="link" x1="654" y1="947" x2="631" y2="1052" />
-          <line class="link" x1="511" y1="995" x2="631" y2="1052" />
-          <line class="link" x1="631" y1="1052" x2="562" y2="1052" />
-          <line class="link" x1="590" y1="737" x2="810" y2="1011" />
-          <line class="link" x1="640" y1="705" x2="603" y2="931" />
-          <line class="link" x1="705" y1="866" x2="847" y2="786" />
-          <line class="link" x1="728" y1="786" x2="847" y2="641" />
-          <line class="link" x1="654" y1="947" x2="705" y2="866" />
-        </g>
-
-        <!-- ============ Java (group A) ============ -->
+        <!-- Java (9) -->
+        <rect class="category-bg bg-A" x="22" y="65" width="166" height="150" rx="10" />
+        <text class="category-label" data-group="A" x="30" y="57">Java</text>
+        <text class="category-label-meta" data-group="A" x="180" y="57" text-anchor="end">9</text>
         <a class="node group-A" data-state="done" data-id="java-1" data-cat="Java" data-title="equals와 hashCode의 함정" data-desc="객체 동등성, hashCode 계약 세 규칙" href="./posts/2026-04-equals-hashcode-계약/01-equals만-오버라이드하면.html">
-          <g transform="translate(132,151)" style="--ring-delay: 0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">equals · hashCode</text></g>
+          <g transform="translate(55,108)" style="--ring-delay: 0s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="done" data-id="java-2" data-cat="Java" data-title="HashMap 내부" data-desc="해시 충돌, 리해싱, treeify" href="./posts/2026-05-hashmap-내부/01-기본-구조.html">
-          <g transform="translate(160,228)" style="--ring-delay: 6.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">HashMap</text></g>
+          <g transform="translate(105,108)" style="--ring-delay: 6.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="locked" data-cat="Java" data-title="Collection 비교" data-desc="ArrayList vs LinkedList, HashMap vs TreeMap" href="./java.html">
-          <g transform="translate(104,228)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(155,108)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="done" data-id="java-4" data-cat="Java" data-title="JVM 메모리 구조" data-desc="Heap / Metaspace / Stack / Direct Memory" href="./posts/2026-05-jvm-메모리-구조/01-jvm-메모리-영역-개요.html">
-          <g transform="translate(220,151)" style="--ring-delay: 8.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">JVM 메모리</text></g>
+          <g transform="translate(55,158)" style="--ring-delay: 8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="done" data-id="java-5" data-cat="Java" data-title="GC 진화사" data-desc="Serial → ZGC, Shenandoah" href="./posts/2026-05-gc-진화사/01-gc가-풀려는-문제.html">
-          <g transform="translate(248,228)" style="--ring-delay: 8.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">GC</text></g>
+          <g transform="translate(105,158)" style="--ring-delay: 8.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="locked" data-cat="Java" data-title="ClassLoader 동작" data-desc="부모 위임 모델" href="./java.html">
-          <g transform="translate(192,228)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(155,158)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="locked" data-cat="Java" data-title="Generics와 Type Erasure" data-desc="컴파일 타임 검사, 런타임 erasure" href="./java.html">
-          <g transform="translate(320,151)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(55,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="locked" data-cat="Java" data-title="JIT 컴파일러" data-desc="C1 / C2 / Graal" href="./java.html">
-          <g transform="translate(348,228)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(105,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-A" data-state="locked" data-cat="Java" data-title="String Pool" data-desc="문자열 캐시, intern()" href="./java.html">
-          <g transform="translate(292,228)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(155,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
 
-        <!-- ============ 동시성 (group E) ============ -->
-        <a class="node group-E" data-state="done" data-id="con-1" data-cat="동시성" data-title="synchronized & 모니터 락" data-desc="객체 헤더, biased/lightweight/heavyweight" href="./posts/2026-05-synchronized-모니터-락/01-synchronized의-정체.html">
-          <g transform="translate(675,114)" style="--ring-delay: 7.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">synchronized</text></g>
+        <!-- Spring (12) -->
+        <rect class="category-bg bg-B" x="197" y="65" width="191" height="150" rx="10" />
+        <text class="category-label" data-group="B" x="205" y="57">Spring</text>
+        <text class="category-label-meta" data-group="B" x="380" y="57" text-anchor="end">12</text>
+        <a class="node group-B" data-state="done" data-id="spring-1" data-cat="Spring" data-title="Bean 생명주기" data-desc="BeanDefinition부터 소멸까지 9단계, AOP 프록시 만들어지는 자리" href="./posts/2026-05-bean-생명주기/01-bean이-만들어지기까지.html">
+          <g transform="translate(227,108)" style="--ring-delay: 4.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-E" data-state="done" data-id="con-2" data-cat="동시성" data-title="volatile & JMM" data-desc="가시성 vs 원자성, happens-before" href="./posts/2026-05-volatile-jmm/01-volatile의-정체.html">
-          <g transform="translate(600,156)" style="--ring-delay: 8.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">volatile</text></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="ReentrantLock" data-desc="tryLock, 인터럽트, Condition" href="./concurrency.html">
-          <g transform="translate(750,156)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="ReadWriteLock / StampedLock" data-desc="optimistic read" href="./concurrency.html">
-          <g transform="translate(811,190)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="done" data-id="con-5" data-cat="동시성" data-title="CAS" data-desc="CPU 명령어, ABA 문제" href="./posts/2026-05-cas-compare-and-swap/01-cas의-정체.html">
-          <g transform="translate(642,197)" style="--ring-delay: 11.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">CAS</text></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Atomic* 패밀리" data-desc="AtomicInteger, LongAdder" href="./concurrency.html">
-          <g transform="translate(675,239)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="done" data-id="con-7" data-cat="동시성" data-title="ConcurrentHashMap" data-desc="버킷 락 + CAS, compute 류" href="./posts/2026-05-concurrenthashmap/01-정체와-진화.html">
-          <g transform="translate(736,266)" style="--ring-delay: 12.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">ConcurrentHashMap</text></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="ExecutorService" data-desc="Runnable vs Callable, Executors 함정" href="./concurrency.html">
-          <g transform="translate(525,177)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="done" data-id="con-9" data-cat="동시성" data-title="ThreadPoolExecutor 7인자" data-desc="core/max, queue, RejectedHandler" href="./posts/2026-05-threadpoolexecutor-7인자/01-7인자-개요.html">
-          <g transform="translate(515,221)" style="--ring-delay: 10.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">TPE</text></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Future / Callable" data-desc="get() 블로킹, cancel()의 의미" href="./concurrency.html">
-          <g transform="translate(572,266)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="풀 사이징 이론" data-desc="CPU vs I/O bound, Little's Law" href="./concurrency.html">
-          <g transform="translate(487,270)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="BlockingQueue 패밀리" data-desc="Array/Linked/Synchronous/Priority/Delay" href="./concurrency.html">
-          <g transform="translate(619,315)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="생산자/소비자 패턴" data-desc="put/take/offer/poll, graceful shutdown" href="./concurrency.html">
-          <g transform="translate(567,356)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="CountDownLatch" data-desc="N개 끝날 때까지 대기" href="./concurrency.html">
-          <g transform="translate(769,315)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="CyclicBarrier" data-desc="N명 모일 때까지" href="./concurrency.html">
-          <g transform="translate(825,280)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Semaphore" data-desc="동시 N개만 통과" href="./concurrency.html">
-          <g transform="translate(849,335)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Phaser" data-desc="Latch+Barrier 합성" href="./concurrency.html">
-          <g transform="translate(868,380)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Exchanger" data-desc="두 스레드 1:1 데이터 교환" href="./concurrency.html">
-          <g transform="translate(802,415)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="done" data-id="con-19" data-cat="동시성" data-title="Deadlock" data-desc="4조건, 예방/회피/탐지" href="./posts/2026-05-deadlock/01-deadlock의-4가지-조건.html">
-          <g transform="translate(670,391)" style="--ring-delay: 11.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Deadlock</text></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Livelock / Starvation" data-desc="굶는 스레드" href="./concurrency.html">
-          <g transform="translate(713,425)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="done" data-id="con-21" data-cat="동시성" data-title="ThreadLocal 함정" data-desc="메모리 누수, 스레드풀과 상극" href="./posts/2026-05-threadlocal-함정/01-threadlocal의-정체.html">
-          <g transform="translate(496,335)" style="--ring-delay: 10.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">ThreadLocal</text></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="InterruptedException 처리법" data-desc="삼키지 말고 복원" href="./concurrency.html">
-          <g transform="translate(487,391)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Double-Checked Locking" data-desc="volatile 없으면 깨지는 이유" href="./concurrency.html">
-          <g transform="translate(614,415)"><circle class="node-circle" r="7" /></g>
-        </a>
-
-        <!-- ============ 네트워크 (group D) ============ -->
-        <a class="node group-D" data-state="done" data-id="net-1" data-cat="네트워크" data-title="TCP 연결의 일생" data-desc="3-way / 4-way / TIME_WAIT" href="./posts/2026-05-tcp-연결의-일생/01-연결을-만든다.html">
-          <g transform="translate(1056,139)" style="--ring-delay: 0.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="-14">TCP 연결의 일생</text></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-2" data-cat="네트워크" data-title="HTTP Connection Pool 운영" data-desc="Keep-Alive, stale, ephemeral port" href="./posts/2026-05-http-connection-pool/01-keep-alive-운영.html">
-          <g transform="translate(1089,207)" style="--ring-delay: 0.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Connection Pool</text></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-3" data-cat="네트워크" data-title="TCP Backpressure" data-desc="window, zero window probe" href="./posts/2026-05-tcp-backpressure/01-흐름-제어.html">
-          <g transform="translate(1022,207)" style="--ring-delay: 1.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="-14">Backpressure</text></g>
-        </a>
-        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="TCP vs UDP" data-desc="신뢰성과 latency 트레이드오프" href="./network.html">
-          <g transform="translate(1013,139)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-5" data-cat="네트워크" data-title="HTTP/1.1 → 2 → 3" data-desc="HoL blocking, multiplexing, QUIC" href="./posts/2026-05-http-1-2-3/01-http-1-1.html">
-          <g transform="translate(1174,148)" style="--ring-delay: 12.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">HTTP 2/3</text></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-6" data-cat="네트워크" data-title="HTTP 메소드와 멱등성" data-desc="멱등의 진짜 의미" href="./posts/2026-05-http-메소드-멱등성/01-멱등성의-정의.html">
-          <g transform="translate(1212,116)" style="--ring-delay: 6.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">HTTP 메소드</text></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-7" data-cat="네트워크" data-title="HTTP 상태코드" data-desc="4xx vs 5xx 결정적 차이" href="./posts/2026-05-http-상태코드/01-상태코드의-구조와-자주-헷갈리는-경계.html">
-          <g transform="translate(1146,116)" style="--ring-delay: 7.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">상태코드</text></g>
-        </a>
-        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="HTTPS / TLS handshake" data-desc="TLS 1.2 vs 1.3 RTT" href="./network.html">
-          <g transform="translate(1265,179)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-9" data-cat="네트워크" data-title="CORS 깊이 이해" data-desc="SOP, Preflight, credentials" href="./posts/2026-05-cors-깊이-이해/01-same-origin-policy.html">
-          <g transform="translate(1293,234)" style="--ring-delay: 1.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">CORS</text></g>
-        </a>
-        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="Cookie / Session / Token" data-desc="쿠키 옵션, 세션 vs JWT" href="./network.html">
-          <g transform="translate(1236,265)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-D" data-state="done" data-id="net-11" data-cat="네트워크" data-title="패킷 한 개의 여정" data-desc="호스트 NIC부터 ISP, BGP, BDP까지" href="./posts/2026-05-패킷-한-개의-여정/01-호스트-안의-여정.html">
-          <g transform="translate(1122,301)" style="--ring-delay: 2.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">패킷의 여정</text></g>
-        </a>
-        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="DNS 동작" data-desc="재귀 vs 반복, split-horizon" href="./network.html">
-          <g transform="translate(1222,324)"><circle class="node-circle" r="7" /></g>
-        </a>
-
-        <!-- ============ Spring (group B) ============ -->
-        <a class="node group-B" data-state="done" data-id="spring-1" data-cat="Spring"
-           data-title="Bean 생명주기"
-           data-desc="BeanDefinition부터 소멸까지 9단계, AOP 프록시 만들어지는 자리"
-           href="./posts/2026-05-bean-생명주기/01-bean이-만들어지기까지.html">
-          <g transform="translate(128,452)" style="--ring-delay: 4.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Bean 생명주기</text></g>
-        </a>
-        <a class="node group-B" data-state="done" data-id="spring-2" data-cat="Spring"
-           data-title="AOP 내부 동작"
-           data-desc="Proxy Weaving, Advice 5종, Pointcut, Spring AOP의 한계"
-           href="./posts/2026-05-aop-내부-동작/01-aop가-풀려는-문제.html">
-          <g transform="translate(173,501)" style="--ring-delay: 4.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">AOP</text></g>
+        <a class="node group-B" data-state="done" data-id="spring-2" data-cat="Spring" data-title="AOP 내부 동작" data-desc="Proxy Weaving, Advice 5종, Pointcut, Spring AOP의 한계" href="./posts/2026-05-aop-내부-동작/01-aop가-풀려는-문제.html">
+          <g transform="translate(271,108)" style="--ring-delay: 4.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="done" data-id="spring-3" data-cat="Spring" data-title="Proxy — JDK vs CGLIB" data-desc="인터페이스 vs 클래스 기반" href="./posts/2026-05-프록시-jdk-vs-cglib/01-jdk-dynamic-proxy.html">
-          <g transform="translate(101,501)" style="--ring-delay: 5.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Proxy</text></g>
+          <g transform="translate(314,108)" style="--ring-delay: 5.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="done" data-id="spring-4" data-cat="Spring" data-title="DI 방식" data-desc="생성자 / 세터 / 필드" href="./posts/2026-05-di-방식/01-3가지-방식.html">
-          <g transform="translate(141,557)" style="--ring-delay: 9.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">DI</text></g>
+          <g transform="translate(358,108)" style="--ring-delay: 9.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="done" data-id="spring-5" data-cat="Spring" data-title="@Transactional Propagation 7가지" data-desc="REQUIRED부터 NESTED까지" href="./posts/2026-04-transactional-propagation-7가지/01-propagation이-왜-있는가.html">
-          <g transform="translate(231,490)" style="--ring-delay: 0.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Propagation</text></g>
+          <g transform="translate(227,158)" style="--ring-delay: 0.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="done" data-id="spring-6" data-cat="Spring" data-title="@Transactional self-invocation" data-desc="같은 클래스 호출 함정" href="./posts/2026-05-transactional-self-invocation/01-왜-self-invocation은-안-걸리는가.html">
-          <g transform="translate(240,573)" style="--ring-delay: 5.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">self-invocation</text></g>
+          <g transform="translate(271,158)" style="--ring-delay: 5.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="@Configuration의 CGLIB 프록시" data-desc="@Bean 메서드 호출 트릭" href="./spring.html">
-          <g transform="translate(195,634)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(314,158)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="DispatcherServlet 요청 처리" data-desc="HandlerMapping → Adapter → ViewResolver" href="./spring.html">
-          <g transform="translate(312,452)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(358,158)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="AutoConfiguration 평가 순서" data-desc="@Conditional 가족" href="./spring.html">
-          <g transform="translate(353,518)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(227,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="SpringApplication.run() 내부" data-desc="컨텍스트 생성, Listener 흐름" href="./spring.html">
-          <g transform="translate(272,590)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(271,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="Spring Security FilterChain" data-desc="필터 체인, 인증/인가 흐름" href="./spring.html">
-          <g transform="translate(375,601)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(314,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-B" data-state="locked" data-cat="Spring" data-title="@Async + ThreadPool 분리" data-desc="동작 조건, executor 분리" href="./spring.html">
-          <g transform="translate(326,662)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(358,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
 
-        <!-- ============ DB (group C) ============ -->
+        <!-- DB (13) -->
+        <rect class="category-bg bg-C" x="397" y="65" width="191" height="150" rx="10" />
+        <text class="category-label" data-group="C" x="405" y="57">DB</text>
+        <text class="category-label-meta" data-group="C" x="580" y="57" text-anchor="end">13</text>
         <a class="node group-C" data-state="done" data-id="db-1" data-cat="DB" data-title="인덱스 — B-Tree부터 Covering까지" data-desc="B+Tree, 클러스터드/보조, EXPLAIN" href="./posts/2026-05-인덱스-b-tree부터-covering까지/01-b-tree의-정체.html">
-          <g transform="translate(1058,500)" style="--ring-delay: 2.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">인덱스</text></g>
+          <g transform="translate(427,102)" style="--ring-delay: 2.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="쿼리 플래너 읽는 법" data-desc="옵티마이저 통계 기반 결정" href="./db.html">
-          <g transform="translate(1103,555)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(471,102)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="done" data-id="db-3" data-cat="DB" data-title="N+1과 fetch 전략" data-desc="JPA N+1, fetch join, EntityGraph" href="./posts/2026-05-n+1과-fetch-전략/01-n+1이-무엇이고-왜-발생하는가.html">
-          <g transform="translate(1031,555)" style="--ring-delay: 6.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">N+1</text></g>
+          <g transform="translate(514,102)" style="--ring-delay: 6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-C" data-state="done" data-id="db-4" data-cat="DB"
-           data-title="트랜잭션 격리 수준"
-           data-desc="ANSI 4단계, 3가지 부정합, MySQL InnoDB의 next-key lock"
-           href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
-          <g transform="translate(1170,500)" style="--ring-delay: 3.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">격리 수준</text></g>
+        <a class="node group-C" data-state="done" data-id="db-4" data-cat="DB" data-title="트랜잭션 격리 수준" data-desc="ANSI 4단계, 3가지 부정합, MySQL InnoDB의 next-key lock" href="./posts/2026-05-트랜잭션-격리-수준/01-왜-4단계인가.html">
+          <g transform="translate(558,102)" style="--ring-delay: 3.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-C" data-state="done" data-id="db-5" data-cat="DB"
-           data-title="MVCC와 잠금"
-           data-desc="ReadView, Undo Log, InnoDB 락 종류, 비관/낙관 락"
-           href="./posts/2026-05-mvcc와-잠금/01-mvcc의-정체.html">
-          <g transform="translate(1202,573)" style="--ring-delay: 4.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">MVCC</text></g>
+        <a class="node group-C" data-state="done" data-id="db-5" data-cat="DB" data-title="MVCC와 잠금" data-desc="ReadView, Undo Log, InnoDB 락 종류, 비관/낙관 락" href="./posts/2026-05-mvcc와-잠금/01-mvcc의-정체.html">
+          <g transform="translate(427,139)" style="--ring-delay: 4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="낙관 vs 비관 락 vs CAS" data-desc="언제 무엇을 쓰는가" href="./db.html">
-          <g transform="translate(1071,653)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(471,139)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="Lock 종류" data-desc="shared/exclusive/gap/next-key" href="./db.html">
-          <g transform="translate(1134,702)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(514,139)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="Deadlock 진단과 회피" data-desc="MySQL 데드락 로그 읽기" href="./db.html">
-          <g transform="translate(1031,702)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(558,139)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="정규화 vs 반정규화" data-desc="언제 정규화 깨고 성능 사는가" href="./db.html">
-          <g transform="translate(1247,500)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(427,177)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="HikariCP 튜닝" data-desc="poolSize, idleTimeout, leak detection" href="./db.html">
-          <g transform="translate(1305,561)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(471,177)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="Replication과 lag" data-desc="복제 지연 원인, 읽기 일관성" href="./db.html">
-          <g transform="translate(1283,653)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(514,177)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="분산 트랜잭션" data-desc="2PC, Saga, Outbox" href="./db.html">
-          <g transform="translate(1242,714)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(558,177)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-C" data-state="locked" data-cat="DB" data-title="샤딩과 파티셔닝" data-desc="수평 분할, 샤드 키" href="./db.html">
-          <g transform="translate(1319,714)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(427,214)"><circle class="node-circle" r="6.5" /></g>
         </a>
 
-        <!-- ============ 분산 시스템 설계 (group F) ============ -->
-        <a class="node group-F" data-state="done" data-id="dist-1" data-cat="분산 시스템 설계" data-title="CircuitBreaker 깊게 파기" data-desc="외부 API 장애가 서버 전체 멈추는 과정" href="./posts/2026-04-circuit-breaker-실전-패턴/01-왜-필요한가.html">
-          <g transform="translate(553,689)" style="--ring-delay: 2.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="-14">CircuitBreaker</text></g>
+        <!-- 네트워크 (12) -->
+        <rect class="category-bg bg-D" x="597" y="65" width="181" height="150" rx="10" />
+        <text class="category-label" data-group="D" x="605" y="57">네트워크</text>
+        <text class="category-label-meta" data-group="D" x="770" y="57" text-anchor="end">12</text>
+        <a class="node group-D" data-state="done" data-id="net-1" data-cat="네트워크" data-title="TCP 연결의 일생" data-desc="3-way / 4-way / TIME_WAIT" href="./posts/2026-05-tcp-연결의-일생/01-연결을-만든다.html">
+          <g transform="translate(626,108)" style="--ring-delay: 0.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="done" data-id="dist-2" data-cat="분산 시스템 설계" data-title="외부 API Failover 다층 방어" data-desc="200 OK인데 실패 body, 다층 방어" href="./posts/2026-05-외부-api-failover-다층-방어/01-200이-진짜-200인가.html">
-          <g transform="translate(590,737)" style="--ring-delay: 3.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Failover</text></g>
+        <a class="node group-D" data-state="done" data-id="net-2" data-cat="네트워크" data-title="HTTP Connection Pool 운영" data-desc="Keep-Alive, stale, ephemeral port" href="./posts/2026-05-http-connection-pool/01-keep-alive-운영.html">
+          <g transform="translate(667,108)" style="--ring-delay: 0.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Retry / Backoff 전략" data-desc="exponential, jitter, retry storm 방지" href="./distributed.html">
-          <g transform="translate(516,737)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="done" data-id="net-3" data-cat="네트워크" data-title="TCP Backpressure" data-desc="window, zero window probe" href="./posts/2026-05-tcp-backpressure/01-흐름-제어.html">
+          <g transform="translate(708,108)" style="--ring-delay: 1.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Timeout 설계" data-desc="Connect / Read / Total" href="./distributed.html">
-          <g transform="translate(553,794)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="TCP vs UDP" data-desc="신뢰성과 latency 트레이드오프" href="./network.html">
+          <g transform="translate(749,108)"><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Rate Limiting" data-desc="Token / Leaky / Sliding" href="./distributed.html">
-          <g transform="translate(511,624)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="done" data-id="net-5" data-cat="네트워크" data-title="HTTP/1.1 → 2 → 3" data-desc="HoL blocking, multiplexing, QUIC" href="./posts/2026-05-http-1-2-3/01-http-1-1.html">
+          <g transform="translate(626,158)" style="--ring-delay: 12.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Bulkhead" data-desc="자원 격리로 cascading 차단" href="./distributed.html">
-          <g transform="translate(590,624)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="done" data-id="net-6" data-cat="네트워크" data-title="HTTP 메소드와 멱등성" data-desc="멱등의 진짜 의미" href="./posts/2026-05-http-메소드-멱등성/01-멱등성의-정의.html">
+          <g transform="translate(667,158)" style="--ring-delay: 6.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="done" data-id="dist-7" data-cat="분산 시스템 설계" data-title="CAP 정리" data-desc="C, A, P 중 둘만" href="./posts/2026-05-cap-정리/01-cap-정체.html">
-          <g transform="translate(677,641)" style="--ring-delay: 13.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">CAP</text></g>
+        <a class="node group-D" data-state="done" data-id="net-7" data-cat="네트워크" data-title="HTTP 상태코드" data-desc="4xx vs 5xx 결정적 차이" href="./posts/2026-05-http-상태코드/01-상태코드의-구조와-자주-헷갈리는-경계.html">
+          <g transform="translate(708,158)" style="--ring-delay: 7.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="done" data-id="dist-8" data-cat="분산 시스템 설계" data-title="분산 락" data-desc="Redlock 논쟁까지" href="./posts/2026-05-분산-락/01-분산-락의-필요와-함정.html">
-          <g transform="translate(714,705)" style="--ring-delay: 13.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">분산락</text></g>
+        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="HTTPS / TLS handshake" data-desc="TLS 1.2 vs 1.3 RTT" href="./network.html">
+          <g transform="translate(749,158)"><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="done" data-id="dist-9" data-cat="분산 시스템 설계" data-title="Idempotency Key" data-desc="중복 요청 방어" href="./posts/2026-05-idempotency-key/01-idempotency-key의-정체.html">
-          <g transform="translate(640,705)" style="--ring-delay: 14.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Idempotency</text></g>
+        <a class="node group-D" data-state="done" data-id="net-9" data-cat="네트워크" data-title="CORS 깊이 이해" data-desc="SOP, Preflight, credentials" href="./posts/2026-05-cors-깊이-이해/01-same-origin-policy.html">
+          <g transform="translate(626,208)" style="--ring-delay: 1.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Raft" data-desc="leader election, log replication" href="./distributed.html">
-          <g transform="translate(672,786)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="Cookie / Session / Token" data-desc="쿠키 옵션, 세션 vs JWT" href="./network.html">
+          <g transform="translate(667,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Replication 전략" data-desc="동기 vs 비동기, semi-sync" href="./distributed.html">
-          <g transform="translate(728,786)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="done" data-id="net-11" data-cat="네트워크" data-title="패킷 한 개의 여정" data-desc="호스트 NIC부터 ISP, BGP, BDP까지" href="./posts/2026-05-패킷-한-개의-여정/01-호스트-안의-여정.html">
+          <g transform="translate(708,208)" style="--ring-delay: 2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Eventual Consistency" data-desc="결과적 일관성 패턴" href="./distributed.html">
-          <g transform="translate(640,842)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Outbox vs CDC" data-desc="이벤트 발행과 DB 일관성" href="./distributed.html">
-          <g transform="translate(705,866)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="done" data-id="dist-14" data-cat="분산 시스템 설계" data-title="캐시 전략" data-desc="Look-aside / Write-through / behind" href="./posts/2026-05-캐시-전략/01-4가지-패턴.html">
-          <g transform="translate(792,641)" style="--ring-delay: 14.4s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">캐시 전략</text></g>
-        </a>
-        <a class="node group-F" data-state="done" data-id="dist-15" data-cat="분산 시스템 설계" data-title="캐시 일관성 패턴" data-desc="invalidation 시점, 더블 라이트" href="./posts/2026-05-캐시-전략/02-일관성.html">
-          <g transform="translate(847,641)" style="--ring-delay: 14.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">일관성</text></g>
-        </a>
-        <a class="node group-F" data-state="done" data-id="dist-16" data-cat="분산 시스템 설계" data-title="Cache Stampede" data-desc="PER, lock, jitter" href="./posts/2026-05-cache-stampede/01-stampede의-정체.html">
-          <g transform="translate(824,721)" style="--ring-delay: 15.2s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Stampede</text></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Redis 자료구조" data-desc="String, Hash, List, Set, ZSet, Stream" href="./distributed.html">
-          <g transform="translate(774,721)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="done" data-id="dist-18" data-cat="분산 시스템 설계" data-title="Kafka 보장 모델" data-desc="at-least-once, ordering, ISR" href="./posts/2026-05-kafka-보장-모델/01-3가지-보장-모델.html">
-          <g transform="translate(847,786)" style="--ring-delay: 15.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Kafka 보장</text></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Exactly-once의 환상" data-desc="진정한 exactly-once는 없다" href="./distributed.html">
-          <g transform="translate(893,850)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="RabbitMQ vs Kafka" data-desc="언제 어느 것을 쓸까" href="./distributed.html">
-          <g transform="translate(810,850)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Load Balancer" data-desc="L4 vs L7, sticky session" href="./distributed.html">
-          <g transform="translate(889,955)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Reverse Proxy / API Gateway" data-desc="역할 차이, 인증/라우팅" href="./distributed.html">
-          <g transform="translate(847,1011)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Graceful Shutdown" data-desc="SIGTERM, in-flight 요청, draining" href="./distributed.html">
-          <g transform="translate(810,1011)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="REST 원칙과 비판" data-desc="REST 6원칙, gRPC 비교" href="./distributed.html">
-          <g transform="translate(548,931)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="멱등성 설계 패턴" data-desc="멱등 키, 자연 멱등 메서드" href="./distributed.html">
-          <g transform="translate(603,931)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="모놀리스 vs MSA" data-desc="언제 MSA로 가나" href="./distributed.html">
-          <g transform="translate(654,947)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Hexagonal Architecture" data-desc="port와 adapter, 도메인 격리" href="./distributed.html">
-          <g transform="translate(511,995)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="DDD 전술 패턴" data-desc="Aggregate, Entity, VO, Repository" href="./distributed.html">
-          <g transform="translate(631,1052)"><circle class="node-circle" r="7" /></g>
-        </a>
-        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="API 버저닝" data-desc="URL / 헤더 / 미디어 타입" href="./distributed.html">
-          <g transform="translate(562,1052)"><circle class="node-circle" r="7" /></g>
+        <a class="node group-D" data-state="locked" data-cat="네트워크" data-title="DNS 동작" data-desc="재귀 vs 반복, split-horizon" href="./network.html">
+          <g transform="translate(749,208)"><circle class="node-circle" r="6.5" /></g>
         </a>
 
-        <!-- ============ 보안 (group G) ============ -->
+        <!-- 보안 (5) -->
+        <rect class="category-bg bg-G" x="787" y="65" width="151" height="150" rx="10" />
+        <text class="category-label" data-group="G" x="795" y="57">보안</text>
+        <text class="category-label-meta" data-group="G" x="930" y="57" text-anchor="end">5</text>
         <a class="node group-G" data-state="done" data-id="sec-1" data-cat="보안" data-title="OAuth 2.0 / OIDC" data-desc="Authorization Code, PKCE" href="./posts/2026-05-oauth-oidc/01-oauth의-정체.html">
-          <g transform="translate(174,829)" style="--ring-delay: 12.8s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">OAuth</text></g>
+          <g transform="translate(818,121)" style="--ring-delay: 12.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-G" data-state="done" data-id="sec-2" data-cat="보안" data-title="JWT 구조와 함정" data-desc="header.payload.signature, 무효화" href="./posts/2026-05-인증-session-jwt/03-jwt-구조.html">
-          <g transform="translate(237,887)" style="--ring-delay: 9.6s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">JWT</text></g>
+          <g transform="translate(863,121)" style="--ring-delay: 9.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-G" data-state="done" data-id="sec-3" data-cat="보안" data-title="Session vs JWT" data-desc="언제 어느 것을 쓰는가" href="./posts/2026-05-인증-session-jwt/01-http-stateless와-인증.html">
-          <g transform="translate(111,887)" style="--ring-delay: 10.0s;"><circle class="node-ring" /><circle class="node-circle" r="7" /><text class="node-label-done" y="22">Session vs JWT</text></g>
+          <g transform="translate(908,121)" style="--ring-delay: 10s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-G" data-state="locked" data-cat="보안" data-title="CSRF / XSS / SQL Injection" data-desc="OWASP Top 10 방어" href="./security.html">
-          <g transform="translate(345,841)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(818,196)"><circle class="node-circle" r="6.5" /></g>
         </a>
         <a class="node group-G" data-state="locked" data-cat="보안" data-title="HTTPS / 인증서 체인" data-desc="CA 검증, mTLS" href="./security.html">
-          <g transform="translate(345,922)"><circle class="node-circle" r="7" /></g>
+          <g transform="translate(863,196)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+
+        <!-- 동시성 (23) -->
+        <rect class="category-bg bg-E" x="22" y="250" width="426" height="195" rx="10" />
+        <text class="category-label" data-group="E" x="30" y="242">동시성</text>
+        <text class="category-label-meta" data-group="E" x="440" y="242" text-anchor="end">23</text>
+        <a class="node group-E" data-state="done" data-id="con-1" data-cat="동시성" data-title="synchronized &amp; 모니터 락" data-desc="객체 헤더, biased/lightweight/heavyweight" href="./posts/2026-05-synchronized-모니터-락/01-synchronized의-정체.html">
+          <g transform="translate(56,301)" style="--ring-delay: 7.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="done" data-id="con-2" data-cat="동시성" data-title="volatile &amp; JMM" data-desc="가시성 vs 원자성, happens-before" href="./posts/2026-05-volatile-jmm/01-volatile의-정체.html">
+          <g transform="translate(107,301)" style="--ring-delay: 8.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="ReentrantLock" data-desc="tryLock, 인터럽트, Condition" href="./concurrency.html">
+          <g transform="translate(158,301)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="ReadWriteLock / StampedLock" data-desc="optimistic read" href="./concurrency.html">
+          <g transform="translate(209,301)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="done" data-id="con-5" data-cat="동시성" data-title="CAS" data-desc="CPU 명령어, ABA 문제" href="./posts/2026-05-cas-compare-and-swap/01-cas의-정체.html">
+          <g transform="translate(261,301)" style="--ring-delay: 11.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Atomic* 패밀리" data-desc="AtomicInteger, LongAdder" href="./concurrency.html">
+          <g transform="translate(312,301)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="done" data-id="con-7" data-cat="동시성" data-title="ConcurrentHashMap" data-desc="버킷 락 + CAS, compute 류" href="./posts/2026-05-concurrenthashmap/01-정체와-진화.html">
+          <g transform="translate(363,301)" style="--ring-delay: 12s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="ExecutorService" data-desc="Runnable vs Callable, Executors 함정" href="./concurrency.html">
+          <g transform="translate(414,301)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="done" data-id="con-9" data-cat="동시성" data-title="ThreadPoolExecutor 7인자" data-desc="core/max, queue, RejectedHandler" href="./posts/2026-05-threadpoolexecutor-7인자/01-7인자-개요.html">
+          <g transform="translate(56,366)" style="--ring-delay: 10.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Future / Callable" data-desc="get() 블로킹, cancel()의 의미" href="./concurrency.html">
+          <g transform="translate(107,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="풀 사이징 이론" data-desc="CPU vs I/O bound, Little's Law" href="./concurrency.html">
+          <g transform="translate(158,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="BlockingQueue 패밀리" data-desc="Array/Linked/Synchronous/Priority/Delay" href="./concurrency.html">
+          <g transform="translate(209,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="생산자/소비자 패턴" data-desc="put/take/offer/poll, graceful shutdown" href="./concurrency.html">
+          <g transform="translate(261,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="CountDownLatch" data-desc="N개 끝날 때까지 대기" href="./concurrency.html">
+          <g transform="translate(312,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="CyclicBarrier" data-desc="N명 모일 때까지" href="./concurrency.html">
+          <g transform="translate(363,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Semaphore" data-desc="동시 N개만 통과" href="./concurrency.html">
+          <g transform="translate(414,366)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Phaser" data-desc="Latch+Barrier 합성" href="./concurrency.html">
+          <g transform="translate(56,431)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Exchanger" data-desc="두 스레드 1:1 데이터 교환" href="./concurrency.html">
+          <g transform="translate(107,431)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="done" data-id="con-19" data-cat="동시성" data-title="Deadlock" data-desc="4조건, 예방/회피/탐지" href="./posts/2026-05-deadlock/01-deadlock의-4가지-조건.html">
+          <g transform="translate(158,431)" style="--ring-delay: 11.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Livelock / Starvation" data-desc="굶는 스레드" href="./concurrency.html">
+          <g transform="translate(209,431)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="done" data-id="con-21" data-cat="동시성" data-title="ThreadLocal 함정" data-desc="메모리 누수, 스레드풀과 상극" href="./posts/2026-05-threadlocal-함정/01-threadlocal의-정체.html">
+          <g transform="translate(261,431)" style="--ring-delay: 10.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="InterruptedException 처리법" data-desc="삼키지 말고 복원" href="./concurrency.html">
+          <g transform="translate(312,431)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-E" data-state="locked" data-cat="동시성" data-title="Double-Checked Locking" data-desc="volatile 없으면 깨지는 이유" href="./concurrency.html">
+          <g transform="translate(363,431)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+
+        <!-- 분산 시스템 설계 (29) -->
+        <rect class="category-bg bg-F" x="457" y="250" width="481" height="195" rx="10" />
+        <text class="category-label" data-group="F" x="465" y="242">분산 시스템 설계</text>
+        <text class="category-label-meta" data-group="F" x="930" y="242" text-anchor="end">29</text>
+        <a class="node group-F" data-state="done" data-id="dist-1" data-cat="분산 시스템 설계" data-title="CircuitBreaker 깊게 파기" data-desc="외부 API 장애가 서버 전체 멈추는 과정" href="./posts/2026-04-circuit-breaker-실전-패턴/01-왜-필요한가.html">
+          <g transform="translate(494,292)" style="--ring-delay: 2.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-2" data-cat="분산 시스템 설계" data-title="외부 API Failover 다층 방어" data-desc="200 OK인데 실패 body, 다층 방어" href="./posts/2026-05-외부-api-failover-다층-방어/01-200이-진짜-200인가.html">
+          <g transform="translate(552,292)" style="--ring-delay: 3.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Retry / Backoff 전략" data-desc="exponential, jitter, retry storm 방지" href="./distributed.html">
+          <g transform="translate(610,292)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Timeout 설계" data-desc="Connect / Read / Total" href="./distributed.html">
+          <g transform="translate(668,292)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Rate Limiting" data-desc="Token / Leaky / Sliding" href="./distributed.html">
+          <g transform="translate(727,292)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Bulkhead" data-desc="자원 격리로 cascading 차단" href="./distributed.html">
+          <g transform="translate(785,292)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-7" data-cat="분산 시스템 설계" data-title="CAP 정리" data-desc="C, A, P 중 둘만" href="./posts/2026-05-cap-정리/01-cap-정체.html">
+          <g transform="translate(843,292)" style="--ring-delay: 13.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-8" data-cat="분산 시스템 설계" data-title="분산 락" data-desc="Redlock 논쟁까지" href="./posts/2026-05-분산-락/01-분산-락의-필요와-함정.html">
+          <g transform="translate(901,292)" style="--ring-delay: 13.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-9" data-cat="분산 시스템 설계" data-title="Idempotency Key" data-desc="중복 요청 방어" href="./posts/2026-05-idempotency-key/01-idempotency-key의-정체.html">
+          <g transform="translate(494,341)" style="--ring-delay: 14s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Raft" data-desc="leader election, log replication" href="./distributed.html">
+          <g transform="translate(552,341)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Replication 전략" data-desc="동기 vs 비동기, semi-sync" href="./distributed.html">
+          <g transform="translate(610,341)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Eventual Consistency" data-desc="결과적 일관성 패턴" href="./distributed.html">
+          <g transform="translate(668,341)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Outbox vs CDC" data-desc="이벤트 발행과 DB 일관성" href="./distributed.html">
+          <g transform="translate(727,341)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-14" data-cat="분산 시스템 설계" data-title="캐시 전략" data-desc="Look-aside / Write-through / behind" href="./posts/2026-05-캐시-전략/01-4가지-패턴.html">
+          <g transform="translate(785,341)" style="--ring-delay: 14.4s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-15" data-cat="분산 시스템 설계" data-title="캐시 일관성 패턴" data-desc="invalidation 시점, 더블 라이트" href="./posts/2026-05-캐시-전략/02-일관성.html">
+          <g transform="translate(843,341)" style="--ring-delay: 14.8s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-16" data-cat="분산 시스템 설계" data-title="Cache Stampede" data-desc="PER, lock, jitter" href="./posts/2026-05-cache-stampede/01-stampede의-정체.html">
+          <g transform="translate(901,341)" style="--ring-delay: 15.2s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Redis 자료구조" data-desc="String, Hash, List, Set, ZSet, Stream" href="./distributed.html">
+          <g transform="translate(494,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="done" data-id="dist-18" data-cat="분산 시스템 설계" data-title="Kafka 보장 모델" data-desc="at-least-once, ordering, ISR" href="./posts/2026-05-kafka-보장-모델/01-3가지-보장-모델.html">
+          <g transform="translate(552,390)" style="--ring-delay: 15.6s;"><circle class="node-ring" /><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Exactly-once의 환상" data-desc="진정한 exactly-once는 없다" href="./distributed.html">
+          <g transform="translate(610,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="RabbitMQ vs Kafka" data-desc="언제 어느 것을 쓸까" href="./distributed.html">
+          <g transform="translate(668,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Load Balancer" data-desc="L4 vs L7, sticky session" href="./distributed.html">
+          <g transform="translate(727,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Reverse Proxy / API Gateway" data-desc="역할 차이, 인증/라우팅" href="./distributed.html">
+          <g transform="translate(785,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Graceful Shutdown" data-desc="SIGTERM, in-flight 요청, draining" href="./distributed.html">
+          <g transform="translate(843,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="REST 원칙과 비판" data-desc="REST 6원칙, gRPC 비교" href="./distributed.html">
+          <g transform="translate(901,390)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="멱등성 설계 패턴" data-desc="멱등 키, 자연 멱등 메서드" href="./distributed.html">
+          <g transform="translate(494,439)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="모놀리스 vs MSA" data-desc="언제 MSA로 가나" href="./distributed.html">
+          <g transform="translate(552,439)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="Hexagonal Architecture" data-desc="port와 adapter, 도메인 격리" href="./distributed.html">
+          <g transform="translate(610,439)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="DDD 전술 패턴" data-desc="Aggregate, Entity, VO, Repository" href="./distributed.html">
+          <g transform="translate(668,439)"><circle class="node-circle" r="6.5" /></g>
+        </a>
+        <a class="node group-F" data-state="locked" data-cat="분산 시스템 설계" data-title="API 버저닝" data-desc="URL / 헤더 / 미디어 타입" href="./distributed.html">
+          <g transform="translate(727,439)"><circle class="node-circle" r="6.5" /></g>
         </a>
 
       </svg>
