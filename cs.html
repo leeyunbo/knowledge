@@ -1,3 +1,6 @@
+---
+permalink: cs.html
+---
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -611,48 +614,14 @@
 
     <!-- === 카테고리 카드 (모바일 메인 + PC 보조) === -->
     <section class="category-grid">
-      <a class="category-card cat-java" href="./java.html">
-        <h2>Java</h2>
-        <p class="cat-desc">객체, JVM, 언어 기능</p>
-        <div class="progress-row"><span>1 / 9</span><span>11%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 11%"></div></div>
+      {% for card in series.cards %}
+      <a class="category-card cat-{{ card.key }}" href="./{{ card.page }}">
+        <h2>{{ card.title }}</h2>
+        <p class="cat-desc">{{ card.cardDesc }}</p>
+        <div class="progress-row"><span>{{ card.done }} / {{ card.total }}</span><span>{{ card.percent }}%</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width: {{ card.percent }}%"></div></div>
       </a>
-      <a class="category-card cat-spring" href="./spring.html">
-        <h2>Spring</h2>
-        <p class="cat-desc">코어 internals, 트랜잭션, 부트 동작</p>
-        <div class="progress-row"><span>3 / 12</span><span>25%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 25%"></div></div>
-      </a>
-      <a class="category-card cat-db" href="./db.html">
-        <h2>DB</h2>
-        <p class="cat-desc">인덱스, 트랜잭션, 락, 모델링</p>
-        <div class="progress-row"><span>3 / 13</span><span>23%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 23%"></div></div>
-      </a>
-      <a class="category-card cat-network" href="./network.html">
-        <h2>네트워크</h2>
-        <p class="cat-desc">TCP, HTTP, TLS, CORS, DNS</p>
-        <div class="progress-row"><span>5 / 12</span><span>42%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 42%"></div></div>
-      </a>
-      <a class="category-card cat-concurrency" href="./concurrency.html">
-        <h2>동시성</h2>
-        <p class="cat-desc">java.util.concurrent 23개 토픽</p>
-        <div class="progress-row"><span>7 / 23</span><span>30%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 30%"></div></div>
-      </a>
-      <a class="category-card cat-distributed" href="./distributed.html">
-        <h2>분산 시스템 설계</h2>
-        <p class="cat-desc">Resilience, 분산, 캐싱, 메시징, 아키텍처</p>
-        <div class="progress-row"><span>2 / 29</span><span>7%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 7%"></div></div>
-      </a>
-      <a class="category-card cat-security" href="./security.html">
-        <h2>보안</h2>
-        <p class="cat-desc">인증/인가, 웹 보안</p>
-        <div class="progress-row"><span>0 / 5</span><span>0%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
-      </a>
+      {% endfor %}
     </section>
   </main>
 
@@ -662,7 +631,7 @@
     <div class="tooltip-cat" id="tooltipCat"></div>
   </div>
 
-  <footer class="site-footer">bok · 2026</footer>
+  {% include "footer.html" %}
 
   <script>
     // 잠긴 노드에 짧은 라벨 동적 추가

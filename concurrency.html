@@ -1,9 +1,13 @@
+---
+permalink: concurrency.html
+---
+{% assign cat = series.concurrency %}
 <!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>동시성 · bok's notes</title>
+  <title>{{ cat.title }} · bok's notes</title>
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="./assets/style.css">
@@ -86,340 +90,57 @@
 
   <main class="topic-container">
     <section class="topic-hero">
-      <h1>동시성</h1>
-      <p>j.u.c 패키지를 마스터하는 23개 토픽. 별자리처럼 펼쳐두고 글이 발행될 때마다 별을 켭니다.</p>
+      <h1>{{ cat.title }}</h1>
+      {% if cat.subtitle %}<p>{{ cat.subtitle }}</p>{% endif %}
     </section>
 
     <section class="graph-canvas">
       <div class="graph-meta">
-        <span><span id="progressText">0 / 23</span> · <span id="progressPct">0%</span></span>
+        <span>{{ cat.stats.done }} / {{ cat.stats.total }} · {{ cat.stats.percent }}%</span>
       </div>
 
-      <svg class="graph-svg" viewBox="0 0 1000 1100" xmlns="http://www.w3.org/2000/svg" aria-label="Java 동시성 토픽 그래프">
+      <svg class="graph-svg" viewBox="{{ cat.viewBox }}" xmlns="http://www.w3.org/2000/svg" aria-label="{{ cat.title }} 토픽 그래프">
         <g id="links">
-          <line class="link" data-from="1" data-to="2" x1="500" y1="100" x2="340" y2="220" />
-          <line class="link" data-from="1" data-to="3" x1="500" y1="100" x2="660" y2="220" />
-          <line class="link" data-from="3" data-to="4" x1="660" y1="220" x2="790" y2="320" />
-          <line class="link" data-from="2" data-to="5" x1="340" y1="220" x2="430" y2="340" />
-          <line class="link" data-from="5" data-to="6" x1="430" y1="340" x2="500" y2="460" />
-          <line class="link" data-from="6" data-to="7" x1="500" y1="460" x2="630" y2="540" />
-          <line class="link" data-from="8" data-to="9" x1="180" y1="280" x2="160" y2="410" />
-          <line class="link" data-from="9" data-to="10" x1="160" y1="410" x2="280" y2="540" />
-          <line class="link" data-from="9" data-to="11" x1="160" y1="410" x2="100" y2="550" />
-          <line class="link" data-from="9" data-to="12" x1="160" y1="410" x2="380" y2="680" />
-          <line class="link" data-from="12" data-to="13" x1="380" y1="680" x2="270" y2="800" />
-          <line class="link" data-from="14" data-to="15" x1="700" y1="680" x2="820" y2="580" />
-          <line class="link" data-from="14" data-to="16" x1="700" y1="680" x2="870" y2="740" />
-          <line class="link" data-from="16" data-to="17" x1="870" y1="740" x2="910" y2="870" />
-          <line class="link" data-from="17" data-to="18" x1="910" y1="870" x2="770" y2="970" />
-          <line class="link" data-from="1" data-to="19" x1="500" y1="100" x2="490" y2="900" />
-          <line class="link" data-from="19" data-to="20" x1="490" y1="900" x2="580" y2="1000" />
-          <line class="link" data-from="2" data-to="23" x1="340" y1="220" x2="370" y2="970" />
-          <line class="link" data-from="8" data-to="22" x1="180" y1="280" x2="100" y2="900" />
-          <line class="link" data-from="9" data-to="21" x1="160" y1="410" x2="120" y2="740" />
+          {% for link in cat.linkLines %}
+          <line class="link" data-from="{{ link.from }}" data-to="{{ link.to }}" x1="{{ link.x1 }}" y1="{{ link.y1 }}" x2="{{ link.x2 }}" y2="{{ link.y2 }}" />
+          {% endfor %}
         </g>
 
-        <a class="node group-A" data-state="done" data-id="1"
-           data-title="synchronized & 모니터 락"
-           data-desc="intrinsic lock의 정체. 객체 헤더, biased/lightweight/heavyweight 단계"
-           href="./posts/2026-05-synchronized-모니터-락/01-synchronized의-정체.html">
-          <g transform="translate(500,100)" style="--ring-delay: 0s;">
+        {% for group in cat.groups %}
+        {% for topic in group.topics %}
+        <a class="node group-{{ group.id }}" data-state="{{ topic.status }}" data-id="{{ topic.num }}"
+           data-title="{{ topic.title }}"
+           data-desc="{{ topic.desc }}"
+           href="{% if topic.status == 'done' %}./posts/{{ topic.slug }}/{{ topic.entry }}{% else %}#{% endif %}">
+          <g transform="translate({{ topic.x }},{{ topic.y }})"{% if topic.status == 'done' %} style="--ring-delay: {{ topic.ring | default: 0 }}s;"{% endif %}>
             <circle class="node-ring" />
             <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">synchronized</text>
+            <text class="node-label" y="26">{{ topic.label }}</text>
           </g>
         </a>
-        <a class="node group-A" data-state="done" data-id="2"
-           data-title="volatile & JMM"
-           data-desc="가시성 vs 원자성. happens-before. volatile이 못 막는 것"
-           href="./posts/2026-05-volatile-jmm/01-volatile의-정체.html">
-          <g transform="translate(340,220)" style="--ring-delay: 0.3s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">volatile · JMM</text>
-          </g>
-        </a>
-        <a class="node group-A" data-state="locked" data-id="3"
-           data-title="ReentrantLock"
-           data-desc="synchronized 대비 장점. tryLock, 인터럽트 가능, Condition 객체" href="#">
-          <g transform="translate(660,220)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">ReentrantLock</text>
-          </g>
-        </a>
-        <a class="node group-A" data-state="locked" data-id="4"
-           data-title="ReadWriteLock / StampedLock"
-           data-desc="읽기 多 / 쓰기 少 시나리오. StampedLock의 optimistic read" href="#">
-          <g transform="translate(790,320)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">RW · Stamped</text>
-          </g>
-        </a>
-
-        <a class="node group-B" data-state="done" data-id="5"
-           data-title="CAS (Compare-And-Swap)"
-           data-desc="CPU 명령어 수준의 원자 연산. ABA 문제와 해결"
-           href="./posts/2026-05-cas-compare-and-swap/01-cas의-정체.html">
-          <g transform="translate(430,340)" style="--ring-delay: 1.5s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">CAS</text>
-          </g>
-        </a>
-        <a class="node group-B" data-state="locked" data-id="6"
-           data-title="Atomic* 패밀리"
-           data-desc="AtomicInteger, AtomicReference, AtomicStampedReference, LongAdder" href="#">
-          <g transform="translate(500,460)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Atomic*</text>
-          </g>
-        </a>
-        <a class="node group-B" data-state="done" data-id="7"
-           data-title="ConcurrentHashMap"
-           data-desc="버킷 단위 락 + CAS, weak consistency, compute 류 메서드"
-           href="./posts/2026-05-concurrenthashmap/01-정체와-진화.html">
-          <g transform="translate(630,540)" style="--ring-delay: 1.8s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">ConcurrentHashMap</text>
-          </g>
-        </a>
-
-        <a class="node group-C" data-state="locked" data-id="8"
-           data-title="ExecutorService"
-           data-desc="작업 제출 모델. Executors 팩토리의 함정. submit vs execute" href="#">
-          <g transform="translate(180,280)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">ExecutorService</text>
-          </g>
-        </a>
-        <a class="node group-C" data-state="done" data-id="9"
-           data-title="ThreadPoolExecutor 7인자"
-           data-desc="core/max poolSize, keepAlive, workQueue, ThreadFactory, RejectedExecutionHandler"
-           href="./posts/2026-05-threadpoolexecutor-7인자/01-7인자-개요.html">
-          <g transform="translate(160,410)" style="--ring-delay: 0.6s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">ThreadPoolExecutor</text>
-          </g>
-        </a>
-        <a class="node group-C" data-state="locked" data-id="10"
-           data-title="Future / Callable"
-           data-desc="get()의 블로킹과 타임아웃. cancel()의 진짜 의미 (인터럽트 시그널)" href="#">
-          <g transform="translate(280,540)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Future</text>
-          </g>
-        </a>
-        <a class="node group-C" data-state="locked" data-id="11"
-           data-title="풀 사이징 이론"
-           data-desc="CPU bound vs I/O bound 공식. Little's Law. 모니터링 지표" href="#">
-          <g transform="translate(100,550)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">풀 사이징</text>
-          </g>
-        </a>
-
-        <a class="node group-D" data-state="locked" data-id="12"
-           data-title="BlockingQueue 패밀리"
-           data-desc="ArrayBQ, LinkedBQ, SynchronousQueue, PriorityBQ, DelayQueue 차이와 선택" href="#">
-          <g transform="translate(380,680)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">BlockingQueue</text>
-          </g>
-        </a>
-        <a class="node group-D" data-state="locked" data-id="13"
-           data-title="생산자 / 소비자 패턴"
-           data-desc="put/take/offer/poll의 의미 차이. 백프레셔의 가장 단순한 형태. graceful shutdown" href="#">
-          <g transform="translate(270,800)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Producer · Consumer</text>
-          </g>
-        </a>
-
-        <a class="node group-E" data-state="locked" data-id="14"
-           data-title="CountDownLatch"
-           data-desc="N개 작업이 끝날 때까지 대기. 일회용 카운터" href="#">
-          <g transform="translate(700,680)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">CountDownLatch</text>
-          </g>
-        </a>
-        <a class="node group-E" data-state="locked" data-id="15"
-           data-title="CyclicBarrier"
-           data-desc="N명이 모일 때까지 대기. Latch와 달리 재사용 가능" href="#">
-          <g transform="translate(820,580)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">CyclicBarrier</text>
-          </g>
-        </a>
-        <a class="node group-E" data-state="locked" data-id="16"
-           data-title="Semaphore"
-           data-desc="동시 N개만 통과 허용. 자원 풀 제한 / Rate limit 토대" href="#">
-          <g transform="translate(870,740)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Semaphore</text>
-          </g>
-        </a>
-        <a class="node group-E" data-state="locked" data-id="17"
-           data-title="Phaser"
-           data-desc="Latch + Barrier 합성. 동적 참여자 등록 가능" href="#">
-          <g transform="translate(910,870)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Phaser</text>
-          </g>
-        </a>
-        <a class="node group-E" data-state="locked" data-id="18"
-           data-title="Exchanger"
-           data-desc="두 스레드 사이 1:1 데이터 교환점" href="#">
-          <g transform="translate(770,970)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Exchanger</text>
-          </g>
-        </a>
-
-        <a class="node group-F" data-state="done" data-id="19"
-           data-title="Deadlock"
-           data-desc="4가지 필요 조건. 예방 / 회피 / 탐지의 차이"
-           href="./posts/2026-05-deadlock/01-deadlock의-4가지-조건.html">
-          <g transform="translate(490,900)" style="--ring-delay: 1.2s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Deadlock</text>
-          </g>
-        </a>
-        <a class="node group-F" data-state="locked" data-id="20"
-           data-title="Livelock / Starvation"
-           data-desc="영원히 양보만 하다 끝나는 케이스, 우선순위에 밀려 굶는 스레드" href="#">
-          <g transform="translate(580,1000)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Livelock · Starve</text>
-          </g>
-        </a>
-        <a class="node group-F" data-state="done" data-id="21"
-           data-title="ThreadLocal 함정"
-           data-desc="메모리 누수의 고전. 스레드풀과 만나면 더 위험"
-           href="./posts/2026-05-threadlocal-함정/01-threadlocal의-정체.html">
-          <g transform="translate(120,740)" style="--ring-delay: 0.9s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">ThreadLocal</text>
-          </g>
-        </a>
-        <a class="node group-F" data-state="locked" data-id="22"
-           data-title="InterruptedException 처리법"
-           data-desc="삼키지 말고 복원하라. interrupt 시그널의 정체" href="#">
-          <g transform="translate(100,900)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Interrupted</text>
-          </g>
-        </a>
-        <a class="node group-F" data-state="locked" data-id="23"
-           data-title="Double-Checked Locking"
-           data-desc="volatile 없으면 깨지는 이유. 그 유명한 반쪽 초기화" href="#">
-          <g transform="translate(370,970)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">DCL</text>
-          </g>
-        </a>
+        {% endfor %}
+        {% endfor %}
       </svg>
     </section>
 
     <section class="group-list">
-      <div class="group-section group-A">
-        <h2>A · 기초 동기화</h2>
-        <p class="group-desc">스레드 간 상호배제와 메모리 가시성. 모든 동시성 도구의 토대.</p>
+      {% for group in cat.groups %}
+      <div class="group-section group-{{ group.id }}">
+        <h2>{{ group.id }} · {{ group.title }}</h2>
+        <p class="group-desc">{{ group.desc }}</p>
         <div class="topic-list">
-          <a class="topic-item done" href="./posts/2026-05-synchronized-모니터-락/01-synchronized의-정체.html">
-            <span class="topic-num">01</span><span class="topic-title">synchronized & 모니터 락</span><span class="topic-meta">3편</span>
+          {% for topic in group.topics %}
+          {% if topic.status == 'done' %}
+          <a class="topic-item done" href="./posts/{{ topic.slug }}/{{ topic.entry }}">
+            <span class="topic-num">{{ topic.num | prepend: '00' | slice: -2, 2 }}</span><span class="topic-title">{{ topic.title }}</span><span class="topic-meta">{{ topic.episodes }}편</span>
           </a>
-          <a class="topic-item done" href="./posts/2026-05-volatile-jmm/01-volatile의-정체.html">
-            <span class="topic-num">02</span><span class="topic-title">volatile & JMM</span><span class="topic-meta">3편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">03</span><span class="topic-title">ReentrantLock</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">04</span><span class="topic-title">ReadWriteLock / StampedLock</span><span class="topic-meta">예정</span></div>
+          {% else %}
+          <div class="topic-item locked"><span class="topic-num">{{ topic.num | prepend: '00' | slice: -2, 2 }}</span><span class="topic-title">{{ topic.title }}</span><span class="topic-meta">예정</span></div>
+          {% endif %}
+          {% endfor %}
         </div>
       </div>
-
-      <div class="group-section group-B">
-        <h2>B · 락 없는 동시성</h2>
-        <p class="group-desc">CAS 위에 세워진 lock-free의 세계. 락 경합을 우회하는 길.</p>
-        <div class="topic-list">
-          <a class="topic-item done" href="./posts/2026-05-cas-compare-and-swap/01-cas의-정체.html">
-            <span class="topic-num">05</span><span class="topic-title">CAS (Compare-And-Swap)</span><span class="topic-meta">2편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">06</span><span class="topic-title">Atomic* 패밀리</span><span class="topic-meta">예정</span></div>
-          <a class="topic-item done" href="./posts/2026-05-concurrenthashmap/01-정체와-진화.html">
-            <span class="topic-num">07</span><span class="topic-title">ConcurrentHashMap</span><span class="topic-meta">4편</span>
-          </a>
-        </div>
-      </div>
-
-      <div class="group-section group-C">
-        <h2>C · 스레드풀</h2>
-        <p class="group-desc">실무에서 가장 자주 마주치는 영역. 풀 인자 7개의 의미와 사이징 이론.</p>
-        <div class="topic-list">
-          <div class="topic-item locked"><span class="topic-num">08</span><span class="topic-title">ExecutorService</span><span class="topic-meta">예정</span></div>
-          <a class="topic-item done" href="./posts/2026-05-threadpoolexecutor-7인자/01-7인자-개요.html">
-            <span class="topic-num">09</span><span class="topic-title">ThreadPoolExecutor 7인자</span><span class="topic-meta">4편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">10</span><span class="topic-title">Future / Callable</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">11</span><span class="topic-title">풀 사이징 이론</span><span class="topic-meta">예정</span></div>
-        </div>
-      </div>
-
-      <div class="group-section group-D">
-        <h2>D · 큐와 생산자/소비자</h2>
-        <p class="group-desc">BlockingQueue 패밀리와 백프레셔의 가장 단순한 형태.</p>
-        <div class="topic-list">
-          <div class="topic-item locked"><span class="topic-num">12</span><span class="topic-title">BlockingQueue 패밀리</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">13</span><span class="topic-title">생산자 / 소비자 패턴</span><span class="topic-meta">예정</span></div>
-        </div>
-      </div>
-
-      <div class="group-section group-E">
-        <h2>E · 동기화 도구</h2>
-        <p class="group-desc">Latch, Barrier, Semaphore, Phaser, Exchanger. 스레드 사이를 조율하는 다섯 도구.</p>
-        <div class="topic-list">
-          <div class="topic-item locked"><span class="topic-num">14</span><span class="topic-title">CountDownLatch</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">15</span><span class="topic-title">CyclicBarrier</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">16</span><span class="topic-title">Semaphore</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">17</span><span class="topic-title">Phaser</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">18</span><span class="topic-title">Exchanger</span><span class="topic-meta">예정</span></div>
-        </div>
-      </div>
-
-      <div class="group-section group-F">
-        <h2>F · 함정</h2>
-        <p class="group-desc">데드락부터 ThreadLocal 메모리 누수, DCL의 깨진 가정까지. 면접 단골.</p>
-        <div class="topic-list">
-          <a class="topic-item done" href="./posts/2026-05-deadlock/01-deadlock의-4가지-조건.html">
-            <span class="topic-num">19</span><span class="topic-title">Deadlock</span><span class="topic-meta">3편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">20</span><span class="topic-title">Livelock / Starvation</span><span class="topic-meta">예정</span></div>
-          <a class="topic-item done" href="./posts/2026-05-threadlocal-함정/01-threadlocal의-정체.html">
-            <span class="topic-num">21</span><span class="topic-title">ThreadLocal 함정</span><span class="topic-meta">2편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">22</span><span class="topic-title">InterruptedException 처리법</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">23</span><span class="topic-title">Double-Checked Locking</span><span class="topic-meta">예정</span></div>
-        </div>
-      </div>
+      {% endfor %}
     </section>
   </main>
 
@@ -428,7 +149,7 @@
     <div class="tooltip-desc" id="tooltipDesc"></div>
   </div>
 
-  <footer class="site-footer">bok · 2026</footer>
+  {% include "footer.html" %}
 
   <script>
     document.querySelectorAll('.node').forEach((n, i) => { n.style.animationDelay = (i * 0.05) + 's'; });
@@ -469,10 +190,6 @@
       });
       if (node.dataset.state === 'locked') node.addEventListener('click', (e) => e.preventDefault());
     });
-    const total = document.querySelectorAll('.node').length;
-    const done = document.querySelectorAll('.node[data-state="done"]').length;
-    document.getElementById('progressText').textContent = done + ' / ' + total;
-    document.getElementById('progressPct').textContent = Math.round((done / total) * 100) + '%';
   </script>
 </body>
 </html>

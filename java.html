@@ -1,9 +1,13 @@
+---
+permalink: java.html
+---
+{% assign cat = series.java %}
 <!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Java · bok's notes</title>
+  <title>{{ cat.title }} · bok's notes</title>
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="./assets/style.css">
@@ -78,160 +82,56 @@
 
   <main class="topic-container">
     <section class="topic-hero">
-      <h1>Java</h1>
+      <h1>{{ cat.title }}</h1>
     </section>
 
     <section class="graph-canvas">
       <div class="graph-meta">
-        <span><span id="progressText">4 / 9</span> · <span id="progressPct">44%</span></span>
+        <span>{{ cat.stats.done }} / {{ cat.stats.total }} · {{ cat.stats.percent }}%</span>
       </div>
 
-      <svg class="graph-svg" viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg" aria-label="Java 토픽 그래프">
+      <svg class="graph-svg" viewBox="{{ cat.viewBox }}" xmlns="http://www.w3.org/2000/svg" aria-label="{{ cat.title }} 토픽 그래프">
         <g id="links">
-          <line class="link" data-from="1" data-to="2" x1="180" y1="130" x2="250" y2="270" />
-          <line class="link" data-from="1" data-to="3" x1="180" y1="130" x2="110" y2="270" />
-          <line class="link" data-from="2" data-to="3" x1="250" y1="270" x2="110" y2="270" />
-          <line class="link" data-from="2" data-to="4" x1="250" y1="270" x2="400" y2="130" />
-          <line class="link" data-from="4" data-to="5" x1="400" y1="130" x2="470" y2="270" />
-          <line class="link" data-from="4" data-to="6" x1="400" y1="130" x2="330" y2="270" />
-          <line class="link" data-from="5" data-to="6" x1="470" y1="270" x2="330" y2="270" />
-          <line class="link" data-from="5" data-to="9" x1="470" y1="270" x2="580" y2="270" />
-          <line class="link" data-from="4" data-to="9" x1="400" y1="130" x2="580" y2="270" />
-          <line class="link" data-from="7" data-to="8" x1="650" y1="130" x2="720" y2="270" />
-          <line class="link" data-from="7" data-to="9" x1="650" y1="130" x2="580" y2="270" />
-          <line class="link" data-from="8" data-to="9" x1="720" y1="270" x2="580" y2="270" />
+          {% for link in cat.linkLines %}
+          <line class="link" data-from="{{ link.from }}" data-to="{{ link.to }}" x1="{{ link.x1 }}" y1="{{ link.y1 }}" x2="{{ link.x2 }}" y2="{{ link.y2 }}" />
+          {% endfor %}
         </g>
 
-        <a class="node group-A" data-state="done" data-id="1"
-           data-title="equals와 hashCode의 함정"
-           data-desc="equals만 오버라이드하면 객체가 사라지는 이유, hashCode 계약 세 규칙"
-           href="./posts/2026-04-equals-hashcode-계약/01-equals만-오버라이드하면.html">
-          <g transform="translate(180,130)" style="--ring-delay: 0s;">
+        {% for group in cat.groups %}
+        {% for topic in group.topics %}
+        <a class="node group-{{ group.id }}" data-state="{{ topic.status }}" data-id="{{ topic.num }}"
+           data-title="{{ topic.title }}"
+           data-desc="{{ topic.desc }}"
+           href="{% if topic.status == 'done' %}./posts/{{ topic.slug }}/{{ topic.entry }}{% else %}#{% endif %}">
+          <g transform="translate({{ topic.x }},{{ topic.y }})"{% if topic.status == 'done' %} style="--ring-delay: {{ topic.ring | default: 0 }}s;"{% endif %}>
             <circle class="node-ring" />
             <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">equals · hashCode</text>
+            <text class="node-label" y="26">{{ topic.label }}</text>
           </g>
         </a>
-        <a class="node group-A" data-state="done" data-id="2"
-           data-title="HashMap 내부"
-           data-desc="해시 충돌 처리, 리해싱, treeify (8 임계값)"
-           href="./posts/2026-05-hashmap-내부/01-기본-구조.html">
-          <g transform="translate(250,270)" style="--ring-delay: 1.0s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">HashMap</text>
-          </g>
-        </a>
-        <a class="node group-A" data-state="locked" data-id="3"
-           data-title="Collection 비교"
-           data-desc="ArrayList vs LinkedList, HashMap vs TreeMap" href="#">
-          <g transform="translate(110,270)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Collection</text>
-          </g>
-        </a>
-
-        <a class="node group-B" data-state="done" data-id="4"
-           data-title="JVM 메모리 구조"
-           data-desc="Heap / Metaspace / Stack / Direct Memory"
-           href="./posts/2026-05-jvm-메모리-구조/01-jvm-메모리-영역-개요.html">
-          <g transform="translate(400,130)" style="--ring-delay: 1.4s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">JVM 메모리</text>
-          </g>
-        </a>
-        <a class="node group-B" data-state="done" data-id="5"
-           data-title="GC 진화사"
-           data-desc="Serial → CMS → G1 → ZGC, Shenandoah"
-           href="./posts/2026-05-gc-진화사/01-gc가-풀려는-문제.html">
-          <g transform="translate(470,270)" style="--ring-delay: 1.8s;">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">GC</text>
-          </g>
-        </a>
-        <a class="node group-B" data-state="locked" data-id="6"
-           data-title="ClassLoader 동작"
-           data-desc="부모 위임 모델, Bootstrap / Extension / Application" href="#">
-          <g transform="translate(330,270)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">ClassLoader</text>
-          </g>
-        </a>
-
-        <a class="node group-C" data-state="locked" data-id="7"
-           data-title="Generics와 Type Erasure"
-           data-desc="컴파일 타임 타입 검사, 런타임 erasure, 와일드카드" href="#">
-          <g transform="translate(650,130)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">Generics</text>
-          </g>
-        </a>
-        <a class="node group-C" data-state="locked" data-id="8"
-           data-title="JIT 컴파일러"
-           data-desc="C1 / C2 / Graal, hot spot 감지와 최적화" href="#">
-          <g transform="translate(720,270)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">JIT</text>
-          </g>
-        </a>
-        <a class="node group-C" data-state="locked" data-id="9"
-           data-title="String Pool과 String.intern()"
-           data-desc="문자열 캐시, == vs equals, intern()의 함정" href="#">
-          <g transform="translate(580,270)">
-            <circle class="node-ring" />
-            <circle class="node-circle" r="10" />
-            <text class="node-label" y="26">String Pool</text>
-          </g>
-        </a>
+        {% endfor %}
+        {% endfor %}
       </svg>
     </section>
 
     <section class="group-list">
-      <div class="group-section group-A">
-        <h2>A · 객체 / 컬렉션</h2>
-        <p class="group-desc">equals부터 HashMap 내부까지, 객체와 자료구조의 토대</p>
+      {% for group in cat.groups %}
+      <div class="group-section group-{{ group.id }}">
+        <h2>{{ group.id }} · {{ group.title }}</h2>
+        <p class="group-desc">{{ group.desc }}</p>
         <div class="topic-list">
-          <a class="topic-item done" href="./posts/2026-04-equals-hashcode-계약/01-equals만-오버라이드하면.html">
-            <span class="topic-num">01</span>
-            <span class="topic-title">equals와 hashCode의 함정</span>
-            <span class="topic-meta">3편</span>
+          {% for topic in group.topics %}
+          {% if topic.status == 'done' %}
+          <a class="topic-item done" href="./posts/{{ topic.slug }}/{{ topic.entry }}">
+            <span class="topic-num">{{ topic.num | prepend: '00' | slice: -2, 2 }}</span><span class="topic-title">{{ topic.title }}</span><span class="topic-meta">{{ topic.episodes }}편</span>
           </a>
-          <a class="topic-item done" href="./posts/2026-05-hashmap-내부/01-기본-구조.html">
-            <span class="topic-num">02</span><span class="topic-title">HashMap 내부</span><span class="topic-meta">4편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">03</span><span class="topic-title">Collection 비교</span><span class="topic-meta">예정</span></div>
+          {% else %}
+          <div class="topic-item locked"><span class="topic-num">{{ topic.num | prepend: '00' | slice: -2, 2 }}</span><span class="topic-title">{{ topic.title }}</span><span class="topic-meta">예정</span></div>
+          {% endif %}
+          {% endfor %}
         </div>
       </div>
-
-      <div class="group-section group-B">
-        <h2>B · JVM</h2>
-        <p class="group-desc">메모리 영역과 GC, 클래스 로딩 메커니즘</p>
-        <div class="topic-list">
-          <a class="topic-item done" href="./posts/2026-05-jvm-메모리-구조/01-jvm-메모리-영역-개요.html">
-            <span class="topic-num">04</span><span class="topic-title">JVM 메모리 구조</span><span class="topic-meta">4편</span>
-          </a>
-          <a class="topic-item done" href="./posts/2026-05-gc-진화사/01-gc가-풀려는-문제.html">
-            <span class="topic-num">05</span><span class="topic-title">GC 진화사</span><span class="topic-meta">5편</span>
-          </a>
-          <div class="topic-item locked"><span class="topic-num">06</span><span class="topic-title">ClassLoader 동작</span><span class="topic-meta">예정</span></div>
-        </div>
-      </div>
-
-      <div class="group-section group-C">
-        <h2>C · 언어 기능</h2>
-        <p class="group-desc">제네릭, JIT, 문자열 처리 같은 언어 차원의 디테일</p>
-        <div class="topic-list">
-          <div class="topic-item locked"><span class="topic-num">07</span><span class="topic-title">Generics와 Type Erasure</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">08</span><span class="topic-title">JIT 컴파일러</span><span class="topic-meta">예정</span></div>
-          <div class="topic-item locked"><span class="topic-num">09</span><span class="topic-title">String Pool과 String.intern()</span><span class="topic-meta">예정</span></div>
-        </div>
-      </div>
+      {% endfor %}
     </section>
   </main>
 
@@ -240,7 +140,7 @@
     <div class="tooltip-desc" id="tooltipDesc"></div>
   </div>
 
-  <footer class="site-footer">bok · 2026</footer>
+  {% include "footer.html" %}
 
   <script>
     document.querySelectorAll('.node').forEach((n, i) => { n.style.animationDelay = (i * 0.05) + 's'; });
@@ -281,11 +181,6 @@
       });
       if (node.dataset.state === 'locked') node.addEventListener('click', (e) => e.preventDefault());
     });
-    const total = document.querySelectorAll('.node').length;
-    const done = document.querySelectorAll('.node[data-state="done"]').length;
-    document.getElementById('progressText').textContent = done + ' / ' + total;
-    document.getElementById('progressPct').textContent = Math.round((done / total) * 100) + '%';
   </script>
 </body>
 </html>
-</content>
