@@ -1,0 +1,130 @@
+---
+title: "ReentrantLock의 정체"
+subtitle: "synchronized로는 못 하는 일을 하려고 만들어진 락이에요. 사용은 비슷한데 차이 하나하나가 다 의도적이에요."
+dateText: "2026.05.11"
+episode: 1
+episodes: 3
+---
+
+<h2>synchronized 있는데 왜 또?</h2>
+
+<p>
+  synchronized로 상호배제는 충분히 됩니다. <code>volatile</code>까지 곁들이면 가시성도 잡혀요. 그런데 실무에서 락을 다루다 보면 synchronized가 답을 못 주는 자리가 종종 생겨요.
+</p>
+
+<ul>
+  <li><strong>일정 시간만 시도하고 안 되면 포기</strong>하고 싶을 때. synchronized는 일단 들어가면 무조건 기다려요. 못 빠져나옵니다.</li>
+  <li><strong>락 대기 중에 인터럽트로 깨우고</strong> 싶을 때. synchronized는 인터럽트를 무시해요.</li>
+  <li><strong>여러 조건을 따로 두고</strong> 어떤 스레드는 A에서 자고 다른 스레드는 B에서 자게 하고 싶을 때. synchronized는 모니터 객체 하나당 wait 큐 하나뿐이에요.</li>
+</ul>
+
+<p>
+  이 세 가지가 ReentrantLock이 등장한 이유예요. synchronized 위에 얹은 게 아니라, 부족한 기능을 채우려고 다른 길로 만든 락이에요. 내부 구현도 다르고요. synchronized는 JVM/OS 레벨, ReentrantLock은 자바 라이브러리 레벨이에요.
+</p>
+
+<h2>기본 사용 — lock과 unlock</h2>
+
+<p>
+  synchronized는 블록 끝나면 알아서 풀려요. ReentrantLock은 명시적으로 잡고 명시적으로 풀어야 합니다.
+</p>
+
+<pre><code class="language-java">ReentrantLock lock = new ReentrantLock();
+
+lock.lock();
+try {
+    counter++;
+} finally {
+    lock.unlock();
+}</code></pre>
+
+<p>
+  보기엔 synchronized보다 줄 수가 늘었지만, 이 형태가 거의 의무에 가까운 패턴이에요. <code>lock()</code>을 부른 다음 줄에서 무조건 <code>try</code>가 시작되고, <code>finally</code>에서 <code>unlock()</code>이 호출돼야 합니다.
+</p>
+
+<h2>try-finally가 진짜 필수인 이유</h2>
+
+<p>
+  <code>try-finally</code>를 빼먹으면 어떤 일이 생기느냐, 락이 영원히 안 풀려요. 예외가 그 사이에서 터지는 순간 unlock 라인을 건너뛰기 때문이에요.
+</p>
+
+<pre><code class="language-java">// 절대 이렇게 쓰지 마세요
+lock.lock();
+counter++;        // 여기서 예외 한 번 나면
+lock.unlock();    // 이 줄 영원히 도달 못 함</code></pre>
+
+<p>
+  이 락에 들어오려고 기다리는 다른 스레드는 영원히 깨지 못해요. 한 번의 누락이 그 서버의 그 작업을 영구히 멈춰버리는 거죠. synchronized는 JVM이 블록을 빠져나갈 때(정상이든 예외든) 락을 풀어주니까 이 걱정이 없는데, ReentrantLock은 그게 사용자 책임이에요.
+</p>
+
+<p>
+  Java 7+ 의 <code>try-with-resources</code>를 쓸 수 있는 락은 아니라서, 결국 <code>try-finally</code>가 표준입니다.
+</p>
+
+<h2>이름의 의미 — "재진입(Reentrant)"</h2>
+
+<p>
+  이름을 처음 보면 "재진입 가능한 락"이 뭔가 특별한 기능 같은데, 그렇진 않아요. 같은 스레드가 같은 락을 여러 번 잡아도 데드락이 안 난다는 뜻이에요.
+</p>
+
+<pre><code class="language-java">ReentrantLock lock = new ReentrantLock();
+
+public void outer() {
+    lock.lock();
+    try {
+        inner();   // 여기서 같은 락을 또 잡음
+    } finally {
+        lock.unlock();
+    }
+}
+
+public void inner() {
+    lock.lock();   // 같은 스레드라 잡힘 (hold count 2)
+    try {
+        // ...
+    } finally {
+        lock.unlock();  // hold count 1
+    }
+}</code></pre>
+
+<p>
+  내부에 <strong>hold count</strong>가 있어요. 같은 스레드가 lock()을 부를 때마다 카운트가 올라가고, unlock()마다 내려갑니다. 0이 되어야 진짜 풀려요. 그래서 <code>lock()</code> 횟수만큼 <code>unlock()</code>을 정확히 불러줘야 해요.
+</p>
+
+<p>
+  사실 synchronized도 재진입 가능합니다. 같은 스레드가 자기가 잡은 모니터를 다시 잡으려 해도 안 막혀요. 그래서 "ReentrantLock"이라는 이름이 미묘하게 오해를 사요. 재진입이 특기인 게 아니라 그냥 동일한 표준 동작이에요. 진짜 이 락의 차별점은 <strong>tryLock, 인터럽트, Condition</strong> 이 세 가지입니다.
+</p>
+
+<h2>synchronized와 한눈 비교</h2>
+
+<table>
+  <thead>
+    <tr><th>비교 항목</th><th>synchronized</th><th>ReentrantLock</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>락 잡기</td><td>블록 진입 자동</td><td>lock() 명시 호출</td></tr>
+    <tr><td>락 풀기</td><td>블록 종료 시 JVM이 처리</td><td>unlock() 명시 호출 (try-finally 필수)</td></tr>
+    <tr><td>재진입</td><td>O</td><td>O (hold count 기반)</td></tr>
+    <tr><td>시간 제한 락 시도</td><td>X</td><td>tryLock(timeout)</td></tr>
+    <tr><td>대기 중 인터럽트</td><td>X (무시됨)</td><td>lockInterruptibly()</td></tr>
+    <tr><td>공정성 옵션</td><td>X</td><td>생성자로 fairness 지정</td></tr>
+    <tr><td>여러 조건 큐</td><td>모니터 하나 → wait 큐 하나</td><td>newCondition()으로 여러 개</td></tr>
+    <tr><td>구현 위치</td><td>JVM intrinsic</td><td>AQS 기반 자바 라이브러리</td></tr>
+    <tr><td>락 상태 들여다보기</td><td>X</td><td>isHeldByCurrentThread, getQueueLength 등</td></tr>
+  </tbody>
+</table>
+
+<p>
+  쓸 자리가 명확히 갈려요. 단순한 임계 구역은 synchronized가 짧고 안전해요(try-finally 안 잊어버려도 되니까). tryLock·인터럽트·여러 조건이 필요한 곳에서 ReentrantLock이 등장합니다.
+</p>
+
+<h2>내부 구현은 AQS 위에</h2>
+
+<p>
+  ReentrantLock은 사실 <code>AbstractQueuedSynchronizer</code>(AQS) 위에 만들어진 얇은 래퍼예요. AQS는 자바의 동기화 도구들이 공통으로 깔고 있는 토대로, <code>Semaphore</code>, <code>CountDownLatch</code>, <code>ReentrantReadWriteLock</code>도 다 이 위에 서 있어요. AQS 내부 자체는 별도 시리즈에서 다룰 만한 분량이라 여기선 "AQS 위에 있다"는 것만 기억하면 충분해요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  이번 편은 ReentrantLock의 기본 사용과 synchronized와의 위치 정리였어요. 다음 편에서는 ReentrantLock이 실제로 빛나는 자리, <code>tryLock</code>과 <code>lockInterruptibly</code>를 봅니다. 시간 제한을 두고 락을 시도하거나, 데드락을 피하거나, 인터럽트로 안전하게 빠져나오는 패턴들이에요.
+</p>

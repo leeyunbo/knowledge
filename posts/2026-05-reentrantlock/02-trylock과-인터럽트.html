@@ -1,0 +1,158 @@
+---
+title: "tryLock과 lockInterruptibly"
+subtitle: "기다리지 않을 권리, 기다리다가도 빠져나올 권리. synchronized로는 불가능한 자리예요."
+dateText: "2026.05.11"
+episode: 2
+episodes: 3
+---
+
+<h2>대기를 거부하는 락</h2>
+
+<p>
+  synchronized로 만든 임계 구역에 들어가지 못한 스레드는 들어갈 때까지 무조건 기다려요. 다른 선택지가 없어요. 들어가다 막히는 순간 그 스레드는 모니터의 대기 큐에 박혀버립니다.
+</p>
+
+<p>
+  그런데 실무에선 "그냥 안 들어가고 갈 길 가겠다"는 시나리오가 흔해요. 예를 들면 캐시 갱신 작업인데, 한 스레드가 이미 갱신 중이면 다른 스레드는 굳이 똑같은 작업 안 해도 됩니다. 또는 사용자 요청 처리인데, 락 잡으려고 100ms 이상 기다릴 거면 그냥 503 응답이 더 낫기도 해요. 이런 자리에 <code>tryLock</code>이 있어요.
+</p>
+
+<h2>tryLock 기본 — 대기 없이 시도</h2>
+
+<pre><code class="language-java">ReentrantLock lock = new ReentrantLock();
+
+if (lock.tryLock()) {
+    try {
+        // 락 잡았으니 작업
+        refreshCache();
+    } finally {
+        lock.unlock();
+    }
+} else {
+    // 누군가 이미 갱신 중. 그냥 패스
+    return;
+}</code></pre>
+
+<p>
+  <code>tryLock()</code>은 "지금 당장 잡을 수 있으면 잡고 true, 안 되면 즉시 false"예요. 0초도 안 기다려요. 락이 풀리는 걸 보고 있지 않아요. <strong>호출 그 순간의 상태</strong>만 봅니다.
+</p>
+
+<p>
+  주의할 점이 있어요. <code>tryLock()</code>이 false를 반환했을 땐 <strong>unlock을 부르면 안 됩니다</strong>. 잡지도 않은 락을 풀려고 하면 <code>IllegalMonitorStateException</code>이 터져요. 위 코드처럼 if/else로 분기해서 <code>true</code> 가지에서만 try-finally를 열어요.
+</p>
+
+<h2>tryLock(timeout) — 정해진 시간만 시도</h2>
+
+<p>
+  완전히 안 기다리는 건 종종 너무 야박해요. "0.1초까지는 기다려 봐 줘"가 더 현실적일 때가 많습니다.
+</p>
+
+<pre><code class="language-java">if (lock.tryLock(100, TimeUnit.MILLISECONDS)) {
+    try {
+        doWork();
+    } finally {
+        lock.unlock();
+    }
+} else {
+    // 100ms 안에 못 잡음. 적절한 폴백
+    throw new TimeoutException();
+}</code></pre>
+
+<p>
+  100ms 안에 잡으면 true, 못 잡으면 false예요. <strong>인터럽트가 가능한 메서드</strong>라 <code>throws InterruptedException</code>을 던집니다. 그래서 호출하는 메서드 시그니처에 checked exception이 따라붙어요.
+</p>
+
+<h2>데드락 회피 패턴</h2>
+
+<p>
+  락 두 개를 잡는 코드는 늘 데드락 위험이 있어요. A 스레드는 락1 잡고 락2 기다리고, B 스레드는 락2 잡고 락1 기다리면 영원히 풀리지 않습니다. tryLock에 timeout을 주면 이 자리를 깔끔하게 풀 수 있어요.
+</p>
+
+<pre><code class="language-java">boolean transferMoney(Account from, Account to, long amount) {
+    long deadline = System.currentTimeMillis() + 1000;
+    while (System.currentTimeMillis() < deadline) {
+        if (from.lock.tryLock(50, TimeUnit.MILLISECONDS)) {
+            try {
+                if (to.lock.tryLock(50, TimeUnit.MILLISECONDS)) {
+                    try {
+                        from.balance -= amount;
+                        to.balance += amount;
+                        return true;
+                    } finally {
+                        to.lock.unlock();
+                    }
+                }
+            } finally {
+                from.lock.unlock();
+            }
+        }
+        // 잠깐 쉬었다가 재시도
+        Thread.sleep(ThreadLocalRandom.current().nextLong(1, 10));
+    }
+    return false;
+}</code></pre>
+
+<p>
+  락1을 잡고 락2가 안 잡히면 락1까지 풀고 다시 시도해요. 그 사이 다른 스레드가 둘을 다 처리할 기회를 줍니다. 이걸 <strong>back-off and retry</strong>라고 부르기도 해요. Lock ordering(락을 항상 같은 순서로 잡기)이 더 정석적인 데드락 회피지만, 그게 불가능한 자리에서는 이 패턴이 답이에요.
+</p>
+
+<h2>lockInterruptibly — 대기 중에도 인터럽트</h2>
+
+<p>
+  synchronized 블록에 들어가려고 기다리는 스레드는 인터럽트가 와도 무시해요. 즉, 외부에서 그 스레드를 깨우거나 종료시킬 방법이 없습니다. 사용자가 취소 버튼을 눌렀는데도 락 기다리느라 응답이 안 가는 상황이 가능한 거죠.
+</p>
+
+<p>
+  <code>lockInterruptibly()</code>는 락 대기 중에 인터럽트를 받으면 <code>InterruptedException</code>을 던지면서 빠져나옵니다.
+</p>
+
+<pre><code class="language-java">try {
+    lock.lockInterruptibly();
+    try {
+        doWork();
+    } finally {
+        lock.unlock();
+    }
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+    // 락 못 잡고 빠져나옴. unlock 부르지 말 것
+}</code></pre>
+
+<p>
+  주의할 점은 <code>lock()</code>(인터럽트 무시 버전)과 헷갈리면 안 된다는 거예요. 기본 <code>lock()</code>은 synchronized처럼 인터럽트를 무시해요. 인터럽트로 빠져나올 수 있는 건 <code>lockInterruptibly()</code>와 <code>tryLock(timeout)</code> 두 가지뿐이에요.
+</p>
+
+<h2>공정성(fairness) — 줄 서서 들어가기</h2>
+
+<p>
+  ReentrantLock 생성자는 <code>fair</code> 인자를 받아요. 기본은 false(비공정).
+</p>
+
+<pre><code class="language-java">ReentrantLock unfair = new ReentrantLock();         // 비공정
+ReentrantLock fair = new ReentrantLock(true);       // 공정</code></pre>
+
+<p>
+  공정 락은 락 대기 큐에 먼저 들어온 스레드부터 락을 받아요. 비공정 락은 새로 도착한 스레드가 운 좋게 끼어들 수 있어요. 즉, 이미 한참 기다리고 있던 스레드가 더 늦게 도착한 스레드한테 추월당할 수 있다는 뜻이에요.
+</p>
+
+<p>
+  그런데 공정 락이 좋아 보이지만 실무에선 <strong>대부분 비공정</strong>을 써요. 이유는 처리량(throughput)이에요. 락이 막 풀린 순간, 마침 깨어나서 시도하는 스레드한테 바로 주는 게 빨라요. 큐에 있는 스레드를 깨워서 작업 시작하기를 기다리면 그 사이 컨텍스트 스위칭이 발생합니다.
+</p>
+
+<p>
+  공정 락은 "굶주리는(starve) 스레드가 절대 없어야 한다"는 요구가 있을 때만 쓰는 게 좋아요. 일반적인 동시 접근 제어엔 비공정이 맞아요. synchronized도 비공정이에요.
+</p>
+
+<h2>정리하면</h2>
+
+<ol>
+  <li><code>tryLock()</code>은 대기 없이 즉시 시도해요. 안 되면 다른 길.</li>
+  <li><code>tryLock(timeout)</code>은 정해진 시간만 시도해요. 데드락 회피와 응답시간 보장 핵심.</li>
+  <li><code>lockInterruptibly()</code>는 대기 중에도 인터럽트로 빠져나올 수 있어요. 취소 가능한 작업의 토대.</li>
+  <li>공정 락은 비싸요. 굳이 필요한 자리에만 쓰세요.</li>
+</ol>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편에서는 <code>Condition</code> 객체를 봅니다. synchronized의 <code>wait</code>/<code>notify</code>를 본 적 있다면, 그걸 여러 개로 쪼갠 게 Condition이에요. BlockingQueue 같은 자료구조가 어떻게 만들어졌는지가 거의 그대로 보입니다.
+</p>
