@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# 글 작성 룰 mechanical 검증.
+# Rule 6: em dash (—) 사용 금지
+
+set -e
+
+modified=$(git -c core.quotepath=false diff --cached --name-only --diff-filter=ACM | grep -E "^posts/.*\.html$" || true)
+
+if [ -z "$modified" ]; then
+  exit 0
+fi
+
+violations=""
+total=0
+for f in $modified; do
+  if grep -q "—" "$f" 2>/dev/null; then
+    count=$(grep -c "—" "$f")
+    total=$((total + count))
+    violations="$violations
+  $f ($count건)"
+  fi
+done
+
+if [ -n "$violations" ]; then
+  echo ""
+  echo "❌ pre-commit: em dash (—) 검출 — Rule 6 위반"
+  echo "$violations"
+  echo ""
+  echo "총 ${total}건. 다음 중 하나로 교체하세요:"
+  echo "  - 콜론(:) 또는 마침표(.)로 분리"
+  echo "  - '즉', '곧', '예를 들어' 같은 자연스러운 연결사"
+  echo "  - 괄호( )"
+  echo ""
+  echo "긴급 우회 (비추천): git commit --no-verify"
+  exit 1
+fi
+
+exit 0
