@@ -22,7 +22,7 @@ episodes: 3
   이 세 가지가 ReentrantLock이 등장한 이유예요. synchronized 위에 얹은 게 아니라, 부족한 기능을 채우려고 다른 길로 만든 락이에요. 내부 구현도 다르고요. synchronized는 JVM/OS 레벨, ReentrantLock은 자바 라이브러리 레벨이에요.
 </p>
 
-<h2>기본 사용 — lock과 unlock</h2>
+<h2>기본 사용: lock과 unlock</h2>
 
 <p>
   synchronized는 블록 끝나면 알아서 풀려요. ReentrantLock은 명시적으로 잡고 명시적으로 풀어야 합니다.
@@ -60,7 +60,7 @@ lock.unlock();    // 이 줄 영원히 도달 못 함</code></pre>
   Java 7+ 의 <code>try-with-resources</code>를 쓸 수 있는 락은 아니라서, 결국 <code>try-finally</code>가 표준입니다.
 </p>
 
-<h2>이름의 의미 — "재진입(Reentrant)"</h2>
+<h2>이름의 의미: 재진입(Reentrant)</h2>
 
 <p>
   이름을 처음 보면 "재진입 가능한 락"이 뭔가 특별한 기능 같은데, 그렇진 않아요. 같은 스레드가 같은 락을 여러 번 잡아도 데드락이 안 난다는 뜻이에요.

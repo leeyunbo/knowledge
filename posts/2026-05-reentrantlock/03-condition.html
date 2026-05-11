@@ -1,5 +1,5 @@
 ---
-title: "Condition — 락에 여러 대기 큐 달기"
+title: "Condition: 락에 여러 대기 큐 달기"
 subtitle: "synchronized의 wait/notify를 본 적 있다면, 그걸 여러 개로 쪼갠 게 Condition이에요. BlockingQueue가 어떻게 만들어졌는지가 거의 그대로 보입니다."
 dateText: "2026.05.11"
 episode: 3
@@ -95,7 +95,7 @@ Condition notFull  = lock.newCondition();   // 큐가 찰 때 기다리는 자�
   100줄도 안 되는 코드에 일반적인 BlockingQueue의 핵심이 다 있어요. producer가 <code>put</code>하고 <code>notEmpty.signal()</code>을 부르면 consumer만 깨어나요. consumer가 <code>take</code>하고 <code>notFull.signal()</code>을 부르면 producer만 깨어납니다. 양쪽이 서로 헷갈리지 않아요.
 </p>
 
-<h2>await의 의미 — wait와 같지만 더 명확</h2>
+<h2>await의 의미: wait와 같지만 더 명확</h2>
 
 <p>
   <code>condition.await()</code>는 synchronized의 <code>lock.wait()</code>와 거의 같은 의미예요. 락을 풀고, 자기 Condition의 대기 큐에 들어가고, signal을 받으면 다시 락을 잡고 깨어나요.
@@ -130,7 +130,7 @@ Condition notFull  = lock.newCondition();   // 큐가 찰 때 기다리는 자�
   반면 synchronized의 <code>notify()</code>는 위험해요. 단일 대기 큐에 다양한 조건의 스레드가 섞여 있으니까, 깨어난 스레드가 자기 조건 안 맞아서 다시 자면 다른 스레드도 못 깨어나는 자리가 생겨요(이걸 missed signal이라고 해요). 그래서 synchronized에선 안전을 위해 <code>notifyAll()</code>이 권장돼요. Condition은 큐가 잘 나뉘어 있으니 <code>signal()</code> 하나가 안전합니다.
 </p>
 
-<h2>주의 — 락을 잡은 채로 await</h2>
+<h2>주의: 락을 잡은 채로 await</h2>
 
 <p>
   <code>await()</code>를 부르기 전에 락을 반드시 잡고 있어야 해요. 락을 안 잡고 부르면 <code>IllegalMonitorStateException</code>이 터집니다. wait/notify와 똑같은 규칙이에요.

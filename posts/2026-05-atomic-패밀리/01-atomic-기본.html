@@ -1,5 +1,5 @@
 ---
-title: "Atomic* 기본 — AtomicInteger부터 AtomicReference까지"
+title: "Atomic* 기본: AtomicInteger부터 AtomicReference까지"
 subtitle: "CAS를 직접 다루지 말고 그 위에 만들어진 래퍼를 쓰자는 패키지예요. 락 없이 단일 변수를 안전하게 갱신해요."
 dateText: "2026.05.11"
 episode: 1
@@ -81,7 +81,7 @@ boolean ok = a.compareAndSet(10, 20);   // 현재 값이 10이면 20으로 교�
   <strong>incrementAndGet vs getAndIncrement</strong>이 헷갈리면 자바 컨벤션을 기억하면 돼요. "AndGet"이 뒤에 오면 <strong>그 동작 후</strong>의 값을 반환, "GetAnd~"가 앞에 오면 <strong>그 동작 전</strong>의 값을 반환이에요.
 </p>
 
-<h2>updateAndGet — 람다로 임의 변환</h2>
+<h2>updateAndGet: 람다로 임의 변환</h2>
 
 <p>
   Atomic이 빛나는 자리 중 하나가 <code>updateAndGet</code>과 <code>accumulateAndGet</code>이에요. 람다로 임의 변환 함수를 줄 수 있어요.
@@ -106,7 +106,7 @@ a.updateAndGet(x -&gt; Math.max(0, x));</code></pre>
   주의할 점 하나. 람다 안에서 <strong>부작용을 일으키면 안 돼요</strong>. CAS가 실패해서 람다가 여러 번 호출될 수 있거든요. 람다는 순수 함수여야 합니다.
 </p>
 
-<h2>AtomicReference — 객체 참조의 원자 교체</h2>
+<h2>AtomicReference: 객체 참조의 원자 교체</h2>
 
 <p>
   AtomicReference는 임의 객체 참조를 원자적으로 다뤄요. 가장 흔한 패턴은 <strong>구성 객체 통째 교체</strong>예요.
@@ -141,7 +141,7 @@ class ConfigService {
   이 패턴이 락 없는 자료구조의 토대이기도 해요. 자료구조의 어떤 노드를 통째로 바꿀 때 AtomicReference의 CAS로 교체합니다.
 </p>
 
-<h2>AtomicBoolean — "한 번만"의 패턴</h2>
+<h2>AtomicBoolean: "한 번만"의 패턴</h2>
 
 <p>
   AtomicBoolean은 의외로 카운터보다 자주 봐요. "여러 스레드 중 한 명만 실행"하는 자리에 딱 맞아요.
