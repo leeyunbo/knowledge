@@ -28,7 +28,7 @@ const concurrency = {
       desc: "CAS 위에 세워진 lock-free의 세계. 락 경합을 우회하는 길.",
       topics: [
         { num: 5, label: "CAS", title: "CAS (Compare-And-Swap)", desc: "CPU 명령어 수준의 원자 연산. ABA 문제와 해결", x: 430, y: 340, ring: 1.5, status: "done", slug: "2026-05-cas-compare-and-swap", entry: "01-cas의-정체.html", episodes: 2 },
-        { num: 6, label: "Atomic*", title: "Atomic* 패밀리", desc: "AtomicInteger, AtomicReference, AtomicStampedReference, LongAdder", x: 500, y: 460, status: "locked" },
+        { num: 6, label: "Atomic*", title: "Atomic* 패밀리", desc: "AtomicInteger, AtomicReference, AtomicStampedReference, LongAdder", x: 500, y: 460, ring: 0.75, status: "done", slug: "2026-05-atomic-패밀리", entry: "01-atomic-기본.html", episodes: 2 },
         { num: 7, label: "ConcurrentHashMap", title: "ConcurrentHashMap", desc: "버킷 단위 락 + CAS, weak consistency, compute 류 메서드", x: 630, y: 540, ring: 1.8, status: "done", slug: "2026-05-concurrenthashmap", entry: "01-정체와-진화.html", episodes: 4 }
       ]
     },
@@ -166,7 +166,8 @@ const seriesTitles = {
   "2026-05-트랜잭션-격리-수준": "트랜잭션 격리 수준",
   "2026-05-패킷-한-개의-여정": "패킷 한 개의 여정",
   "2026-05-프록시-jdk-vs-cglib": "프록시 — JDK Dynamic vs CGLIB",
-  "2026-05-reentrantlock": "ReentrantLock"
+  "2026-05-reentrantlock": "ReentrantLock",
+  "2026-05-atomic-패밀리": "Atomic* 패밀리"
 };
 
 const cardOnly = {

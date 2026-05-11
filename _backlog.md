@@ -29,7 +29,7 @@
 
 #### Group B — 락 없는 동시성 (보라)
 - [x] ★ 5. CAS (Compare-And-Swap) — CPU 명령어, ABA 문제 (2편)
-- [ ] ★ 6. `Atomic*` 패밀리 — `AtomicInteger`부터 `LongAdder`까지 (2편)
+- [x] ★ 6. `Atomic*` 패밀리 — `AtomicInteger`부터 `LongAdder`까지 (2편)
 - [x] ★ 7. 동시성 컬렉션 — `ConcurrentHashMap` 내부, `COWArrayList`, `ConcLinkedQueue` (3편)
 
 #### Group C — 스레드풀 (초록)

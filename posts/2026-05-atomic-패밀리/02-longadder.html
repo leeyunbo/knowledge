@@ -1,0 +1,181 @@
+---
+title: "LongAdder — 핫 키 경합에서 AtomicLong이 깨지는 자리"
+subtitle: "AtomicLong은 카운터 하나를 두고 다 같이 두드려요. LongAdder는 그 두드림을 여러 자리로 나눕니다."
+dateText: "2026.05.11"
+episode: 2
+episodes: 2
+---
+
+<h2>AtomicLong이 깨지는 자리</h2>
+
+<p>
+  AtomicLong은 단일 카운터를 빠르게 갱신하는 데 좋아요. 그런데 카운터 하나에 수십~수백 개 스레드가 동시에 부딪치는 자리에서는 한계가 나타나요.
+</p>
+
+<p>
+  이유는 CAS 메커니즘 자체에 있어요. CAS는 "현재 값이 X면 Y로 바꿔라"인데, 다른 스레드가 사이에 값을 바꿔놓으면 실패하고 재시도해요. 경합이 심해질수록 실패 비율이 올라가요. 100개 스레드가 같은 카운터를 두드리면 99개의 시도가 실패하고 1개만 성공하는 상황이 반복돼요.
+</p>
+
+<p>
+  추가로 CPU 캐시 레벨의 문제도 있어요. 모든 스레드가 같은 메모리 위치(같은 캐시 라인)를 두드리니까 코어 사이에 캐시 라인이 계속 핑퐁처럼 오가요. 이걸 <strong>캐시 라인 경합</strong>이라고 해요. 메모리 대역폭이 큰 비용으로 깎입니다.
+</p>
+
+<h2>LongAdder의 아이디어</h2>
+
+<p>
+  LongAdder는 "단일 카운터 대신 여러 자리에 나눠 더하자"는 발상이에요. 각 스레드는 자기에게 배정된 cell에만 더해요. 합계가 필요할 때만 모든 cell을 모아서 더합니다.
+</p>
+
+<pre><code class="language-java">LongAdder counter = new LongAdder();
+
+counter.increment();      // 어느 cell 하나에 더함 (경합 거의 없음)
+counter.add(5);           // 어느 cell 하나에 5 더함
+long total = counter.sum(); // 모든 cell을 모아 합산</code></pre>
+
+<p>
+  내부 구조를 단순화하면 이래요.
+</p>
+
+<ul>
+  <li>처음엔 <code>base</code>라는 단일 long 하나만 있어요. 경합이 없으면 여기에 CAS로 더해요. AtomicLong과 같아요.</li>
+  <li>CAS가 실패하면(경합 감지) <code>cells</code>라는 배열을 만들어요. 각 cell은 long 하나를 들고 있어요.</li>
+  <li>각 스레드는 자기 thread-local 해시값으로 어느 cell을 두드릴지 정해요. 다른 스레드와 거의 안 겹쳐요.</li>
+  <li>cell도 경합이 심해지면 배열 크기를 2배로 늘려요.</li>
+  <li><code>sum()</code>은 base + 모든 cells의 값을 더한 결과예요.</li>
+</ul>
+
+<p>
+  그림으로 보면 이래요.
+</p>
+
+<svg viewBox="0 0 640 240" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:580px; margin:1.5rem auto;">
+  <text x="20" y="30" font-family="JetBrains Mono" font-size="11" fill="currentColor">AtomicLong</text>
+  <rect x="20" y="40" width="120" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="80" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="currentColor">value</text>
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 80 100 L 80 80" marker-end="url(#arr)"/>
+    <path d="M 50 110 L 70 90" marker-end="url(#arr)"/>
+    <path d="M 110 110 L 90 90" marker-end="url(#arr)"/>
+    <path d="M 30 120 L 60 95" marker-end="url(#arr)"/>
+    <path d="M 130 120 L 100 95" marker-end="url(#arr)"/>
+  </g>
+  <text x="80" y="135" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">5 threads → 1 자리 (경합)</text>
+
+  <text x="240" y="30" font-family="JetBrains Mono" font-size="11" fill="currentColor">LongAdder</text>
+  <rect x="240" y="40" width="60" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="270" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">base</text>
+  <rect x="310" y="40" width="60" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="340" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">cell[0]</text>
+  <rect x="380" y="40" width="60" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="410" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">cell[1]</text>
+  <rect x="450" y="40" width="60" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="480" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">cell[2]</text>
+  <rect x="520" y="40" width="60" height="36" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="550" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">cell[3]</text>
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 290 100 L 290 80" marker-end="url(#arr)"/>
+    <path d="M 350 100 L 350 80" marker-end="url(#arr)"/>
+    <path d="M 410 100 L 410 80" marker-end="url(#arr)"/>
+    <path d="M 480 100 L 480 80" marker-end="url(#arr)"/>
+    <path d="M 540 100 L 540 80" marker-end="url(#arr)"/>
+  </g>
+  <text x="410" y="135" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">5 threads → 5 자리 (경합 거의 없음)</text>
+
+  <text x="20" y="190" font-family="JetBrains Mono" font-size="10" fill="currentColor">sum():</text>
+  <text x="20" y="208" font-family="JetBrains Mono" font-size="10" fill="currentColor">base + cell[0] + cell[1] + cell[2] + cell[3]</text>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<p>
+  단순한 발상인데, 핫 키 경합에서는 효과가 큽니다. <code>ConcurrentHashMap</code> 시리즈 4편의 벤치마크에서 LongAdder가 AtomicLong을 16스레드 환경에서 35배 가까이 빠르게 처리한 적이 있어요.
+</p>
+
+<h2>그래서 AtomicLong은 안 쓰나</h2>
+
+<p>
+  아니에요. 둘이 갈리는 자리가 명확합니다.
+</p>
+
+<table>
+  <thead>
+    <tr><th>기준</th><th>AtomicLong</th><th>LongAdder</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>경합 수준</td><td>낮거나 보통</td><td>높음 (수많은 스레드가 동시에 두드림)</td></tr>
+    <tr><td>현재 값 읽기 빈도</td><td>자주 (CAS 기반 결정에 필요)</td><td>가끔 (sum만 가끔 필요)</td></tr>
+    <tr><td>get 정확도</td><td>정확한 순간 값</td><td>sum 호출 시점의 근사 (동시 갱신 중이면 조금 어긋날 수 있음)</td></tr>
+    <tr><td>메모리</td><td>작음 (long 하나)</td><td>큼 (cell 배열, 코어 수만큼)</td></tr>
+    <tr><td>대표 사용</td><td>시퀀스 번호, 락 카운터</td><td>통계, 메트릭, 누적 카운터</td></tr>
+  </tbody>
+</table>
+
+<p>
+  "현재 값"이 매 갱신마다 필요한지가 핵심 기준이에요. <code>compareAndSet</code>으로 분기 결정을 한다면 AtomicLong이 답이에요. LongAdder는 sum의 비용이 크고(cell 다 더해야 하니까), 그 사이 다른 스레드가 갱신하면 정확한 스냅샷이 안 나와요.
+</p>
+
+<p>
+  통계나 메트릭 — "최종 합계만 알면 되고 중간 정확도는 안 따져도 되는" 자리 — 에 LongAdder가 맞아요. 록 카운터, 라이프타임 요청 수, 메모리 사용량 누적 등.
+</p>
+
+<h2>False Sharing 회피</h2>
+
+<p>
+  LongAdder가 cell을 여러 개 두는 것만으로는 부족해요. CPU 캐시 라인 크기(보통 64바이트)가 long 하나(8바이트)보다 훨씬 커요. 인접한 cell 두 개가 같은 캐시 라인에 들어가 있으면, 한 cell만 갱신했는데도 캐시 라인 전체가 invalidate돼서 옆 cell을 두드리는 다른 코어가 영향을 받아요. 이걸 <strong>False Sharing</strong>이라고 합니다.
+</p>
+
+<p>
+  자바 8부터 <code>@Contended</code> 어노테이션이 있어요. cell 안의 long을 패딩으로 둘러싸서 자기만 캐시 라인 하나를 차지하게 만들어요. LongAdder 내부의 Cell 클래스가 정확히 이걸 써요.
+</p>
+
+<pre><code class="language-java">@sun.misc.Contended
+static final class Cell {
+    volatile long value;
+    // 컴파일러가 알아서 앞뒤 패딩 삽입
+}</code></pre>
+
+<p>
+  사용자 코드에서 직접 <code>@Contended</code>를 쓸 일은 거의 없어요. JVM 옵션 <code>-XX:-RestrictContended</code>가 필요하기도 하고, 잘못 쓰면 메모리만 낭비돼요. "LongAdder가 빠른 비결 중 하나"라는 정도로 이해하면 충분합니다.
+</p>
+
+<h2>DoubleAdder와 형제들</h2>
+
+<p>
+  <code>DoubleAdder</code>도 있어요. double용 LongAdder예요. 합계는 부동소수 덧셈이라 결합 법칙이 보장 안 되어서 sum 결과가 매번 미세하게 다를 수 있긴 한데, 통계에는 충분합니다.
+</p>
+
+<p>
+  더 일반화된 <code>LongAccumulator</code>, <code>DoubleAccumulator</code>도 있어요. 함수를 임의로 줄 수 있어서 max, min, custom 누산도 가능해요.
+</p>
+
+<pre><code class="language-java">// 모든 cell에서 본 가장 큰 값 (max 누산)
+LongAccumulator max = new LongAccumulator(Long::max, Long.MIN_VALUE);
+max.accumulate(42);
+max.accumulate(17);
+long m = max.get();   // 42</code></pre>
+
+<p>
+  실무에서 사용 빈도는 LongAdder가 압도적이에요. Accumulator는 가끔 max/min 통계에 등장합니다.
+</p>
+
+<h2>한 줄 정리</h2>
+
+<ul>
+  <li>경합 낮으면 <code>AtomicLong</code>, 경합 높으면 <code>LongAdder</code>.</li>
+  <li>"현재 값으로 분기 결정" 필요하면 AtomicLong, "최종 합계만 필요"하면 LongAdder.</li>
+  <li>메트릭/통계는 LongAdder가 거의 정답.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 AtomicInteger/Long/Boolean/Reference 기본 사용과 자주 쓰는 패턴(<code>updateAndGet</code>, 불변 객체 통째 교체, "한 번만" 플래그)을 봤어요. 2편에서는 핫 키 경합 환경에서 LongAdder가 등장한 배경, cell 분산 메커니즘, AtomicLong과의 사용 기준을 봤어요.
+</p>
+
+<p>
+  다음은 Group C 스레드풀로 넘어가요. <code>ExecutorService</code>(8번)의 정체부터 정리해 봅니다.
+</p>
