@@ -25,7 +25,7 @@
 - [x] ★ 1. `synchronized` & 모니터 락 — 객체 헤더, biased/lightweight/heavyweight (3편)
 - [x] ★ 2. `volatile` & JMM — 가시성 vs 원자성, happens-before (3편)
 - [x] ★ 3. `ReentrantLock` — tryLock, 인터럽트 가능, Condition (3편)
-- [ ] 4. `ReadWriteLock` / `StampedLock` — optimistic read (2편)
+- [x] 4. `ReadWriteLock` / `StampedLock` — optimistic read (2편)
 
 #### Group B — 락 없는 동시성 (보라)
 - [x] ★ 5. CAS (Compare-And-Swap) — CPU 명령어, ABA 문제 (2편)

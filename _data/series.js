@@ -19,7 +19,7 @@ const concurrency = {
         { num: 1, label: "synchronized", title: "synchronized & 모니터 락", desc: "intrinsic lock의 정체. 객체 헤더, biased/lightweight/heavyweight 단계", x: 500, y: 100, ring: 0, status: "done", slug: "2026-05-synchronized-모니터-락", entry: "01-synchronized의-정체.html", episodes: 3 },
         { num: 2, label: "volatile · JMM", title: "volatile & JMM", desc: "가시성 vs 원자성. happens-before. volatile이 못 막는 것", x: 340, y: 220, ring: 0.3, status: "done", slug: "2026-05-volatile-jmm", entry: "01-volatile의-정체.html", episodes: 3 },
         { num: 3, label: "ReentrantLock", title: "ReentrantLock", desc: "synchronized 대비 장점. tryLock, 인터럽트 가능, Condition 객체", x: 660, y: 220, ring: 0.45, status: "done", slug: "2026-05-reentrantlock", entry: "01-reentrantlock의-정체.html", episodes: 3 },
-        { num: 4, label: "RW · Stamped", title: "ReadWriteLock / StampedLock", desc: "읽기 多 / 쓰기 少 시나리오. StampedLock의 optimistic read", x: 790, y: 320, status: "locked" }
+        { num: 4, label: "RW · Stamped", title: "ReadWriteLock / StampedLock", desc: "읽기 多 / 쓰기 少 시나리오. StampedLock의 optimistic read", x: 790, y: 320, ring: 1.05, status: "done", slug: "2026-05-readwritelock-stampedlock", entry: "01-readwritelock.html", episodes: 2 }
       ]
     },
     {
@@ -167,7 +167,8 @@ const seriesTitles = {
   "2026-05-패킷-한-개의-여정": "패킷 한 개의 여정",
   "2026-05-프록시-jdk-vs-cglib": "프록시 — JDK Dynamic vs CGLIB",
   "2026-05-reentrantlock": "ReentrantLock",
-  "2026-05-atomic-패밀리": "Atomic* 패밀리"
+  "2026-05-atomic-패밀리": "Atomic* 패밀리",
+  "2026-05-readwritelock-stampedlock": "ReadWriteLock / StampedLock"
 };
 
 const cardOnly = {

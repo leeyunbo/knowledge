@@ -1,0 +1,190 @@
+---
+title: "StampedLock: 락을 안 잡고 읽고, 나중에 검증"
+subtitle: "ReadWriteLock의 락 자체 비용을 푸는 다른 발상이에요. optimistic read의 의미와 ReadWriteLock 대비 트레이드오프를 봐요."
+dateText: "2026.05.11"
+episode: 2
+episodes: 2
+---
+
+<h2>ReadWriteLock의 잉여 비용</h2>
+
+<p>
+  ReadWriteLock은 읽기끼리 동시에 들어오는 자리는 풀었어요. 그런데 락 자체의 비용은 여전히 남아 있어요. 읽기 락을 잡고 푸는 동작이 CAS와 메모리 펜스를 동반하거든요. 임계 구역이 짧고 빠른 자리에서는 락 비용이 작업 비용을 넘어버려요.
+</p>
+
+<p>
+  더 큰 문제도 있어요. readLock을 여러 스레드가 동시에 잡으려고 부딪치면 같은 카운터를 두고 경합해요. CAS 실패가 늘면서 읽기 처리량이 깎여요. Atomic 시리즈에서 본 핫 키 경합과 비슷해요.
+</p>
+
+<p>
+  StampedLock(Java 8)은 이 자리를 다른 발상으로 풀어요. "읽을 때 락을 잡지 말고, 일단 읽어보고 검증하자"는 거예요.
+</p>
+
+<h2>optimistic read의 모양</h2>
+
+<pre><code class="language-java">StampedLock lock = new StampedLock();
+private double x, y;
+
+public double distanceFromOrigin() {
+    long stamp = lock.tryOptimisticRead();   // 1. stamp 받기 (락 안 잡음)
+
+    double cx = x;                            // 2. 일단 읽기
+    double cy = y;
+
+    if (!lock.validate(stamp)) {              // 3. 그 사이 쓰기 들어왔는지 검증
+        stamp = lock.readLock();              // 4. 실패면 정식 readLock으로 폴백
+        try {
+            cx = x;
+            cy = y;
+        } finally {
+            lock.unlockRead(stamp);
+        }
+    }
+    return Math.sqrt(cx * cx + cy * cy);
+}</code></pre>
+
+<p>
+  중요한 부분이 네 단계예요. <code>tryOptimisticRead</code>로 stamp를 받는데 이때 락을 잡지 않아요. 그냥 "지금 시점의 버전 번호"를 받는 거예요. 그다음 데이터를 읽어요. 읽기가 끝나면 <code>validate(stamp)</code>로 "내가 stamp 받은 이후에 쓰기 락이 잡힌 적이 있나?"를 확인해요. 없으면 통과. 있으면 폴백.
+</p>
+
+<p>
+  핵심은 <strong>일관성 없는 데이터를 읽었을 수 있다는 사실을 받아들이고, 사후 검증한다</strong>는 거예요. 위 코드에서 x와 y를 읽는 사이에 다른 스레드가 둘을 새 값으로 바꿔도, 그건 일단 무시하고 다 읽은 다음 validate로 검증해요. 들킨 적이 있으면 폴백, 안 들켰으면 그대로 진행.
+</p>
+
+<h2>왜 빠른가</h2>
+
+<p>
+  락을 안 잡으면 다음을 안 해도 돼요.
+</p>
+
+<ul>
+  <li>readLock 카운터를 CAS로 증가시키기</li>
+  <li>메모리 펜스(volatile write급)를 걸기</li>
+  <li>락 큐에 자기 자신 등록하기</li>
+  <li>unlock 시 모두 되돌리기</li>
+</ul>
+
+<p>
+  대신 <code>validate</code>는 그냥 stamp가 여전히 유효한지 확인하는 가벼운 비교예요. 쓰기 락이 잡힌 적이 없으면 즉시 통과해요. 쓰기 빈도가 낮은 자리에서는 거의 모든 읽기가 optimistic 경로로 통과해서 비용이 극도로 낮아요.
+</p>
+
+<h2>일관성 없는 데이터를 어떻게 읽나</h2>
+
+<p>
+  위 예제에서 x와 y를 읽는 사이 다른 스레드가 점을 (1, 1)에서 (10, 10)으로 옮겼다고 해봐요. optimistic 경로는 x=1을 읽고 그다음 y=10을 읽을 수 있어요. (1, 10)이라는 한 번도 존재한 적 없는 좌표를 읽은 거예요.
+</p>
+
+<p>
+  이게 위험해 보이지만 괜찮은 이유는 <code>validate</code>에서 잡혀서 폴백으로 들어가기 때문이에요. <strong>최종 결과로 일관성 없는 값을 반환하지 않아요</strong>. 락이 잡힌 적이 있으면 무조건 다시 읽어요. optimistic 경로의 결과는 validate가 통과한 경우에만 의미가 있는 거예요.
+</p>
+
+<p>
+  주의할 점이 있어요. optimistic 경로에서 읽은 일관성 없는 값으로 <strong>예외를 던지거나, 무한 루프에 빠지거나, 시스템 호출을 부르거나, NullPointerException을 던질 만한 동작</strong>을 하면 안 돼요. validate 전이라 그 동작이 정말 의미 있는 건지 모르는 상태거든요. 그냥 지역 변수에 값을 담아두고, validate 이후에 후처리하는 게 안전해요.
+</p>
+
+<h2>읽기 락과 쓰기 락도 있어요</h2>
+
+<p>
+  StampedLock은 optimistic read만 제공하는 게 아니에요. <code>readLock()</code>과 <code>writeLock()</code>도 있고, 사용 패턴은 ReadWriteLock과 비슷해요. 다른 점은 stamp를 반환한다는 거예요.
+</p>
+
+<pre><code class="language-java">long stamp = lock.writeLock();
+try {
+    x = newX;
+    y = newY;
+} finally {
+    lock.unlockWrite(stamp);   // stamp를 unlock에 다시 넘김
+}</code></pre>
+
+<p>
+  stamp는 락의 종류와 버전을 인코딩한 long 값이에요. unlock에 넘겨야 자기 락만 정확히 풀려요. 잘못된 stamp를 넘기면 예외가 터져요.
+</p>
+
+<h2>락 변환 try-convert</h2>
+
+<p>
+  StampedLock의 또 다른 기능은 <strong>락 변환</strong>이에요. 읽기 락을 잡은 상태에서 쓰기 락으로 업그레이드를 시도할 수 있어요. ReadWriteLock에서는 이게 데드락이라 못 했죠.
+</p>
+
+<pre><code class="language-java">long stamp = lock.readLock();
+try {
+    if (needsUpdate) {
+        long ws = lock.tryConvertToWriteLock(stamp);
+        if (ws != 0) {
+            stamp = ws;        // 변환 성공
+            doUpdate();
+        } else {
+            // 변환 실패. 락 풀고 다시 쓰기 락 잡기
+            lock.unlockRead(stamp);
+            stamp = lock.writeLock();
+            doUpdate();
+        }
+    }
+} finally {
+    lock.unlock(stamp);    // 종류 자동 판별
+}</code></pre>
+
+<p>
+  <code>tryConvertToWriteLock</code>은 즉시 성공하거나 즉시 실패해요. 다른 읽기 락이 잡혀 있으면 0을 반환해요. 성공하면 새 stamp를 받고 그걸로 unlock해야 해요.
+</p>
+
+<h2>ReadWriteLock vs StampedLock 한눈에</h2>
+
+<table>
+  <thead>
+    <tr><th>항목</th><th>ReadWriteLock</th><th>StampedLock</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>읽기 락 비용</td><td>중간 (CAS + 카운터)</td><td>낮음 (optimistic 경로)</td></tr>
+    <tr><td>읽기끼리 동시</td><td>O</td><td>O</td></tr>
+    <tr><td>재진입</td><td>O (read·write 모두)</td><td>X (재진입 불가)</td></tr>
+    <tr><td>Condition 객체</td><td>writeLock에서 O</td><td>X (지원 안 함)</td></tr>
+    <tr><td>인터럽트 가능 락</td><td>O (lockInterruptibly)</td><td>O (별도 메서드)</td></tr>
+    <tr><td>락 다운그레이드</td><td>가능 (수동)</td><td>가능 (tryConvertToReadLock)</td></tr>
+    <tr><td>락 업그레이드</td><td>불가 (데드락)</td><td>tryConvertToWriteLock으로 시도</td></tr>
+    <tr><td>writer starvation</td><td>비공정 모드에서 가능</td><td>writer 선호 (구조적으로 덜함)</td></tr>
+    <tr><td>API 복잡도</td><td>단순</td><td>높음 (stamp 관리, validate 패턴)</td></tr>
+  </tbody>
+</table>
+
+<h2>제한 사항: 재진입 안 됨</h2>
+
+<p>
+  StampedLock에는 큰 제약이 두 개 있어요. 첫째, <strong>재진입이 안 돼요</strong>. 같은 스레드가 readLock을 두 번 잡으면 두 번째 호출이 막혀요. 자기 자신을 기다리는 데드락이 나요. 락을 잡는 메서드에서 다시 같은 락을 잡는 메서드를 부르지 않도록 코드 구조를 짜야 해요.
+</p>
+
+<p>
+  둘째, <strong>Condition을 못 만들어요</strong>. await/signal로 조건부 대기를 할 수 없어요. BlockingQueue 같은 자료구조 구현에는 못 쓰는 거예요. 그건 ReentrantLock의 영역이에요.
+</p>
+
+<h2>그래서 어디 쓰나</h2>
+
+<p>
+  StampedLock은 다음 자리에 특히 잘 맞아요.
+</p>
+
+<ul>
+  <li><strong>읽기 압도적으로 많은 자료구조</strong>: 좌표·설정·캐시 같은 단순 데이터.</li>
+  <li><strong>읽기 임계 구역이 매우 짧은 자리</strong>: 락 비용이 작업 비용보다 큰 자리에서 optimistic이 빛나요.</li>
+  <li><strong>writer starvation을 막아야 하는 자리</strong>: 구조적으로 writer가 선호돼요.</li>
+</ul>
+
+<p>
+  반대로 ReentrantReadWriteLock이 답인 자리도 있어요.
+</p>
+
+<ul>
+  <li>재진입이 필요한 자리 (락 안에서 다른 메서드가 같은 락 잡음)</li>
+  <li>Condition으로 조건부 대기가 필요한 자리</li>
+  <li>API 단순함이 더 중요한 자리</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 ReadWriteLock의 발상(읽기끼리는 친구, 쓰기는 외톨이)과 사용 패턴, 다운그레이드/업그레이드, starvation 함정을 봤어요. 2편에서는 StampedLock이 ReadWriteLock의 락 비용 자체를 푸는 다른 발상(optimistic read)과 그 트레이드오프(재진입·Condition 불가)를 봤어요.
+</p>
+
+<p>
+  Group A 기초 동기화가 이걸로 끝나요. 다음은 Group C 스레드풀의 시작 <code>ExecutorService</code>예요.
+</p>

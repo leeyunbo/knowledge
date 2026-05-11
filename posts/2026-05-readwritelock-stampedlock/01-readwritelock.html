@@ -1,0 +1,204 @@
+---
+title: "ReadWriteLock: 읽기는 같이, 쓰기는 혼자"
+subtitle: "읽기 多 쓰기 少 시나리오에서 단일 락의 비효율을 푸는 자바 표준 답이에요. 다운그레이드와 starvation 같은 함정도 같이 봐요."
+dateText: "2026.05.11"
+episode: 1
+episodes: 2
+---
+
+<h2>왜 읽기와 쓰기를 나누나</h2>
+
+<p>
+  ReentrantLock이나 synchronized로 임계 구역을 만들면 읽기든 쓰기든 무조건 한 명만 들어가요. 그런데 실무 자료구조를 떠올려 보면 읽기가 압도적으로 많고 쓰기는 가끔 일어나요. 캐시, 설정 객체, 라우팅 테이블, 사용자 권한 맵 같은 게 그래요.
+</p>
+
+<p>
+  이런 자리에서 단일 락은 비효율적이에요. 읽기끼리는 사실 서로 간섭할 일이 없거든요. 둘이 동시에 같은 메모리를 읽어도 값이 바뀌지 않으니까 충돌이 없어요. 그런데 단일 락은 둘 중 한 명을 굳이 대기 큐에 세워요.
+</p>
+
+<p>
+  ReadWriteLock의 발상은 단순해요. 읽기 락과 쓰기 락을 분리하고, 읽기 락은 여러 명이 동시에 잡을 수 있게 하고, 쓰기 락은 단독으로만 잡힐 수 있게 하자는 거예요.
+</p>
+
+<h2>ReentrantReadWriteLock 기본 사용</h2>
+
+<p>
+  자바 표준의 구현체가 <code>ReentrantReadWriteLock</code>이에요. <code>readLock()</code>과 <code>writeLock()</code> 두 개의 Lock 객체를 노출해요.
+</p>
+
+<pre><code class="language-java">ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+Lock readLock = rwLock.readLock();
+Lock writeLock = rwLock.writeLock();
+
+// 읽기 작업
+public String getConfig(String key) {
+    readLock.lock();
+    try {
+        return configMap.get(key);
+    } finally {
+        readLock.unlock();
+    }
+}
+
+// 쓰기 작업
+public void updateConfig(String key, String value) {
+    writeLock.lock();
+    try {
+        configMap.put(key, value);
+    } finally {
+        writeLock.unlock();
+    }
+}</code></pre>
+
+<p>
+  사용 패턴은 ReentrantLock과 같아요. <code>lock()</code> 다음 줄에 <code>try</code>, <code>finally</code>에서 <code>unlock()</code>. ReentrantLock 시리즈에서 본 그 패턴 그대로예요.
+</p>
+
+<h2>동시 읽기와 배타 쓰기</h2>
+
+<p>
+  ReadWriteLock의 규칙은 두 가지예요.
+</p>
+
+<ul>
+  <li><strong>읽기 락 사이는 친구</strong>: 여러 스레드가 동시에 readLock을 잡을 수 있어요. 서로 간섭하지 않아요.</li>
+  <li><strong>쓰기 락은 외톨이</strong>: writeLock이 잡혀 있는 동안은 다른 어떤 락도 못 들어와요. 읽기 락도 막혀요. 쓰기와 어떤 락도 동시 보유 불가.</li>
+</ul>
+
+<p>
+  이 규칙을 표로 정리하면 이렇게 돼요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>현재 잡힌 락</th><th>읽기 시도</th><th>쓰기 시도</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>없음</td><td>OK</td><td>OK</td></tr>
+    <tr><td>읽기 락 1+개</td><td>OK</td><td>대기</td></tr>
+    <tr><td>쓰기 락</td><td>대기</td><td>대기</td></tr>
+  </tbody>
+</table>
+
+<p>
+  읽기 락만 잡혀 있으면 다른 스레드의 읽기 시도는 즉시 통과하지만, 쓰기 시도는 모든 읽기 락이 풀릴 때까지 기다려야 해요.
+</p>
+
+<h2>락 다운그레이드: 쓰기에서 읽기로</h2>
+
+<p>
+  유용한 패턴 하나. 쓰기 락을 잡고 데이터를 갱신한 다음, 같은 데이터를 곧바로 읽어야 한다면 <strong>다운그레이드</strong>를 할 수 있어요. 쓰기 락을 풀기 전에 읽기 락을 잡는 거예요.
+</p>
+
+<pre><code class="language-java">writeLock.lock();
+try {
+    cache.put(key, computed);
+    readLock.lock();    // 쓰기 풀기 전에 읽기 잡기
+} finally {
+    writeLock.unlock(); // 이제 쓰기만 풀기
+}
+try {
+    return computed;    // 다른 스레드가 못 끼어듦
+} finally {
+    readLock.unlock();
+}</code></pre>
+
+<p>
+  쓰기 락을 풀자마자 다른 스레드가 쓰기 락을 잡고 값을 또 바꿔버릴 수 있어요. 그 사이를 막으려고 쓰기 락 안에서 미리 읽기 락을 잡고 쓰기 락을 풀면, 다른 쓰기는 들어오지 못해요(읽기 락이 잡혀 있어서). 우리 스레드는 안전하게 방금 쓴 값을 다시 읽을 수 있어요.
+</p>
+
+<h2>락 업그레이드는 데드락이에요</h2>
+
+<p>
+  반대 방향, 즉 읽기 락을 들고 있다가 쓰기 락을 잡으려는 시도는 <strong>금지</strong>예요. 정확히는 명시적으로 금지된 게 아니라, 데드락이 나기 때문에 사실상 못 해요.
+</p>
+
+<pre><code class="language-java">readLock.lock();
+try {
+    if (cache.containsKey(key)) {
+        return cache.get(key);
+    }
+    writeLock.lock();   // 위험! 데드락 가능
+    try {
+        // ...
+    } finally {
+        writeLock.unlock();
+    }
+} finally {
+    readLock.unlock();
+}</code></pre>
+
+<p>
+  왜 데드락이 나느냐. 다른 스레드도 같은 패턴으로 들어와서 둘 다 읽기 락을 잡고 있다고 가정해요. 한 명이 writeLock을 시도하면 readLock이 풀리기를 기다려요(쓰기는 모든 읽기를 기다리니까). 그런데 다른 스레드도 같은 시도를 해서 자기 readLock을 안 놓고 있어요. 둘 다 영원히 못 풀어요.
+</p>
+
+<p>
+  대안은 락을 잠깐 풀었다 다시 잡는 거예요.
+</p>
+
+<pre><code class="language-java">readLock.lock();
+boolean hasValue;
+try {
+    hasValue = cache.containsKey(key);
+} finally {
+    readLock.unlock();
+}
+
+if (!hasValue) {
+    writeLock.lock();
+    try {
+        // 다시 확인. 그 사이 다른 스레드가 넣었을 수도 있음
+        if (!cache.containsKey(key)) {
+            cache.put(key, computeValue());
+        }
+    } finally {
+        writeLock.unlock();
+    }
+}</code></pre>
+
+<p>
+  Double-Checked Locking 패턴이 등장해요. 읽기 락을 풀고 쓰기 락을 잡는 사이에 다른 스레드가 끼어들 수 있으니까, 쓰기 락 안에서 한 번 더 검사해요.
+</p>
+
+<h2>공정성과 starvation</h2>
+
+<p>
+  ReentrantReadWriteLock도 공정/비공정 옵션이 있어요.
+</p>
+
+<pre><code class="language-java">ReentrantReadWriteLock unfair = new ReentrantReadWriteLock();         // 비공정
+ReentrantReadWriteLock fair   = new ReentrantReadWriteLock(true);     // 공정</code></pre>
+
+<p>
+  비공정 모드는 처리량이 좋지만 <strong>writer starvation</strong> 위험이 있어요. 읽기 락이 계속 들락날락하는 자리에서는 새 readLock이 들어올 때마다 카운트가 0이 안 돼요. writeLock을 기다리는 스레드는 영원히 못 들어가요.
+</p>
+
+<p>
+  공정 모드는 이걸 막아요. writeLock을 기다리는 스레드가 있으면 새 readLock 요청은 큐 뒤에서 줄을 서요. 다만 처리량은 떨어져요.
+</p>
+
+<p>
+  실무에서는 쓰기 빈도가 너무 낮지 않은 자리라면 공정 모드를 쓰는 게 안전해요. 비공정으로 가야 할 만큼 처리량이 절박한 자리는 아예 다른 자료구조(<code>ConcurrentHashMap</code>이나 다음 편 StampedLock)가 답일 가능성이 높아요.
+</p>
+
+<h2>언제 ReadWriteLock이 답이 아닌가</h2>
+
+<p>
+  ReadWriteLock이 항상 빠른 건 아니에요. 다음 자리에서는 단일 락이나 lock-free 자료구조가 더 빨라요.
+</p>
+
+<ul>
+  <li><strong>쓰기 빈도가 높은 자리</strong>: 쓰기가 자주 일어나면 readLock끼리 동시 처리되는 이득이 작아져요. 대신 락 자체의 오버헤드(읽기/쓰기 락 두 개를 관리하느라)가 더 커요. 단일 ReentrantLock이 더 빠를 수 있어요.</li>
+  <li><strong>임계 구역이 매우 짧은 자리</strong>: 락 잡고 푸는 비용이 임계 구역 작업보다 클 때. 단일 락도 마찬가지지만 RW락이 더 무거워요.</li>
+  <li><strong>락 없는 대안이 있는 자리</strong>: <code>ConcurrentHashMap</code>, <code>AtomicReference</code>로 통째 교체, <code>CopyOnWriteArrayList</code> 같은 자료구조가 락 자체를 안 써요.</li>
+</ul>
+
+<p>
+  ReadWriteLock은 "읽기 자주, 쓰기 가끔, 임계 구역 좀 무거움" 자리에 정확히 맞아요. 모든 동시성 문제의 답은 아니에요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  ReadWriteLock의 약점 하나가 락 자체 비용이에요. 락을 잡고 푸는 데 드는 메모리 펜스, 카운터 갱신, 큐 관리가 누적되면 무시 못 해요. 다음 편 StampedLock은 이걸 푸는 다른 발상이에요. 읽기에서는 락을 아예 안 잡고 시도해보는 optimistic read 패턴이 등장해요.
+</p>
