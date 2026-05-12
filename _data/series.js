@@ -37,7 +37,7 @@ const concurrency = {
       title: "스레드풀",
       desc: "실무에서 가장 자주 마주치는 영역. 풀 인자 7개의 의미와 사이징 이론.",
       topics: [
-        { num: 8, label: "ExecutorService", title: "ExecutorService", desc: "작업 제출 모델. Executors 팩토리의 함정. submit vs execute", x: 180, y: 280, status: "locked" },
+        { num: 8, label: "ExecutorService", title: "ExecutorService", desc: "작업 제출 모델. Executors 팩토리의 함정. submit vs execute", x: 180, y: 280, ring: 1.35, status: "done", slug: "2026-05-executorservice", entry: "01-executorservice-정체.html", episodes: 2 },
         { num: 9, label: "ThreadPoolExecutor", title: "ThreadPoolExecutor 7인자", desc: "core/max poolSize, keepAlive, workQueue, ThreadFactory, RejectedExecutionHandler", x: 160, y: 410, ring: 0.6, status: "done", slug: "2026-05-threadpoolexecutor-7인자", entry: "01-7인자-개요.html", episodes: 4 },
         { num: 10, label: "Future", title: "Future / Callable", desc: "get()의 블로킹과 타임아웃. cancel()의 진짜 의미 (인터럽트 시그널)", x: 280, y: 540, status: "locked" },
         { num: 11, label: "풀 사이징", title: "풀 사이징 이론", desc: "CPU bound vs I/O bound 공식. Little's Law. 모니터링 지표", x: 100, y: 550, status: "locked" }
@@ -168,7 +168,8 @@ const seriesTitles = {
   "2026-05-프록시-jdk-vs-cglib": "프록시 — JDK Dynamic vs CGLIB",
   "2026-05-reentrantlock": "ReentrantLock",
   "2026-05-atomic-패밀리": "Atomic* 패밀리",
-  "2026-05-readwritelock-stampedlock": "ReadWriteLock / StampedLock"
+  "2026-05-readwritelock-stampedlock": "ReadWriteLock / StampedLock",
+  "2026-05-executorservice": "ExecutorService"
 };
 
 const cardOnly = {

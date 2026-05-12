@@ -1,0 +1,205 @@
+---
+title: "ExecutorService graceful shutdown과 ThreadFactory"
+subtitle: "shutdown과 shutdownNow의 차이부터 awaitTermination 패턴, ThreadFactory 커스텀까지. 운영에서 진짜 필요한 부분이에요."
+dateText: "2026.05.12"
+episode: 2
+episodes: 2
+---
+
+<h2>왜 graceful shutdown이 까다로운가</h2>
+
+<p>
+  ExecutorService를 만들기는 쉬워요. 종료가 까다로워요. 종료할 때 신경 써야 할 게 세 가지예요.
+</p>
+
+<ul>
+  <li>현재 실행 중인 작업은 끝낼 시간을 줄 것인가, 강제로 끊을 것인가</li>
+  <li>큐에 쌓여 있지만 아직 시작 안 한 작업은 어떻게 할 것인가</li>
+  <li>새 작업이 들어오는 걸 막을 것인가</li>
+</ul>
+
+<p>
+  이 세 가지를 어떻게 조합하느냐가 graceful 종료냐, 즉시 종료냐를 결정해요. ExecutorService는 두 개의 메서드를 제공해요.
+</p>
+
+<h2>shutdown과 shutdownNow 비교</h2>
+
+<table>
+  <thead>
+    <tr><th>동작</th><th>shutdown()</th><th>shutdownNow()</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>새 작업 거부</td><td>O</td><td>O</td></tr>
+    <tr><td>실행 중인 작업</td><td>끝까지 실행</td><td>인터럽트 시도</td></tr>
+    <tr><td>큐에 있는 작업</td><td>모두 실행</td><td>실행 없이 List로 반환</td></tr>
+    <tr><td>반환값</td><td>void</td><td><code>List&lt;Runnable&gt;</code> (취소된 큐 작업)</td></tr>
+    <tr><td>블로킹 여부</td><td>비동기 (즉시 리턴)</td><td>비동기 (즉시 리턴)</td></tr>
+  </tbody>
+</table>
+
+<p>
+  중요한 포인트가 둘 다 <strong>비동기</strong>라는 거예요. <code>shutdown()</code>이 리턴됐다고 해서 ExecutorService가 끝난 게 아니에요. "더 받지 않겠다"고 선언했을 뿐, 이미 시작된 작업이나 큐 작업은 백그라운드에서 계속 돌아가요.
+</p>
+
+<p>
+  정말로 끝났는지 확인하려면 <code>awaitTermination</code>을 불러야 해요.
+</p>
+
+<h2>표준 종료 패턴</h2>
+
+<p>
+  실무에서 자주 보는 패턴이에요. 정중하게 시도하다가 안 되면 강제로 끊는 2단계 구조예요.
+</p>
+
+<pre><code class="language-java">public void shutdown(ExecutorService es) {
+    es.shutdown();    // 1. 새 작업 거부, 기존 작업은 계속
+
+    try {
+        // 2. 일정 시간 기다리기
+        if (!es.awaitTermination(30, TimeUnit.SECONDS)) {
+            // 3. 시간 안에 안 끝나면 강제 종료 시도
+            List&lt;Runnable&gt; pending = es.shutdownNow();
+            log.warn("강제 종료. 취소된 작업 {}개", pending.size());
+
+            // 4. 강제 종료도 시간 좀 더 줘서 확인
+            if (!es.awaitTermination(10, TimeUnit.SECONDS)) {
+                log.error("ExecutorService가 끝까지 안 멈춤");
+            }
+        }
+    } catch (InterruptedException e) {
+        // 5. 우리 자신이 인터럽트되면 즉시 강제 종료
+        es.shutdownNow();
+        Thread.currentThread().interrupt();
+    }
+}</code></pre>
+
+<p>
+  단계별로 정리하면 이래요.
+</p>
+
+<ol>
+  <li><code>shutdown()</code>으로 새 작업을 막고 기존 작업이 자연스럽게 끝나길 기다림</li>
+  <li><code>awaitTermination</code>으로 일정 시간 대기 (보통 30초~60초)</li>
+  <li>안 끝나면 <code>shutdownNow()</code>로 인터럽트를 보내 강제 종료 시도</li>
+  <li>그래도 안 끝나면 로그 남기고 포기 (정상적인 자바 코드라면 여기까지 거의 안 옴)</li>
+  <li>우리 스레드가 인터럽트되면 즉시 shutdownNow + 인터럽트 상태 복원</li>
+</ol>
+
+<h2>shutdownNow의 인터럽트가 의미하는 것</h2>
+
+<p>
+  <code>shutdownNow()</code>는 마법처럼 스레드를 즉시 죽이는 게 아니에요. 실행 중인 각 스레드에 <code>Thread.interrupt()</code>를 호출할 뿐이에요. 이걸 받아서 실제로 멈추는 건 작업 코드의 책임이에요.
+</p>
+
+<pre><code class="language-java">// 인터럽트를 잘 처리하는 작업
+public void runTask() {
+    while (!Thread.currentThread().isInterrupted()) {
+        try {
+            doSomeWork();
+            Thread.sleep(100);    // sleep은 InterruptedException 던짐
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();   // 상태 복원
+            break;
+        }
+    }
+}</code></pre>
+
+<p>
+  작업이 <code>sleep</code>, <code>wait</code>, <code>I/O 블로킹</code> 같이 인터럽트를 받을 수 있는 호출을 안 하면 인터럽트 시그널은 그냥 플래그만 set돼요. 작업이 자기 의지로 <code>isInterrupted()</code>를 확인하지 않으면 멈추지 않아요.
+</p>
+
+<p>
+  무거운 계산 루프를 도는 작업이라면 주기적으로 <code>isInterrupted()</code>를 체크하는 코드를 넣어두세요. 안 그러면 shutdownNow가 와도 작업이 끝까지 계속돼요.
+</p>
+
+<h2>ThreadFactory 커스텀</h2>
+
+<p>
+  ExecutorService를 만들 때 ThreadFactory를 따로 지정 안 하면 기본 팩토리가 쓰여요. 기본은 <code>pool-1-thread-1</code> 같은 이름을 줘요. 로그에서 어떤 풀의 스레드인지 분간이 안 가요.
+</p>
+
+<p>
+  실무 ExecutorService에는 항상 커스텀 ThreadFactory를 붙이는 게 좋아요. 신경 쓸 게 세 가지예요.
+</p>
+
+<ul>
+  <li><strong>이름</strong>: 로그·스레드 덤프에서 알아볼 수 있게. 풀의 역할과 인덱스가 보이도록.</li>
+  <li><strong>데몬 여부</strong>: JVM 종료 시 이 스레드들을 기다릴지 결정. 백그라운드 워커는 데몬, 메인 작업이면 non-daemon.</li>
+  <li><strong>UncaughtExceptionHandler</strong>: 작업 코드에서 안 잡힌 예외가 올라왔을 때 처리.</li>
+</ul>
+
+<pre><code class="language-java">ThreadFactory factory = new ThreadFactory() {
+    private final AtomicInteger counter = new AtomicInteger(0);
+    private final UncaughtExceptionHandler handler = (t, e) -&gt;
+        log.error("uncaught in {}", t.getName(), e);
+
+    @Override
+    public Thread newThread(Runnable r) {
+        Thread t = new Thread(r);
+        t.setName("payment-worker-" + counter.incrementAndGet());
+        t.setDaemon(false);
+        t.setUncaughtExceptionHandler(handler);
+        return t;
+    }
+};
+
+ExecutorService es = new ThreadPoolExecutor(
+    10, 20, 60L, TimeUnit.SECONDS,
+    new ArrayBlockingQueue&lt;&gt;(100),
+    factory,
+    new ThreadPoolExecutor.AbortPolicy()
+);</code></pre>
+
+<p>
+  Guava의 <code>ThreadFactoryBuilder</code>를 쓰면 위 코드를 더 짧게 쓸 수 있어요.
+</p>
+
+<pre><code class="language-java">ThreadFactory factory = new ThreadFactoryBuilder()
+    .setNameFormat("payment-worker-%d")
+    .setDaemon(false)
+    .setUncaughtExceptionHandler((t, e) -&gt;
+        log.error("uncaught in {}", t.getName(), e))
+    .build();</code></pre>
+
+<h2>Spring 환경에서는</h2>
+
+<p>
+  Spring이 있으면 <code>ThreadPoolTaskExecutor</code>나 <code>ThreadPoolTaskScheduler</code>를 쓰는 게 일반적이에요. Lifecycle 관리(<code>@PreDestroy</code>에서 자동 graceful shutdown)와 ThreadFactory 설정을 빈 설정으로 깔끔히 묶을 수 있어요.
+</p>
+
+<pre><code class="language-java">@Bean(destroyMethod = "shutdown")
+public ThreadPoolTaskExecutor paymentExecutor() {
+    ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+    ex.setCorePoolSize(10);
+    ex.setMaxPoolSize(20);
+    ex.setQueueCapacity(100);
+    ex.setThreadNamePrefix("payment-");
+    ex.setWaitForTasksToCompleteOnShutdown(true);
+    ex.setAwaitTerminationSeconds(30);
+    ex.initialize();
+    return ex;
+}</code></pre>
+
+<p>
+  <code>setWaitForTasksToCompleteOnShutdown(true)</code>가 핵심이에요. 이걸 켜면 컨테이너 종료 시 자동으로 graceful 종료 시퀀스를 돌려줘요.
+</p>
+
+<h2>한 줄 요약</h2>
+
+<ul>
+  <li><code>shutdown</code>은 정중한 종료, <code>shutdownNow</code>는 인터럽트 강제 종료. 둘 다 비동기.</li>
+  <li>실제로 끝났는지 확인하려면 <code>awaitTermination</code>으로 기다려야 해요.</li>
+  <li>표준 패턴은 shutdown → 타임아웃 대기 → 안 되면 shutdownNow → 더 짧게 대기.</li>
+  <li>인터럽트는 시그널일 뿐이에요. 작업 코드가 <code>isInterrupted</code>를 체크해야 실제로 멈춰요.</li>
+  <li>운영 ExecutorService는 ThreadFactory에 이름·UncaughtExceptionHandler를 꼭 붙이세요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 Thread 직접 다루기의 문제, Executor 계층, Runnable/Callable, execute/submit, Executors 팩토리의 함정을 봤어요. 2편에서는 shutdown/shutdownNow 비교, 표준 graceful 종료 패턴, 인터럽트의 의미, ThreadFactory 커스텀, Spring 통합을 봤어요.
+</p>
+
+<p>
+  다음은 <code>Future</code> / <code>Callable</code>(Group C 10번)이에요. <code>get()</code>의 블로킹 의미, <code>cancel()</code>의 진짜 효과, timeout 처리 같은 자리를 정리해요.
+</p>
