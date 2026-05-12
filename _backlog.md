@@ -61,7 +61,7 @@
 - [x] ★ 인덱스 — B-Tree부터 Covering까지 (4편)
 - [x] ★ MVCC와 잠금 (3편)
 - [x] ★ N+1과 fetch 전략 (3편)
-- [ ] ★ 정규화 vs 반정규화 (2편)
+- [x] ★ 정규화 vs 반정규화 (2편)
 
 ### Spring 코어 internals
 - [x] ★ Bean 생명주기 완전 분해 (4편)
