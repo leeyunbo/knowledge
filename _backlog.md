@@ -77,7 +77,7 @@
 - [x] ★ HTTP 메소드와 멱등성 (2편)
 - [x] ★ HTTP 상태코드 — 헷갈리는 경계 (2편)
 - [x] ★ TCP 3-way / 4-way handshake — TIME_WAIT까지 (3편)
-- [ ] ★ TCP vs UDP — 어디서 어느 것 (2편)
+- [x] ★ TCP vs UDP — 어디서 어느 것 (2편)
 
 ### 보안
 - [x] ★ OAuth 2.0 / OIDC — Authorization Code부터 PKCE (4편)

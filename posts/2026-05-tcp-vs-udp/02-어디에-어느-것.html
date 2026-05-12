@@ -1,0 +1,135 @@
+---
+title: "TCP와 UDP, 어디에 어느 것을 쓰나"
+subtitle: "HTTP의 진화부터 게임, 스트리밍, DNS까지. 응용 프로토콜이 둘 중 어느 쪽을 고르는지 정리해요."
+dateText: "2026.05.12"
+episode: 2
+episodes: 2
+---
+
+<h2>HTTP의 진화, TCP에서 UDP로</h2>
+
+<p>
+  HTTP는 오랫동안 TCP 위에 있었어요. HTTP/1.1과 HTTP/2까지는 TCP가 기본이에요. 그런데 HTTP/3는 UDP 위에 만들어졌어요. 정확히는 UDP 위에 QUIC이라는 프로토콜을 얹고 그 위에 HTTP/3가 있어요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>버전</th><th>전송 계층</th><th>핵심 특징</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>HTTP/1.1</td><td>TCP</td><td>요청·응답 1:1, Keep-Alive, 헤드 오브 라인 블로킹</td></tr>
+    <tr><td>HTTP/2</td><td>TCP + TLS</td><td>스트림 멀티플렉싱, 헤더 압축. 여전히 TCP HoL 블로킹</td></tr>
+    <tr><td>HTTP/3</td><td>UDP + QUIC</td><td>스트림이 진짜 독립. 0-RTT 재연결. TCP HoL 해소</td></tr>
+  </tbody>
+</table>
+
+<h2>왜 UDP로 갈아탔나: TCP의 헤드 오브 라인 블로킹</h2>
+
+<p>
+  HTTP/2가 TCP 위에 여러 스트림을 다중화했지만, 그 모든 스트림이 한 TCP 연결 위에 있어요. TCP는 바이트 순서를 엄격히 지키니까, 어느 패킷 하나가 잃어버리면 그 뒤로 도착한 다른 스트림 데이터도 같이 멈춰요. "스트림은 독립인데 전송층은 공유"라서 생기는 문제예요. 이걸 <strong>TCP head-of-line(HoL) blocking</strong>이라고 해요.
+</p>
+
+<p>
+  HTTP/3는 이 문제를 풀려고 TCP를 버렸어요. UDP 위에 QUIC를 만들고, QUIC 안에서 각 스트림이 자기 시퀀스 번호를 따로 가져요. 한 스트림에서 패킷이 잃어버려도 다른 스트림은 영향 없이 계속 진행해요.
+</p>
+
+<p>
+  UDP를 쓴 이유는 단순해요. TCP는 OS 커널에 박혀 있어서 새 기능을 넣으려면 OS 업데이트가 필요해요. UDP 위에 사용자 공간(user-space)에서 QUIC을 구현하면 브라우저·서버 업데이트만으로 새 기능을 배포할 수 있어요. 빠른 진화가 가능한 거예요.
+</p>
+
+<h2>실시간 음성·영상에서는 UDP가 정석</h2>
+
+<p>
+  VoIP, 화상회의, 라이브 스트리밍 같은 실시간 미디어는 거의 UDP예요. 이유는 TCP의 재전송이 오히려 방해가 되거든요.
+</p>
+
+<p>
+  영상 통화 중 패킷 하나가 잃어버렸다고 가정해 봐요. TCP라면 그 패킷을 재전송하고 도착할 때까지 기다려요. 그 사이 100ms~500ms 지연이 생기고, 그 뒤 패킷들도 다 밀려요. 사용자가 체감하는 건 "통화가 갑자기 끊기고 한참 뒤에 재개됨"이에요. 차라리 그 한 프레임은 버리고 다음 프레임으로 가는 게 자연스러워요.
+</p>
+
+<p>
+  UDP를 쓰면 "잃은 건 그냥 잃은 거"로 처리하고 다음 패킷이 즉시 도착해요. 영상 품질이 살짝 깨질지언정 지연이 안 쌓여요. 실시간 미디어에서는 신뢰성보다 지연이 더 중요한 자원이에요.
+</p>
+
+<p>
+  WebRTC, RTP/RTCP, SRTP 같은 미디어 프로토콜이 다 UDP 위에 있어요. SIP(VoIP 시그널링)도 보통 UDP예요.
+</p>
+
+<h2>온라인 게임은 UDP가 압도적</h2>
+
+<p>
+  FPS, MOBA, 실시간 멀티플레이 게임도 UDP가 거의 표준이에요. 이유는 영상 통화와 같아요. 1초 전의 위치 정보를 재전송으로 받아봤자 의미가 없어요. 최신 위치 정보 한 번이 오래된 정보 열 번보다 가치 있어요.
+</p>
+
+<p>
+  게임 엔진은 자기 통신 계층에서 "필요한 메시지만 재전송하기"를 직접 구현해요. 예를 들어 "플레이어 움직임"은 잃어도 되지만(곧 새 위치가 옴), "스킬 사용 이벤트"는 한 번만 발생하니 재전송 필요. 이런 선택을 애플리케이션이 직접 해야 하니까 UDP의 백지 캔버스가 유리해요.
+</p>
+
+<h2>DNS는 UDP가 기본, 큰 응답은 TCP</h2>
+
+<p>
+  도메인 이름을 IP로 바꾸는 DNS는 기본이 UDP예요. 이유는 두 가지예요.
+</p>
+
+<ul>
+  <li><strong>오버헤드 최소</strong>: 질의 한 번, 응답 한 번. handshake 비용이 없어요.</li>
+  <li><strong>짧은 메시지</strong>: 대부분 512 bytes 안에 들어가요. UDP 한 패킷으로 충분해요.</li>
+</ul>
+
+<p>
+  다만 응답이 512 bytes를 넘으면 TCP로 떨어져요. DNSSEC처럼 서명까지 포함된 응답이나, DNS zone transfer 같은 큰 데이터가 그래요. 그래서 DNS 서버는 보통 53번 포트로 UDP와 TCP를 둘 다 열어둬요.
+</p>
+
+<p>
+  최근에는 DoH(DNS over HTTPS)나 DoT(DNS over TLS)로 가는 흐름도 있어요. 프라이버시 때문에 평문 UDP에서 암호화된 TCP/QUIC로 옮겨가는 추세예요.
+</p>
+
+<h2>스트리밍, 의외로 TCP가 많아요</h2>
+
+<p>
+  "라이브 스트리밍은 UDP 아닌가?" 싶을 수 있는데, 일반 사용자가 보는 YouTube·Netflix는 거의 TCP(HTTP/2·HTTP/3)예요. 이유는 두 가지예요.
+</p>
+
+<ul>
+  <li><strong>버퍼링이 있음</strong>: 영상이 미리 몇 초씩 버퍼에 쌓여요. 그 안에서 재전송이 일어나도 사용자가 모를 정도의 지연이에요.</li>
+  <li><strong>방화벽·NAT 호환</strong>: TCP/HTTPS는 어디서나 뚫려요. UDP는 회사 방화벽에서 막히는 자리가 있어요.</li>
+</ul>
+
+<p>
+  대신 진짜 실시간 라이브(라이브 방송 송출, 화상회의)는 UDP를 써요. 버퍼링 여유가 없거든요. 일반 시청자가 보는 VOD나 약간의 지연이 허용되는 라이브는 TCP, 정말 즉각 반응이 필요한 인터랙티브 미디어는 UDP를 써요. 이게 큰 그림이에요.
+</p>
+
+<h2>한눈에 정리</h2>
+
+<table>
+  <thead>
+    <tr><th>응용</th><th>주로 쓰는 것</th><th>이유</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>HTTP/1·2</td><td>TCP</td><td>순서·신뢰성 보장 필요</td></tr>
+    <tr><td>HTTP/3</td><td>UDP + QUIC</td><td>스트림 독립성, 빠른 진화</td></tr>
+    <tr><td>SSH, FTP, SMTP</td><td>TCP</td><td>긴 세션, 신뢰성 핵심</td></tr>
+    <tr><td>DNS 질의</td><td>UDP (큰 응답은 TCP)</td><td>오버헤드 최소</td></tr>
+    <tr><td>DHCP</td><td>UDP</td><td>아직 IP가 없어서 TCP 못 씀</td></tr>
+    <tr><td>VoIP, WebRTC</td><td>UDP</td><td>실시간성 &gt; 신뢰성</td></tr>
+    <tr><td>온라인 게임</td><td>UDP</td><td>최신 정보 &gt; 빠짐없는 정보</td></tr>
+    <tr><td>VOD 스트리밍</td><td>TCP (HTTP/HLS/DASH)</td><td>버퍼링 가능, 호환성</td></tr>
+    <tr><td>라이브 방송 송출</td><td>UDP (RTP, SRT)</td><td>버퍼 없는 실시간</td></tr>
+  </tbody>
+</table>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"TCP와 UDP 차이는?"</strong>: 신뢰성·순서·흐름·혼잡 제어 유무. 헤더 크기. 연결 vs 비연결.</li>
+  <li><strong>"왜 HTTP/3는 UDP를 쓰나요?"</strong>: TCP HoL blocking, QUIC의 스트림 독립, OS 종속 없는 진화.</li>
+  <li><strong>"실시간 게임은 왜 UDP?"</strong>: 재전송 비용이 지연을 키움. 최신 정보가 더 가치 있음.</li>
+  <li><strong>"DNS는 왜 UDP?"</strong>: 짧은 메시지, handshake 비용 회피. 큰 응답은 TCP로 폴백.</li>
+  <li><strong>"TCP에 메시지 경계가 없다는 게 무슨 뜻?"</strong>: send 두 번이 한 번 receive로 합쳐질 수 있음. 애플리케이션이 경계를 만들어야 함.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 TCP와 UDP의 기본 차이(연결·신뢰성·순서·흐름·혼잡·헤더·스트림 vs 메시지)와 트레이드오프의 본질을 봤어요. 2편에서는 HTTP의 진화(HTTP/3가 UDP로 간 이유), 실시간 미디어와 게임에서 UDP가 표준인 이유, DNS·스트리밍의 선택 기준, 면접 단골 질문을 정리했어요.
+</p>
