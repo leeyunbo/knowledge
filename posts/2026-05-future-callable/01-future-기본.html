@@ -1,0 +1,218 @@
+---
+title: "Future 기본: 비동기 결과를 받는 약속"
+subtitle: "ExecutorService에 던진 작업의 결과를 받아오는 표준 방법이에요. get()의 블로킹과 타임아웃, 예외 처리까지 같이 봐요."
+dateText: "2026.05.12"
+episode: 1
+episodes: 2
+---
+
+<h2>Future가 푸는 문제</h2>
+
+<p>
+  ExecutorService에 작업을 던지면 별도 스레드에서 비동기로 실행돼요. 그런데 "이 작업이 끝나면 결과를 받고 싶다"는 요구가 자연스럽게 따라와요. 콜러는 작업이 언제 끝나는지 모르는데, 결과는 받아야 하는 자리예요.
+</p>
+
+<p>
+  Future는 이 관계의 표준 인터페이스예요. 작업을 submit하면 즉시 Future가 반환되는데, 이 객체가 "나중에 결과가 도착할 자리"를 미리 예약해 놓은 거예요. 결과가 진짜로 필요해지는 순간 <code>get()</code>으로 꺼내요.
+</p>
+
+<pre><code class="language-java">ExecutorService es = Executors.newFixedThreadPool(4);
+
+Future&lt;String&gt; future = es.submit(() -&gt; {
+    Thread.sleep(2000);
+    return "결과";
+});
+
+// 다른 일 할 시간
+log.info("submit 직후. future 받았음");
+
+// 결과가 필요할 때
+String result = future.get();   // 여기서 블로킹
+log.info("결과: {}", result);</code></pre>
+
+<p>
+  <code>submit</code>은 즉시 반환되고, <code>get</code>이 블로킹이에요. 작업이 끝났으면 즉시 값, 안 끝났으면 끝날 때까지 대기예요.
+</p>
+
+<h2>Future의 메서드</h2>
+
+<p>
+  많지 않아요. 5개가 전부예요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>메서드</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>get()</code></td><td>결과 받기. 끝날 때까지 무한 블로킹</td></tr>
+    <tr><td><code>get(timeout, unit)</code></td><td>결과 받기. 시간 안에 안 끝나면 TimeoutException</td></tr>
+    <tr><td><code>isDone()</code></td><td>끝났는지 여부. 정상 종료·예외·취소 모두 true</td></tr>
+    <tr><td><code>isCancelled()</code></td><td>cancel로 취소됐는지 여부</td></tr>
+    <tr><td><code>cancel(mayInterruptIfRunning)</code></td><td>취소 시도</td></tr>
+  </tbody>
+</table>
+
+<p>
+  핵심은 <code>get</code>이에요. 나머지는 보조 도구예요.
+</p>
+
+<h2>get()의 블로킹과 타임아웃</h2>
+
+<p>
+  <code>get()</code>의 기본 동작은 무한 대기예요. 작업이 한 시간이 걸리면 한 시간을 기다려요. 작업이 영원히 안 끝나면 영원히 기다려요.
+</p>
+
+<p>
+  실무에서 무한 대기는 위험해요. 외부 API 호출이 멈춰버리면 우리 스레드도 영원히 잠겨요. 결과를 안 받으면 응답을 못 보내는 자리라면 사용자가 한참을 기다리다 떠나요. 그래서 <strong>거의 항상 timeout이 있는 get을 쓰는 게 안전</strong>해요.
+</p>
+
+<pre><code class="language-java">try {
+    String result = future.get(3, TimeUnit.SECONDS);
+    return result;
+} catch (TimeoutException e) {
+    future.cancel(true);   // 안 끝났으니 취소 시도
+    throw new ServiceUnavailableException("upstream too slow");
+}</code></pre>
+
+<p>
+  중요한 패턴이에요. TimeoutException이 잡혔으면 작업이 아직 돌고 있다는 뜻이에요. <code>cancel(true)</code>로 인터럽트를 보내 끝내려고 시도해요. 안 그러면 그 작업은 ExecutorService 안에서 계속 자원을 차지해요.
+</p>
+
+<h2>get()이 던지는 예외</h2>
+
+<p>
+  <code>get</code>은 세 가지 예외를 던질 수 있어요.
+</p>
+
+<ul>
+  <li><strong>ExecutionException</strong>: 작업 코드 자체가 예외를 던졌을 때. 원인 예외는 <code>e.getCause()</code>로 꺼내요.</li>
+  <li><strong>InterruptedException</strong>: 우리 스레드(get을 호출한 스레드)가 인터럽트됐을 때.</li>
+  <li><strong>TimeoutException</strong>: timeout 버전에서 시간이 다 됐을 때.</li>
+</ul>
+
+<pre><code class="language-java">try {
+    String result = future.get(3, TimeUnit.SECONDS);
+    return result;
+} catch (TimeoutException e) {
+    future.cancel(true);
+    throw new ServiceUnavailableException("timeout");
+} catch (ExecutionException e) {
+    // 작업 코드의 진짜 예외는 cause에 들어있음
+    Throwable cause = e.getCause();
+    if (cause instanceof IllegalArgumentException) {
+        throw new BadRequestException(cause.getMessage());
+    }
+    throw new RuntimeException("작업 실패", cause);
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+    future.cancel(true);
+    throw new RuntimeException("interrupted");
+}</code></pre>
+
+<p>
+  ExecutionException은 그 자체로는 정보가 없어요. <strong>실제 예외는 항상 cause</strong>에 들어 있어요. 작업 코드가 <code>IllegalArgumentException</code>을 던졌다면 ExecutionException의 cause가 그거예요.
+</p>
+
+<h2>isDone()과 isCancelled() 구분</h2>
+
+<p>
+  헷갈리기 쉬운 두 메서드예요.
+</p>
+
+<ul>
+  <li><strong><code>isDone()</code></strong>: 작업이 "끝난 상태"인지. 정상 완료, 예외 종료, 취소 모두 true가 돼요.</li>
+  <li><strong><code>isCancelled()</code></strong>: 작업이 "취소"됐는지만. 정상 완료·예외 종료는 false예요.</li>
+</ul>
+
+<p>
+  관계로 보면 <code>isDone</code>이 더 넓어요. 다음 조합이 가능해요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>상태</th><th>isDone</th><th>isCancelled</th><th>get() 결과</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>실행 중</td><td>false</td><td>false</td><td>블로킹</td></tr>
+    <tr><td>정상 완료</td><td>true</td><td>false</td><td>값 반환</td></tr>
+    <tr><td>예외로 종료</td><td>true</td><td>false</td><td>ExecutionException</td></tr>
+    <tr><td>취소됨</td><td>true</td><td>true</td><td>CancellationException</td></tr>
+  </tbody>
+</table>
+
+<p>
+  "작업이 끝났냐?"라는 질문에는 <code>isDone</code>, "취소된 거냐?"에는 <code>isCancelled</code>. 둘은 의미가 달라요.
+</p>
+
+<h2>안 쓰는 패턴: isDone 폴링</h2>
+
+<p>
+  Future를 처음 쓰면 이런 패턴이 떠올라요.
+</p>
+
+<pre><code class="language-java">// 비추천 패턴
+while (!future.isDone()) {
+    Thread.sleep(100);   // 100ms마다 확인
+}
+String result = future.get();   // 이미 끝났으니 즉시 반환</code></pre>
+
+<p>
+  보기엔 안전해 보이지만 안 좋아요. CPU도 살짝 쓰고, 작업이 끝난 시점과 우리가 알아채는 시점에 최대 100ms 지연이 생겨요. 그냥 <code>get</code> 하나로 끝나는데 복잡도만 늘리는 셈이에요.
+</p>
+
+<p>
+  <code>isDone</code>의 본래 용도는 다른 자리에요. 여러 Future를 들고 있을 때 끝난 것부터 처리하는 패턴이나, 작업이 끝났는지만 빠르게 확인하고 다른 작업을 하는 자리예요.
+</p>
+
+<h2>여러 Future 동시에: invokeAll, invokeAny</h2>
+
+<p>
+  여러 작업을 동시에 던지고 결과를 한 번에 받고 싶을 때가 있어요. 손으로 Future 리스트를 들고 다니는 대신 ExecutorService의 메서드를 쓰면 깔끔해요.
+</p>
+
+<pre><code class="language-java">List&lt;Callable&lt;String&gt;&gt; tasks = List.of(
+    () -&gt; fetchFromA(),
+    () -&gt; fetchFromB(),
+    () -&gt; fetchFromC()
+);
+
+// invokeAll: 다 끝날 때까지 기다림. 각 Future를 리스트로 반환
+List&lt;Future&lt;String&gt;&gt; futures = es.invokeAll(tasks, 5, TimeUnit.SECONDS);
+for (Future&lt;String&gt; f : futures) {
+    if (f.isCancelled()) {
+        log.warn("타임아웃으로 취소됨");
+        continue;
+    }
+    String result = f.get();
+    // ...
+}
+
+// invokeAny: 가장 먼저 끝나는 결과 하나만. 나머지는 자동 취소
+String first = es.invokeAny(tasks, 5, TimeUnit.SECONDS);</code></pre>
+
+<p>
+  <code>invokeAll</code>은 모든 작업이 끝나길 기다려서 결과 리스트를 줘요. <code>invokeAny</code>는 첫 결과 하나만 받고 나머지는 취소해요. 같은 데이터를 여러 소스에서 받아오는 자리에 invokeAny가 잘 맞아요. fallback 패턴이라고도 해요.
+</p>
+
+<h2>Future의 한계</h2>
+
+<p>
+  Future는 단순하고 깔끔한데, 빠지는 게 있어요.
+</p>
+
+<ul>
+  <li><strong>콜백이 없어요</strong>: "작업 끝나면 이걸 자동 실행해 줘"를 못 해요. 결과를 받으려면 결국 누군가 <code>get</code>으로 블로킹해야 해요.</li>
+  <li><strong>합성이 어려워요</strong>: "Future A가 끝나면 그 결과로 Future B 시작"이 직접적으로 안 돼요. 손으로 엮어야 해요.</li>
+  <li><strong>여러 Future를 모아 처리하기 까다로워요</strong>: invokeAll/invokeAny가 있긴 하지만, 더 복잡한 조합(예: "A와 B 둘 다 끝나면 C")은 손으로 짜야 해요.</li>
+</ul>
+
+<p>
+  자바 8에서 등장한 <code>CompletableFuture</code>가 이 한계를 풀어요. <code>thenApply</code>, <code>thenCompose</code>, <code>allOf</code>, <code>anyOf</code> 같은 메서드로 콜백·합성·조합을 다 표현할 수 있어요. CompletableFuture는 Future의 확장판이라 볼 수 있어요. 다만 충분히 큰 주제라 별도 시리즈(Level 3)에서 다룰 예정이에요. 여기선 "Future로 부족하면 CompletableFuture가 답"이라는 것만 기억하면 충분해요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 <code>cancel()</code>의 진짜 의미를 깊이 봐요. <code>mayInterruptIfRunning</code>이 true/false일 때 차이, "취소를 부탁한다고 작업이 멈추는 게 아니다"라는 함정, 인터럽트를 받지 않는 작업의 처리 같은 자리들이에요.
+</p>

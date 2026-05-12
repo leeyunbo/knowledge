@@ -35,7 +35,7 @@
 #### Group C — 스레드풀 (초록)
 - [x] 8. `ExecutorService` — Runnable vs Callable, `Executors` 팩토리 함정 (2편)
 - [x] ★ 9. `ThreadPoolExecutor` 7인자 — core/max, queue, RejectedHandler (4편)
-- [ ] 10. `Future` / `Callable` — `get()` 블로킹, `cancel()`의 진짜 의미 (2편)
+- [x] 10. `Future` / `Callable` — `get()` 블로킹, `cancel()`의 진짜 의미 (2편)
 - [ ] ★ 11. 풀 사이징 이론 — CPU vs I/O bound, Little's Law (2편)
 
 #### Group D — 큐와 생산자/소비자 (주황)

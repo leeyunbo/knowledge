@@ -1,0 +1,202 @@
+---
+title: "cancel()의 진짜 의미: 취소는 부탁일 뿐"
+subtitle: "cancel(true)를 부르면 작업이 즉시 멈춘다는 오해를 풀어요. 인터럽트의 한계, 취소 가능한 작업을 어떻게 짜는지까지."
+dateText: "2026.05.12"
+episode: 2
+episodes: 2
+---
+
+<h2>cancel은 무엇을 하나</h2>
+
+<p>
+  <code>future.cancel(mayInterruptIfRunning)</code>의 동작은 작업이 어느 단계냐에 따라 달라요. 세 가지 경우가 있어요.
+</p>
+
+<ol>
+  <li><strong>아직 시작 안 함</strong> (큐에서 대기 중): 그냥 큐에서 제거돼요. 작업 자체는 실행되지 않고, 항상 성공해요.</li>
+  <li><strong>이미 끝남</strong>: 아무 일도 안 일어나고 false를 반환해요.</li>
+  <li><strong>실행 중</strong>: <code>mayInterruptIfRunning</code>에 따라 다름. 이게 핵심이에요.</li>
+</ol>
+
+<h2>mayInterruptIfRunning = false</h2>
+
+<p>
+  실행 중인 작업에는 <strong>아무 영향도 주지 않아요</strong>. 그저 Future를 "취소된 것으로 마킹"만 해요. 작업은 계속 돌고, 끝나도 결과는 버려져요.
+</p>
+
+<pre><code class="language-java">Future&lt;String&gt; f = es.submit(() -&gt; heavyWork());
+// ... 시간이 지남 ...
+f.cancel(false);   // 작업은 계속 돌고 있음, 결과만 버림</code></pre>
+
+<p>
+  이게 유용한 자리는 "결과는 더 이상 필요 없지만 작업을 굳이 멈출 필요는 없는" 경우예요. 예를 들어 검색 결과를 받는 도중 사용자가 페이지를 떠났을 때. 작업이 끝까지 돌게 두고 결과만 무시하면 충분한 자리.
+</p>
+
+<h2>mayInterruptIfRunning = true</h2>
+
+<p>
+  실행 중인 스레드에 <code>Thread.interrupt()</code>를 호출해요. 인터럽트 시그널을 보내는 거예요. 그리고 Future를 취소 상태로 마킹해요.
+</p>
+
+<pre><code class="language-java">Future&lt;String&gt; f = es.submit(() -&gt; heavyWork());
+// ... 시간이 지남 ...
+f.cancel(true);   // 인터럽트 보냄, 결과 버림</code></pre>
+
+<p>
+  주의할 점이 있어요. <strong>인터럽트는 부탁일 뿐</strong>이에요. 받는 쪽 작업 코드가 인터럽트를 처리해 줘야 진짜로 멈춰요. 안 그러면 인터럽트 플래그만 set되고 작업은 계속 돌아요.
+</p>
+
+<h2>인터럽트가 안 듣는 작업</h2>
+
+<p>
+  다음 코드는 cancel(true)를 받아도 안 멈춰요.
+</p>
+
+<pre><code class="language-java">// cancel을 받아도 멈추지 않는 작업
+Callable&lt;Long&gt; task = () -&gt; {
+    long sum = 0;
+    for (long i = 0; i &lt; Long.MAX_VALUE; i++) {
+        sum += i * i;
+    }
+    return sum;
+};</code></pre>
+
+<p>
+  계산 루프는 인터럽트 플래그를 확인하는 코드가 없어요. <code>cancel(true)</code>로 인터럽트 시그널이 와도 그냥 무시당해요. 작업이 끝까지 돌아요.
+</p>
+
+<p>
+  반대로 다음은 cancel을 잘 받아들여요.
+</p>
+
+<pre><code class="language-java">// cancel을 받으면 멈추는 작업
+Callable&lt;Long&gt; task = () -&gt; {
+    long sum = 0;
+    for (long i = 0; i &lt; Long.MAX_VALUE; i++) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException();
+        }
+        sum += i * i;
+    }
+    return sum;
+};</code></pre>
+
+<p>
+  <code>isInterrupted()</code>를 주기적으로 체크해요. true면 예외를 던져서 빠져나와요. 이게 cancel-가능한 작업의 표준 패턴이에요.
+</p>
+
+<h2>블로킹 호출은 인터럽트에 자동 반응</h2>
+
+<p>
+  손으로 isInterrupted를 체크하지 않아도 인터럽트에 자동 반응하는 호출들이 있어요. 자바 표준의 블로킹 메서드들이에요.
+</p>
+
+<ul>
+  <li><code>Thread.sleep</code></li>
+  <li><code>Object.wait</code>, <code>Condition.await</code></li>
+  <li><code>Lock.lockInterruptibly</code></li>
+  <li><code>BlockingQueue.put</code>, <code>BlockingQueue.take</code></li>
+  <li><code>Future.get</code></li>
+  <li><code>CountDownLatch.await</code></li>
+</ul>
+
+<p>
+  이런 메서드들은 인터럽트를 받으면 즉시 <code>InterruptedException</code>을 던져요. 그래서 sleep을 자주 부르는 작업은 cancel에 잘 반응해요.
+</p>
+
+<pre><code class="language-java">// 이런 작업은 cancel(true)에 잘 반응함
+Callable&lt;Void&gt; pollTask = () -&gt; {
+    while (true) {
+        String item = queue.take();   // 블로킹. 인터럽트되면 InterruptedException
+        process(item);
+    }
+};</code></pre>
+
+<h2>I/O는 그대로 안 풀려요</h2>
+
+<p>
+  애매한 자리가 있어요. 표준 <code>InputStream.read</code>, 소켓 읽기 같은 <strong>I/O 블로킹은 일반적인 인터럽트로 안 풀려요</strong>. 인터럽트 플래그만 set되고 read는 계속 막혀 있어요.
+</p>
+
+<p>
+  자바 NIO의 <code>InterruptibleChannel</code>은 인터럽트에 반응해요. Closeable 인터페이스의 <code>close()</code>를 외부에서 호출하면 read가 풀려요. 이런 자리에선 작업 코드를 짤 때 인터럽트 신호를 받으면 채널을 닫는 try-catch를 직접 두르는 게 표준이에요.
+</p>
+
+<pre><code class="language-java">// I/O 작업에서 cancel 가능하게 만들기
+Callable&lt;String&gt; readTask = () -&gt; {
+    InputStream in = connection.getInputStream();
+    Thread t = Thread.currentThread();
+
+    // 인터럽트 들으면 채널 닫는 별도 로직
+    // (Spring의 RestTemplate이나 OkHttp 같은 라이브러리는 자체적으로 이걸 처리)
+
+    try {
+        return readAllBytes(in);
+    } catch (IOException e) {
+        if (t.isInterrupted()) {
+            throw new InterruptedException();
+        }
+        throw e;
+    }
+};</code></pre>
+
+<p>
+  실무에서는 외부 호출 라이브러리(<code>HttpClient</code>, <code>OkHttp</code>, JDBC 드라이버 등)가 인터럽트를 어떻게 처리하는지 확인해 두는 게 좋아요. 라이브러리마다 인터럽트 대응이 다 달라요.
+</p>
+
+<h2>취소 가능한 작업의 패턴</h2>
+
+<p>
+  지금까지 본 걸 한 번에 정리하면 이래요. cancel에 잘 반응하는 작업을 짤 때 신경 쓸 부분.
+</p>
+
+<ol>
+  <li><strong>장시간 루프</strong>는 <code>isInterrupted()</code>를 주기적으로 체크. 보통 매 반복 또는 100~1000회마다.</li>
+  <li><strong>블로킹 호출</strong>은 <code>InterruptedException</code>이 던져지면 그걸 위로 던지거나 작업 종료 처리.</li>
+  <li><strong>InterruptedException catch</strong> 시에는 <code>Thread.currentThread().interrupt()</code>로 상태 복원.</li>
+  <li><strong>I/O 블로킹</strong>이 있으면 자체적으로 채널을 닫는 메커니즘 필요. 라이브러리 동작 확인.</li>
+  <li><strong>리소스 해제</strong>는 try-finally 안에서. 인터럽트로 빠져나갈 때도 정리되도록.</li>
+</ol>
+
+<h2>cancel 결과를 어떻게 확인하나</h2>
+
+<p>
+  <code>cancel</code>의 반환값은 단순해요. true는 "취소 시도 가능했음", false는 "이미 끝났거나 취소 못 함"이에요. 그런데 <strong>true가 작업이 실제로 멈췄다는 보장은 아니에요</strong>. mayInterruptIfRunning=true로 인터럽트를 보냈을 뿐, 작업이 응답할지는 작업 코드 책임이에요.
+</p>
+
+<p>
+  진짜 끝났는지 확인하려면 그 Future에 <code>get</code>을 호출해서 <code>CancellationException</code>이 잡히는지 보거나, <code>isDone()</code>이 true인지 확인해야 해요.
+</p>
+
+<pre><code class="language-java">future.cancel(true);
+
+// 작업이 실제로 정리될 때까지 기다리려면
+try {
+    future.get(1, TimeUnit.SECONDS);
+} catch (CancellationException e) {
+    log.info("정상적으로 취소됨");
+} catch (TimeoutException e) {
+    log.warn("취소 요청 후에도 작업이 안 끝남. 라이브러리 인터럽트 응답을 확인하세요");
+} catch (Exception e) {
+    // ...
+}</code></pre>
+
+<h2>한 줄 요약</h2>
+
+<ul>
+  <li><code>cancel(false)</code>: 결과만 버림. 작업은 그대로 돔.</li>
+  <li><code>cancel(true)</code>: 인터럽트 보냄. 작업이 받아주면 멈춤.</li>
+  <li>장시간 루프는 <code>isInterrupted()</code> 체크. 블로킹 호출은 InterruptedException 처리.</li>
+  <li>I/O는 자동으로 안 풀려요. 채널 close 메커니즘 필요.</li>
+  <li>cancel 후 정말 멈췄는지는 별도 확인해야 해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 Future의 정체, <code>get()</code>의 블로킹과 타임아웃, 예외 처리, isDone/isCancelled 구분, invokeAll/invokeAny, Future의 한계를 봤어요. 2편에서는 cancel의 세 경우, mayInterruptIfRunning의 의미, 인터럽트가 듣지 않는 작업, I/O 블로킹의 까다로움, 취소 가능한 작업을 짜는 5가지 원칙을 봤어요.
+</p>
+
+<p>
+  다음은 Group C의 마지막, <code>풀 사이징 이론</code>(11번)이에요. corePoolSize와 maximumPoolSize를 몇으로 잡아야 하는지, CPU bound와 I/O bound에서 공식이 어떻게 달라지는지를 정리해요.
+</p>
