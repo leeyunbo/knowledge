@@ -1,0 +1,158 @@
+---
+title: "TLS Handshake: ClientHello부터 Application Data까지"
+subtitle: "TLS 1.3의 1-RTT 핸드셰이크와 1.2의 2-RTT를 비교해요. 0-RTT 재연결까지."
+dateText: "2026.05.12"
+episode: 2
+episodes: 3
+---
+
+<h2>왜 handshake가 필요한가</h2>
+
+<p>
+  TLS 통신이 시작되려면 양쪽이 합의해야 할 게 많아요.
+</p>
+
+<ul>
+  <li>어떤 TLS 버전을 쓸지</li>
+  <li>어떤 암호 알고리즘 모음(cipher suite)을 쓸지</li>
+  <li>서버를 어떻게 인증할지 (인증서 검증)</li>
+  <li>대칭키 암호화에 쓸 공통 비밀 키를 어떻게 만들지 (ECDHE)</li>
+  <li>각 사이드의 ephemeral 키 교환</li>
+</ul>
+
+<p>
+  이걸 다 하는 게 handshake예요. TLS 1.2는 보통 2-RTT, TLS 1.3은 1-RTT로 줄였어요. 0-RTT 재연결도 가능해요.
+</p>
+
+<h2>TLS 1.3의 1-RTT handshake</h2>
+
+<p>
+  TLS 1.3 기준으로 흐름을 보면 이래요.
+</p>
+
+<svg viewBox="0 0 580 320" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:560px; margin:1.5rem auto;">
+  <text x="60" y="25" font-family="JetBrains Mono" font-size="11" fill="currentColor">Client</text>
+  <text x="510" y="25" font-family="JetBrains Mono" font-size="11" fill="currentColor">Server</text>
+  <line x1="80" y1="40" x2="80" y2="290" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+  <line x1="520" y1="40" x2="520" y2="290" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 85 65 L 515 65" marker-end="url(#tlsarr)"/>
+    <text x="300" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">1. ClientHello (cipher list, key share, SNI)</text>
+  </g>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 515 110 L 85 110" marker-end="url(#tlsarr)"/>
+    <text x="300" y="103" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">2. ServerHello + Certificate + Finished</text>
+  </g>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 85 155 L 515 155" marker-end="url(#tlsarr)"/>
+    <text x="300" y="148" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">3. ChangeCipherSpec + Finished</text>
+  </g>
+
+  <line x1="40" y1="180" x2="560" y2="180" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+  <text x="300" y="200" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor" font-weight="600">1 RTT 완료. 이제 암호화 통신 가능</text>
+
+  <g stroke="currentColor" stroke-width="1.4" fill="none">
+    <path d="M 85 230 L 515 230" marker-end="url(#tlsarr)"/>
+    <text x="300" y="223" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Application Data (HTTP request)</text>
+  </g>
+
+  <g stroke="currentColor" stroke-width="1.4" fill="none">
+    <path d="M 515 270 L 85 270" marker-end="url(#tlsarr)"/>
+    <text x="300" y="263" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Application Data (HTTP response)</text>
+  </g>
+
+  <defs>
+    <marker id="tlsarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<p>
+  단계별로 정리하면 이래요.
+</p>
+
+<ol>
+  <li><strong>ClientHello</strong>: 클라이언트가 자기가 지원하는 TLS 버전, cipher suite 목록, 자기 ECDHE 공개 키 후보(key share), SNI(어느 도메인에 접속하는지) 등을 보내요.</li>
+  <li><strong>ServerHello</strong>: 서버가 cipher suite를 골라서 회신하고, 자기 ECDHE 공개 키를 보내요. 같은 메시지에 <strong>Certificate</strong>(서버 인증서)와 그 인증서의 비밀 키로 서명한 <strong>CertificateVerify</strong>, 마지막으로 <strong>Finished</strong>까지 묶어 보내요.</li>
+  <li><strong>Client → Finished</strong>: 클라이언트가 서버 인증서를 검증하고, 자기 쪽 ECDHE 비밀 키를 사용해 공통 비밀(master secret)을 계산해요. <code>ChangeCipherSpec</code>(이제 암호화 통신 시작)과 <code>Finished</code>를 보내요.</li>
+  <li>이제 양쪽이 같은 공통 비밀을 가졌고, 대칭키 암호화로 <strong>Application Data</strong>(HTTP 요청/응답)를 주고받아요.</li>
+</ol>
+
+<p>
+  포인트는 클라이언트가 ClientHello에 <strong>key share를 미리 포함</strong>해 보낸다는 거예요. 서버는 그걸 받자마자 자기 ECDHE 키와 합쳐서 공통 비밀을 만들 수 있어요. 그래서 별도 키 교환 라운드가 필요 없고 1-RTT로 끝나요.
+</p>
+
+<h2>TLS 1.2의 2-RTT</h2>
+
+<p>
+  TLS 1.2는 cipher suite 협상과 키 교환이 분리돼 있었어요.
+</p>
+
+<ol>
+  <li><strong>ClientHello</strong>: 지원 버전·cipher suite 목록. (key share 없음)</li>
+  <li><strong>ServerHello + Certificate + ServerKeyExchange + ServerHelloDone</strong>: 서버가 cipher suite 고름, 인증서 보냄, 자기 ECDHE 공개 키 보냄.</li>
+  <li><strong>ClientKeyExchange + ChangeCipherSpec + Finished</strong>: 클라이언트가 자기 ECDHE 공개 키 보냄, 암호화 시작.</li>
+  <li><strong>ServerFinished</strong>: 서버가 마지막 확인.</li>
+</ol>
+
+<p>
+  실제 데이터를 보내려면 ClientHello → ServerHelloDone(1 RTT) → ClientFinished/ServerFinished(2 RTT) 다음이에요. RTT가 100ms면 200ms를 그냥 handshake에 써요. TLS 1.3은 이걸 절반으로 줄였어요.
+</p>
+
+<h2>0-RTT: 재연결 때 데이터까지 같이</h2>
+
+<p>
+  TLS 1.3은 한 번 연결한 적 있는 서버에는 0-RTT로 재연결할 수 있어요. PSK(pre-shared key)를 이전 세션에서 받아두고, 다음 연결의 ClientHello에 PSK로 암호화한 초기 데이터(early data)를 함께 보내요. 서버는 첫 패킷에서 PSK를 확인하면 즉시 응답을 시작해요.
+</p>
+
+<p>
+  RTT가 0이라는 건 첫 패킷에 HTTP 요청까지 같이 실어 보낼 수 있다는 의미예요. 모바일에서 사이트 재방문 속도가 눈에 띄게 빨라지는 이유 중 하나예요.
+</p>
+
+<p>
+  다만 0-RTT 데이터는 <strong>재전송 공격에 취약</strong>해요. 도청자가 그 패킷을 그대로 다시 보내면 서버는 또 처리해요. 그래서 멱등 요청(GET 같은)만 0-RTT로 보내고, 결제 같은 비멱등 요청은 풀 handshake 뒤에 보내는 게 표준이에요.
+</p>
+
+<h2>Cipher Suite 읽는 법</h2>
+
+<p>
+  cipher suite 이름은 처음 보면 외계어 같아요. <code>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</code> 같은 거. 분해하면 이래요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>위치</th><th>역할</th><th>예시</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>TLS_</td><td>프로토콜 식별</td><td>TLS</td></tr>
+    <tr><td>키 교환</td><td>공통 비밀 만드는 방법</td><td>ECDHE, RSA, DH</td></tr>
+    <tr><td>인증서 종류</td><td>서버 인증 알고리즘</td><td>RSA, ECDSA</td></tr>
+    <tr><td>WITH_</td><td>구분자</td><td>WITH</td></tr>
+    <tr><td>대칭키 알고리즘</td><td>본문 암호화</td><td>AES_128_GCM, CHACHA20_POLY1305</td></tr>
+    <tr><td>해시</td><td>handshake 메시지 무결성</td><td>SHA256, SHA384</td></tr>
+  </tbody>
+</table>
+
+<p>
+  TLS 1.3에서는 더 간단해졌어요. cipher suite가 키 교환·인증서 부분과 분리돼서 <code>TLS_AES_128_GCM_SHA256</code>처럼 5개만 남아요. 키 교환과 서명은 별도로 협상해요.
+</p>
+
+<h2>SNI: 가상호스팅의 필수 조각</h2>
+
+<p>
+  한 IP에 여러 도메인이 호스팅되는 경우(거의 모든 클라우드 환경) 서버는 클라이언트가 어느 도메인의 인증서를 원하는지 알아야 해요. ClientHello에 평문으로 <strong>SNI(Server Name Indication)</strong>가 들어가요. "지금 <code>api.example.com</code>으로 접속하는 거야"를 알려주는 거예요.
+</p>
+
+<p>
+  SNI는 평문이라 도청자가 어떤 도메인에 접속 중인지 알 수 있어요. 프라이버시 문제. ESNI나 ECH(Encrypted Client Hello)로 이걸 암호화하는 표준이 진행 중이에요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편에서는 인증서의 실제 모습과 운영을 봐요. Let's Encrypt 같은 무료 발급, 자동 갱신, 인증서 만료 사고, OCSP/CRL 같은 폐기 메커니즘, 그리고 자주 만나는 인증서 에러의 의미를 정리해요.
+</p>

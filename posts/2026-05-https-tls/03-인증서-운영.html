@@ -1,0 +1,171 @@
+---
+title: "인증서 운영: 발급, 갱신, 폐기, 그리고 자주 만나는 에러"
+subtitle: "Let's Encrypt 자동 갱신부터 OCSP, mTLS, 인증서 만료 사고까지. 실무에서 진짜 만나는 자리예요."
+dateText: "2026.05.12"
+episode: 3
+episodes: 3
+---
+
+<h2>인증서를 어떻게 발급받나</h2>
+
+<p>
+  CA가 인증서를 발급할 때 핵심 질문은 "이 도메인이 정말 발급 요청자 것이냐?"예요. 이걸 확인하는 게 <strong>도메인 검증(Domain Validation, DV)</strong>이에요. 세 가지 방법이 표준이에요.
+</p>
+
+<ul>
+  <li><strong>HTTP-01</strong>: 도메인의 특정 경로(<code>/.well-known/acme-challenge/...</code>)에 CA가 지정한 토큰을 올려두면 CA가 HTTP로 확인.</li>
+  <li><strong>DNS-01</strong>: 도메인 DNS에 특정 TXT 레코드를 추가하면 CA가 확인.</li>
+  <li><strong>TLS-ALPN-01</strong>: TLS handshake 중 특정 응답을 통해 확인.</li>
+</ul>
+
+<p>
+  실무에서 가장 흔한 게 HTTP-01과 DNS-01이에요. DNS-01은 와일드카드 인증서(<code>*.example.com</code>) 발급에 필요해요.
+</p>
+
+<h2>Let's Encrypt와 ACME</h2>
+
+<p>
+  Let's Encrypt가 등장하면서 인증서 비용이 사실상 0이 됐어요. ACME 프로토콜로 자동화돼 있어서 사람이 손으로 발급받을 일이 거의 없어요.
+</p>
+
+<pre><code class="language-bash">// Certbot 한 줄로 발급
+certbot certonly --dns-cloudflare \
+  -d example.com -d '*.example.com'</code></pre>
+
+<p>
+  발급, 갱신, 만료 알림까지 자동화돼요. 인증서 유효 기간이 짧아요(보통 90일). 짧은 기간은 의도된 설계예요. 자동화를 강제하고, 키 유출 시 노출 시간을 줄이려는 거예요.
+</p>
+
+<h2>인증서 만료: 모든 운영 팀의 악몽</h2>
+
+<p>
+  인증서 만료로 서비스가 죽는 사고가 의외로 자주 일어나요. 이유는 단순해요.
+</p>
+
+<ul>
+  <li>1~2년짜리 인증서를 받고 잊어버림.</li>
+  <li>갱신 자동화가 깨졌는데 모니터링도 없어요.</li>
+  <li>새 직원이 들어와서 보니 "이 인증서는 어디서 발급한 거지?" 추적할 수 없어요.</li>
+  <li>서비스 분리하면서 인증서 관리 책임이 사라짐.</li>
+</ul>
+
+<p>
+  방어 방법이 몇 가지예요.
+</p>
+
+<ol>
+  <li><strong>자동 갱신을 기본</strong>: Certbot의 cron, AWS ACM의 자동 갱신, Caddy 같은 자동화 도구.</li>
+  <li><strong>만료 모니터링</strong>: 30일 전에 알람. Pingdom, Datadog, 내부 스크립트 등.</li>
+  <li><strong>짧은 유효 기간</strong>: 1년짜리보다 90일짜리가 안전. 짧으면 자동화가 강제되니까.</li>
+</ol>
+
+<p>
+  인증서 만료 사고는 코드 버그가 아니라 운영 문제예요. CI/CD처럼 시스템이 알아서 굴러가게 만들어야 해요.
+</p>
+
+<h2>인증서 폐기: OCSP와 CRL</h2>
+
+<p>
+  키가 유출됐을 때 인증서를 무효화하는 메커니즘이 필요해요. 두 가지가 있어요.
+</p>
+
+<ul>
+  <li><strong>CRL (Certificate Revocation List)</strong>: CA가 폐기된 인증서 시리얼 번호 리스트를 주기적으로 게시. 클라이언트가 다운받아서 확인. 리스트가 점점 커지는 게 문제예요.</li>
+  <li><strong>OCSP (Online Certificate Status Protocol)</strong>: 클라이언트가 매 연결마다 CA에 "이 인증서 유효한가?" 질의. CA가 즉시 응답.</li>
+</ul>
+
+<p>
+  OCSP가 더 실시간이지만 매 연결마다 CA에 질의하는 게 부담이에요. 클라이언트는 느리고, CA는 트래픽 폭주. 그래서 <strong>OCSP Stapling</strong>이 등장했어요.
+</p>
+
+<p>
+  서버가 미리 CA에 OCSP 응답을 받아두고, TLS handshake 때 인증서와 함께 클라이언트에 전달해요. 클라이언트는 CA에 직접 안 묻고 stapled 응답을 검증해요. 빠르고 프라이버시도 좋아요(어느 사이트에 접속 중인지 CA가 모름).
+</p>
+
+<h2>mTLS: 클라이언트도 인증</h2>
+
+<p>
+  기본 TLS는 서버만 인증해요. <strong>mTLS(Mutual TLS)</strong>는 클라이언트도 자기 인증서를 제시해서 양쪽이 서로 검증해요.
+</p>
+
+<p>
+  mTLS가 등장하는 자리는 보통 이래요.
+</p>
+
+<ul>
+  <li><strong>서비스 메시 내부 통신</strong>: Istio, Linkerd 같은 환경에서 마이크로서비스 사이에. 서비스 ID를 인증서로 표현.</li>
+  <li><strong>B2B API</strong>: 파트너 회사 시스템만 호출 가능해야 할 때.</li>
+  <li><strong>관리자 전용 인터페이스</strong>: VPN을 대체하는 자리예요.</li>
+</ul>
+
+<p>
+  Nginx 설정 예시예요.
+</p>
+
+<pre><code class="language-bash">// nginx.conf 일부
+server {
+    listen 443 ssl;
+    ssl_certificate     /path/to/server.crt;
+    ssl_certificate_key /path/to/server.key;
+
+    ssl_client_certificate /path/to/ca.crt;
+    ssl_verify_client      on;     // 클라이언트 인증서 필수
+}</code></pre>
+
+<p>
+  클라이언트 인증서는 별도 CA(보통 회사 내부 PKI)가 발급해요. 외부 공인 CA를 안 써도 돼요.
+</p>
+
+<h2>자주 만나는 에러</h2>
+
+<table>
+  <thead>
+    <tr><th>에러</th><th>의미</th><th>흔한 원인</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>CERT_HAS_EXPIRED</code></td><td>인증서 만료</td><td>자동 갱신 실패</td></tr>
+    <tr><td><code>UNABLE_TO_VERIFY_LEAF_SIGNATURE</code></td><td>체인이 안 닿음</td><td>Intermediate 인증서 누락</td></tr>
+    <tr><td><code>SELF_SIGNED_CERT_IN_CHAIN</code></td><td>자체 서명 인증서</td><td>개발용 인증서를 운영에. 회사 내부 PKI 미신뢰</td></tr>
+    <tr><td><code>HOSTNAME_MISMATCH</code></td><td>SNI와 인증서 도메인 불일치</td><td>잘못된 vhost. SAN에 도메인 누락</td></tr>
+    <tr><td><code>UNKNOWN_ISSUER</code></td><td>발급 CA를 신뢰 안 함</td><td>회사 내부 CA를 OS에 등록 안 했음</td></tr>
+    <tr><td><code>TLS_HANDSHAKE_TIMEOUT</code></td><td>handshake 진행 중 타임아웃</td><td>방화벽, 잘못된 포트, 서버 과부하</td></tr>
+  </tbody>
+</table>
+
+<p>
+  특히 <strong>"체인이 안 닿음"</strong> 에러가 운영에서 가장 자주 나와요. 서버가 leaf 인증서만 보내고 Intermediate를 안 보낼 때 생겨요. <code>fullchain.pem</code>(leaf + intermediate)을 보내야 해요. <code>cert.pem</code>(leaf만)이 아니라.
+</p>
+
+<h2>HSTS: HTTP로 다시 떨어지는 걸 막기</h2>
+
+<p>
+  HTTPS가 좋다고 해도 사용자가 처음에 <code>http://</code>로 들어오면 거기서 가로채기가 가능해요. HSTS(HTTP Strict Transport Security)는 서버가 응답 헤더로 "이 도메인은 앞으로 HTTPS로만 와"를 선언해요.
+</p>
+
+<pre><code class="language-bash">// 응답 헤더
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</code></pre>
+
+<p>
+  한 번 받으면 브라우저가 그 max-age 동안 기억해요. 사용자가 <code>http://...</code> 입력해도 브라우저가 알아서 HTTPS로 보내요. <code>preload</code> 옵션은 브라우저에 미리 박혀 있는 HSTS 리스트(<code>hstspreload.org</code>)에 등록해서 처음 접속부터 HTTPS로 강제해요.
+</p>
+
+<h2>한 줄 요약</h2>
+
+<ul>
+  <li>Let's Encrypt + ACME로 인증서가 무료·자동.</li>
+  <li>만료는 운영 문제. 모니터링과 자동 갱신이 답이에요.</li>
+  <li>폐기는 OCSP Stapling이 표준이에요.</li>
+  <li>체인 누락 에러는 <code>fullchain.pem</code>을 보내라.</li>
+  <li>mTLS는 양방향 인증이에요. 서비스 메시·B2B에서 등장해요.</li>
+  <li>HSTS로 HTTPS 강제. preload까지 가면 완벽해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 TLS가 보장하는 세 가지(기밀·무결성·인증)와 ECDHE, AEAD, CA 체인의 원리를 봤어요. 2편에서는 TLS 1.3 handshake 1-RTT 흐름, 1.2와의 차이, 0-RTT 재연결, cipher suite 분해, SNI를 봤어요. 3편에서는 ACME 자동 발급, 만료 운영, OCSP 폐기, mTLS, 자주 만나는 인증서 에러, HSTS를 정리했어요.
+</p>
+
+<p>
+  HTTPS는 새로 배울 게 아니라 HTTP에 TLS를 얹은 것일 뿐인데, TLS는 충분히 깊은 주제예요. 면접에선 "TLS handshake 설명해 보세요", "Forward Secrecy가 뭐예요", "OCSP Stapling이 왜 필요한가요" 같은 자리가 자주 나와요.
+</p>

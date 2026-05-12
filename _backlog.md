@@ -164,7 +164,7 @@
 
 ### HTTP/네트워크
 - [x] HTTP/1.1 → HTTP/2 → HTTP/3 (4편)
-- [ ] HTTPS / TLS handshake (3편)
+- [x] ★ HTTPS / TLS handshake (3편) — P1에서 승격
 - [ ] DNS 동작 — 재귀 vs 반복 (2편)
 - [ ] Cookie / Session / Token — 트레이드오프 (3편)
 - [x] HTTP Connection Pool 튜닝 (3편)
