@@ -1,0 +1,164 @@
+---
+title: "REST의 진짜 의미: 6가지 제약 조건"
+subtitle: "Fielding 논문에서 정의한 REST는 우리가 흔히 부르는 REST와 다르다는 사실부터 정리해요."
+dateText: "2026.05.12"
+episode: 1
+episodes: 3
+---
+
+<h2>REST는 프로토콜이 아니에요</h2>
+
+<p>
+  많은 사람이 "REST API"를 "HTTP + JSON으로 동사 없는 URL을 쓰는 것"으로 알고 있어요. 실은 그건 REST의 표면만 본 거예요. Roy Fielding이 2000년 박사 논문에서 정의한 REST는 <strong>여섯 가지 아키텍처 제약(architectural constraints)</strong>을 만족하는 분산 시스템 스타일이에요.
+</p>
+
+<p>
+  이 6가지를 다 만족해야 진짜 REST고, 일부만 만족하면 "RESTish" 또는 "HTTP API"라고 부르는 게 정확해요. 실무에서 우리가 "REST API"라고 부르는 것의 90% 이상은 사실 RESTish예요.
+</p>
+
+<h2>6가지 제약</h2>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>제약</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>Client-Server</td><td>UI와 데이터 저장소 분리</td></tr>
+    <tr><td>2</td><td>Stateless</td><td>요청에 필요한 모든 정보가 포함</td></tr>
+    <tr><td>3</td><td>Cacheable</td><td>응답이 캐시 가능 여부를 명시</td></tr>
+    <tr><td>4</td><td>Layered System</td><td>중간 계층(프록시·CDN) 투명</td></tr>
+    <tr><td>5</td><td>Uniform Interface</td><td>네 가지 하위 제약: 자원 식별·표현 조작·자체 설명 메시지·HATEOAS</td></tr>
+    <tr><td>6</td><td>Code-on-Demand (선택)</td><td>서버가 클라이언트 코드 전송 가능</td></tr>
+  </tbody>
+</table>
+
+<h2>1. Client-Server, 관심사 분리</h2>
+
+<p>
+  클라이언트는 UI와 사용자 인터랙션, 서버는 데이터 저장과 비즈니스 로직. 둘이 분리돼 있어 각자 독립적으로 진화해요. 모바일 앱이 등장해도 서버를 다시 짤 필요 없는 이유.
+</p>
+
+<p>
+  이 제약은 사실 거의 모든 웹 시스템이 자연스럽게 만족해요. 의식적으로 지키려 노력할 필요가 없는 자리예요.
+</p>
+
+<h2>2. Stateless, 매 요청이 독립</h2>
+
+<p>
+  서버가 클라이언트 세션 상태를 기억하지 않아야 해요. 매 요청은 자기가 필요한 모든 정보(인증 토큰, 요청 컨텍스트)를 들고 와야 해요.
+</p>
+
+<p>
+  이게 중요한 이유는 <strong>수평 확장(horizontal scaling)</strong>이에요. 서버 인스턴스가 10대 있을 때, 클라이언트 요청이 어느 서버로 가도 동일하게 처리돼야 해요. 서버에 세션이 박혀 있으면 같은 사용자의 다음 요청을 같은 서버로 보내야 하는 sticky session이 필요해져요. 로드 밸런싱이 어려워지고, 그 서버가 죽으면 세션 데이터가 사라져요.
+</p>
+
+<p>
+  실무에서 흔히 "stateless"라고 부르는 게 이거예요. 세션 정보를 서버 메모리에 두지 말고, Redis 같은 외부 저장소에 두거나 JWT처럼 토큰에 담아 보내요.
+</p>
+
+<h2>3. Cacheable, 응답에 캐시 가능 여부</h2>
+
+<p>
+  응답은 자기가 캐시 가능한지를 명시해야 해요. HTTP에서는 <code>Cache-Control</code>, <code>ETag</code>, <code>Last-Modified</code> 같은 헤더로 표현해요.
+</p>
+
+<p>
+  캐시가 가능하면 클라이언트나 중간 프록시(CDN)가 응답을 저장해 두고 같은 요청에 다시 쓸 수 있어요. 서버 부담이 줄고 응답이 빨라져요. 캐시 가능 여부가 잘 표현 안 돼 있으면 안전을 위해 캐시를 못 하거나, 잘못 캐시해서 stale 데이터를 받는 사고가 생겨요.
+</p>
+
+<h2>4. Layered System, 중간 계층의 투명성</h2>
+
+<p>
+  클라이언트는 자기가 직접 서버와 통신하는지, 중간에 로드 밸런서·CDN·API Gateway·캐시 프록시를 거치는지 알 수 없어야 해요. 인터페이스만 같으면 됩니다.
+</p>
+
+<p>
+  이 덕분에 운영팀이 자유롭게 인프라를 바꿀 수 있어요. CDN을 도입하든, 새 캐시 레이어를 끼우든, 서비스 메시를 깔든, 클라이언트는 모르고 그대로 통신해요.
+</p>
+
+<h2>5. Uniform Interface, 가장 깊은 제약</h2>
+
+<p>
+  REST의 핵심이자 가장 자주 깨지는 자리예요. 네 가지 하위 제약으로 구성돼요.
+</p>
+
+<h3>5-1. 자원의 식별 (Identification of Resources)</h3>
+
+<p>
+  모든 것은 자원이고, URI로 식별돼요. <code>/users/42</code>는 ID가 42인 사용자라는 자원의 식별자예요. 이 URI는 그 사용자 자원을 가리키는 표준 주소예요.
+</p>
+
+<p>
+  자원은 "명사"여야 해요. <code>/getUser?id=42</code>처럼 동사가 들어간 URL은 REST 위반이에요. <code>/users/42</code>가 맞아요.
+</p>
+
+<h3>5-2. 표현을 통한 자원 조작 (Manipulation through Representations)</h3>
+
+<p>
+  자원 자체를 직접 다루지 않고, 자원의 <strong>표현(representation)</strong>을 주고받아요. JSON, XML, HTML 같은 게 표현이에요. 같은 자원이 여러 표현을 가질 수 있어요. <code>Accept</code> 헤더로 어떤 표현을 원하는지 협상해요.
+</p>
+
+<pre><code class="language-bash">// JSON 표현 요청
+GET /users/42
+Accept: application/json
+
+// XML 표현 요청
+GET /users/42
+Accept: application/xml</code></pre>
+
+<h3>5-3. 자체 설명 메시지 (Self-descriptive Messages)</h3>
+
+<p>
+  각 메시지는 자기가 어떻게 처리돼야 하는지 충분한 정보를 담고 있어야 해요. <code>Content-Type</code>으로 본문이 어떤 형식인지, HTTP 메서드로 어떤 동작인지, 상태코드로 결과가 어떤지를 모두 메시지 안에서 전달해요.
+</p>
+
+<h3>5-4. HATEOAS</h3>
+
+<p>
+  <strong>Hypermedia As The Engine Of Application State</strong>. 응답에 "다음에 무엇을 할 수 있는지" 링크가 포함돼야 해요. 클라이언트는 URI 구조를 미리 알고 있을 필요가 없고, 응답이 주는 링크를 따라가요.
+</p>
+
+<pre><code class="language-bash">// 사용자 응답에 가능한 액션 링크 포함
+{
+  "id": 42,
+  "name": "Alice",
+  "_links": {
+    "self": { "href": "/users/42" },
+    "edit": { "href": "/users/42", "method": "PUT" },
+    "orders": { "href": "/users/42/orders" },
+    "delete": { "href": "/users/42", "method": "DELETE" }
+  }
+}</code></pre>
+
+<p>
+  이게 REST의 가장 자주 안 지켜지는 부분이에요. 실무 API는 거의 다 URI 구조를 클라이언트가 알고 있는 형태예요. 진짜 HATEOAS를 구현한 API는 손에 꼽을 정도예요. 이 자리에서 "REST의 환상"이 시작돼요.
+</p>
+
+<h2>6. Code-on-Demand (선택)</h2>
+
+<p>
+  서버가 클라이언트에 실행 가능한 코드를 전달할 수 있어야 한다는 제약이에요. JavaScript를 HTML과 함께 보내는 웹 페이지가 이 패턴이에요. 유일하게 선택적인 제약이고, API에서는 거의 안 쓰여요.
+</p>
+
+<h2>왜 6가지 제약을 다 따라야 하나</h2>
+
+<p>
+  Fielding이 만든 이 제약들은 임의로 정한 게 아니에요. 각각이 분산 시스템에서 특정 속성을 보장해요.
+</p>
+
+<ul>
+  <li><strong>확장성</strong>: Stateless + Cacheable + Layered</li>
+  <li><strong>독립적 진화</strong>: Client-Server + Uniform Interface</li>
+  <li><strong>가시성</strong>: Stateless + Self-descriptive</li>
+  <li><strong>이식성</strong>: Code-on-Demand</li>
+</ul>
+
+<p>
+  실무에서 이 모든 속성이 똑같이 중요하지 않아요. 그래서 일부 제약을 깨거나 약하게 적용하는 게 자연스러운 선택이 돼요. 다음 편에서 그 트레이드오프를 봐요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 Richardson Maturity Model(REST 성숙도)을 통해 실무 API가 REST의 어느 단계에 있는지를 봐요. Level 0부터 HATEOAS의 Level 3까지 훑고, 왜 대부분의 "REST API"가 Level 2에서 멈추는지도 같이 짚어요.
+</p>
