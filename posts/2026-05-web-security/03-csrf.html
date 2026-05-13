@@ -1,0 +1,181 @@
+---
+title: "CSRF: 피해자 권한으로 의도 외 요청을 보내게 만드는 공격"
+subtitle: "XSS와 다른 종류의 사고예요. SameSite 쿠키, CSRF 토큰, double-submit 패턴까지."
+dateText: "2026.05.13"
+episode: 3
+episodes: 3
+---
+
+<h2>CSRF가 뭔가</h2>
+
+<p>
+  Cross-Site Request Forgery. 피해자가 이미 로그인된 상태에서, 공격자의 사이트가 피해자의 브라우저로 하여금 우리 사이트로 의도 외 요청을 보내게 만드는 공격이에요.
+</p>
+
+<p>
+  시나리오는 이래요.
+</p>
+
+<ol>
+  <li>사용자가 은행 사이트에 로그인해요. 세션 쿠키가 브라우저에 저장돼요.</li>
+  <li>사용자가 같은 브라우저로 공격자가 만든 함정 사이트에 방문해요.</li>
+  <li>그 사이트에 숨겨진 <code>&lt;img src="https://bank.com/transfer?to=attacker&amount=1000000"&gt;</code> 같은 태그가 있어요.</li>
+  <li>브라우저가 이미지 로드를 위해 GET 요청을 보내요. 이때 bank.com 세션 쿠키가 자동으로 첨부돼요.</li>
+  <li>은행 서버는 정상 사용자의 요청으로 보고 송금 처리를 해요.</li>
+</ol>
+
+<p>
+  핵심 메커니즘은 <strong>브라우저가 요청에 자동으로 쿠키를 첨부한다</strong>는 거예요. 그 요청이 어느 사이트에서 시작됐는지를 따지지 않아요.
+</p>
+
+<h2>XSS와의 차이</h2>
+
+<table>
+  <thead>
+    <tr><th>관점</th><th>XSS</th><th>CSRF</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>공격 위치</td><td>우리 사이트 안에서 스크립트 실행</td><td>다른 사이트가 우리 사이트로 요청</td></tr>
+    <tr><td>훔치는 것</td><td>쿠키·토큰·데이터</td><td>피해자의 권한 (요청 행위 자체)</td></tr>
+    <tr><td>필요한 것</td><td>입력 검증 실패</td><td>인증된 세션 + 외부 요청 가능</td></tr>
+    <tr><td>방어 방향</td><td>출력 escape, CSP, HttpOnly</td><td>SameSite 쿠키, CSRF 토큰, Origin 검증</td></tr>
+  </tbody>
+</table>
+
+<p>
+  XSS는 "남의 스크립트가 우리 페이지에서 실행". CSRF는 "남의 페이지가 우리 서버에 요청". 막는 방법도 완전히 달라요.
+</p>
+
+<h2>왜 GET 요청도 위험한가</h2>
+
+<p>
+  GET 요청은 안전(safe)해야 한다는 게 HTTP 원칙이에요. side-effect가 없어야 해요. 그런데 종종 GET이 상태를 바꾸는 자리가 있어요. <code>/delete?id=42</code> 같은 자리. CSRF의 표적이 되기 쉽거든요.
+</p>
+
+<p>
+  방어의 첫 단추는 <strong>상태 변경 동작은 절대 GET으로 노출하지 않기</strong>예요. POST, PUT, DELETE만 써요. GET은 그저 조회만.
+</p>
+
+<h2>SameSite 쿠키: 가장 강력한 방어</h2>
+
+<p>
+  최근 브라우저 표준으로 가장 효과적인 방어예요. 쿠키에 <code>SameSite</code> 속성을 두면 브라우저가 cross-site 요청에 쿠키를 안 붙여요.
+</p>
+
+<pre><code class="language-bash">// 응답 헤더
+Set-Cookie: sessionId=abc; HttpOnly; Secure; SameSite=Lax</code></pre>
+
+<table>
+  <thead>
+    <tr><th>값</th><th>동작</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>Strict</code></td><td>cross-site 요청에 쿠키 첨부 안 함. 다른 사이트에서 우리 링크 클릭으로 들어와도 로그아웃 상태.</td></tr>
+    <tr><td><code>Lax</code></td><td>top-level GET 탐색(링크 클릭)은 OK, POST나 iframe·이미지 요청은 차단. 균형 잡힌 기본값.</td></tr>
+    <tr><td><code>None</code></td><td>모든 cross-site 요청에 첨부. <code>Secure</code> 필수.</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Chrome은 명시 안 하면 자동으로 <code>Lax</code>로 처리해요. 다른 브라우저도 따라가는 추세. SameSite=Lax 하나로 대부분의 CSRF가 막혀요.
+</p>
+
+<p>
+  주의: SameSite는 브라우저 의존이에요. 옛 브라우저나 모바일 webview에서는 동작이 다를 수 있어요. 그래서 추가 방어가 필요.
+</p>
+
+<h2>CSRF Token: 전통적 방어</h2>
+
+<p>
+  서버가 무작위 토큰을 생성해서 폼에 숨겨두고, 폼 제출 시 그 토큰이 같이 와야만 처리. 공격자 사이트는 그 토큰을 모르니까 위조 못 함.
+</p>
+
+<pre><code class="language-html">// 폼에 토큰 삽입
+&lt;form action="/transfer" method="POST"&gt;
+  &lt;input type="hidden" name="_csrf" value="random-token-abc123"&gt;
+  &lt;input type="text" name="amount"&gt;
+  &lt;button&gt;Send&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+
+<pre><code class="language-java">// 서버에서 검증
+String sessionToken = (String) session.getAttribute("_csrf");
+String formToken = request.getParameter("_csrf");
+if (!sessionToken.equals(formToken)) {
+    throw new ForbiddenException("CSRF token mismatch");
+}</code></pre>
+
+<p>
+  토큰을 세션에 저장하고 폼 제출 시 비교. 토큰이 일치해야 요청 처리. Spring Security가 기본으로 켜둬요(<code>CsrfTokenRepository</code>).
+</p>
+
+<h2>Double Submit Cookie 패턴</h2>
+
+<p>
+  세션을 안 쓰는 stateless API에서 CSRF 방어가 필요할 때 쓰는 패턴이에요. 토큰을 쿠키와 헤더 양쪽에 두고 비교.
+</p>
+
+<ol>
+  <li>서버가 응답에 <code>Set-Cookie: csrfToken=xyz</code>를 설정해요 (HttpOnly 아님).</li>
+  <li>클라이언트 JS가 그 쿠키를 읽어 다음 요청의 <code>X-CSRF-Token</code> 헤더에 같이 보내요.</li>
+  <li>서버는 쿠키의 토큰과 헤더의 토큰을 비교해요. 같아야 통과해요.</li>
+</ol>
+
+<p>
+  공격자가 cross-site에서 요청을 보내면 쿠키는 자동 첨부되지만, <strong>다른 사이트는 그 쿠키 값을 읽을 수 없어요</strong>(same-origin policy). 헤더에 같은 값을 넣을 방법이 없어 검증 실패. CSRF 차단.
+</p>
+
+<h2>Origin과 Referer 헤더 검증</h2>
+
+<p>
+  요청의 <code>Origin</code>이나 <code>Referer</code> 헤더를 확인해서 우리 도메인에서 시작된 요청만 받는 방식이에요. 보조적 방어로 좋아요.
+</p>
+
+<pre><code class="language-java">String origin = request.getHeader("Origin");
+if (!isAllowed(origin)) {
+    throw new ForbiddenException("invalid origin");
+}</code></pre>
+
+<p>
+  주의: <code>Referer</code>는 사용자가 끄거나 프록시가 제거할 수 있어요. <code>Origin</code>이 더 신뢰할 만함. 단독 방어로는 부족하고 SameSite·토큰과 함께 써야 해요.
+</p>
+
+<h2>API에서의 CSRF: 토큰 인증이면 자동 해결?</h2>
+
+<p>
+  REST API가 <code>Authorization: Bearer ...</code> 같은 헤더 기반 토큰 인증을 쓰면 CSRF가 자동으로 막혀요. 브라우저가 cross-site 요청에 자동으로 Authorization 헤더를 첨부하지 않기 때문이에요(쿠키와 달리).
+</p>
+
+<p>
+  단, 토큰을 쿠키에 저장하는 경우는 CSRF에 취약해요. <code>localStorage</code>에 저장하면 안전하지만, 그건 XSS에 취약해요. 트레이드오프가 있어요.
+</p>
+
+<h2>표준 방어 체크리스트</h2>
+
+<ol>
+  <li>모든 상태 변경 동작은 POST/PUT/DELETE.</li>
+  <li>세션 쿠키에 <code>SameSite=Lax</code> 또는 <code>Strict</code>.</li>
+  <li>세션 쿠키에 <code>HttpOnly</code> + <code>Secure</code>.</li>
+  <li>Spring Security 같은 프레임워크의 CSRF 토큰 기능 활용.</li>
+  <li>Stateless API는 헤더 기반 토큰 인증 또는 double-submit.</li>
+  <li>Origin/Referer 헤더 추가 검증.</li>
+</ol>
+
+<h2>면접 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"CSRF가 뭔가요?"</strong>: 피해자의 인증된 세션을 이용해 다른 사이트가 우리 서버로 요청을 보내게 하는 공격.</li>
+  <li><strong>"XSS와 차이는?"</strong>: XSS는 우리 사이트에서 남의 스크립트 실행, CSRF는 다른 사이트가 우리 서버로 요청.</li>
+  <li><strong>"어떻게 막나요?"</strong>: SameSite 쿠키 + CSRF 토큰 + Origin 검증. 다층 방어.</li>
+  <li><strong>"REST API에서도 필요한가요?"</strong>: 쿠키 기반 인증이면 필요. 헤더 기반 토큰이면 자동 방어.</li>
+  <li><strong>"Double Submit Cookie가 뭐예요?"</strong>: 토큰을 쿠키와 헤더에 둘 다 두고 비교. stateless 환경에서 CSRF 방어.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 SQL Injection의 원리와 prepared statement 방어, ORM의 함정, 운영 단계 다층 방어를 봤어요. 2편에서는 XSS 세 종류, HTML escape와 CSP, HTTP-only 쿠키, sanitize 라이브러리를 봤어요. 3편에서는 CSRF의 메커니즘, XSS와의 차이, SameSite·토큰·Origin 검증의 조합을 정리했어요.
+</p>
+
+<p>
+  세 공격은 OWASP Top 10의 단골이에요. 막는 방법이 다 다르고, 한 가지 방어로 다 막히지 않아요. 다층 방어와 표준 도구(Spring Security, OWASP 라이브러리) 사용이 정답이에요.
+</p>

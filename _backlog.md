@@ -171,7 +171,7 @@
 - [x] Keep-Alive와 idle timeout (2편)
 
 ### 보안
-- [ ] CSRF / XSS / SQL Injection 방어 (3편)
+- [x] ★ CSRF / XSS / SQL Injection 방어 (3편) — P1에서 승격
 - [ ] HTTPS / 인증서 체인 (2편)
 
 ### 분산 시스템

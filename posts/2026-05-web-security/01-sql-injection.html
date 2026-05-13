@@ -1,0 +1,168 @@
+---
+title: "SQL Injection: 사용자 입력을 코드로 실행시키지 마라"
+subtitle: "가장 오래된 보안 사고지만 여전히 매년 등장해요. 원리와 방어 패턴, ORM의 함정까지 정리해요."
+dateText: "2026.05.13"
+episode: 1
+episodes: 3
+---
+
+<h2>SQL Injection이 뭔가</h2>
+
+<p>
+  사용자 입력이 SQL 쿼리에 그대로 끼어 들어가서, 입력이 데이터가 아니라 <strong>코드의 일부로 해석</strong>되는 사고예요. 1998년부터 알려졌고, OWASP Top 10에 거의 매번 등장해요.
+</p>
+
+<p>
+  단순한 예예요. 로그인 폼에서 username과 password를 받아 SQL을 만든다고 해봐요.
+</p>
+
+<pre><code class="language-java">// 위험한 코드
+String sql = "SELECT * FROM users WHERE username = '" + username +
+             "' AND password = '" + password + "'";
+stmt.execute(sql);</code></pre>
+
+<p>
+  사용자가 username에 <code>admin' --</code>을 넣으면 쿼리가 이렇게 돼요.
+</p>
+
+<pre><code class="language-sql">SELECT * FROM users WHERE username = 'admin' --' AND password = '...'</code></pre>
+
+<p>
+  <code>--</code>는 SQL 주석이라 뒤가 다 무시돼요. 비밀번호 검증 없이 admin으로 로그인이 돼요. 더 끔찍한 변형도 가능해요. <code>'; DROP TABLE users; --</code> 같은 입력이 들어오면 테이블 자체가 사라져요.
+</p>
+
+<h2>왜 이게 가능한가</h2>
+
+<p>
+  원인은 단순해요. <strong>데이터와 코드의 경계가 무너졌기 때문</strong>이에요. 사용자 입력은 데이터로만 쓰여야 하는데, 문자열 연결로 SQL을 만들면 입력 안의 따옴표·세미콜론이 코드 기호로 해석돼요.
+</p>
+
+<p>
+  해결은 두 영역을 명확히 분리하는 거예요. 입력은 절대로 코드가 될 수 없도록.
+</p>
+
+<h2>Prepared Statement: 표준 방어</h2>
+
+<p>
+  SQL과 데이터를 별도 채널로 보내는 게 prepared statement예요. 쿼리에 <code>?</code> 자리표시자를 두고, 값은 별도 인자로 넘겨요.
+</p>
+
+<pre><code class="language-java">// 안전한 코드
+PreparedStatement ps = conn.prepareStatement(
+    "SELECT * FROM users WHERE username = ? AND password = ?"
+);
+ps.setString(1, username);
+ps.setString(2, password);
+ps.executeQuery();</code></pre>
+
+<p>
+  중요한 차이는 SQL 파싱이 <strong>입력을 받기 전에</strong> 끝난다는 거예요. <code>?</code> 자리에 무슨 값이 들어와도 그건 데이터로만 처리돼요. <code>'; DROP TABLE</code>이 와도 그게 통째로 <code>username</code> 값으로 비교될 뿐, SQL 명령으로 실행되지 않아요.
+</p>
+
+<p>
+  거의 모든 SQL 데이터베이스가 prepared statement를 지원해요. Java의 JDBC, Python의 PEP 249, Node.js의 mysql2, Go의 database/sql 모두 표준이에요. <strong>예외 없이 항상 써야 해요</strong>.
+</p>
+
+<h2>ORM을 쓰면 안전한가</h2>
+
+<p>
+  대체로 안전해요. JPA, Hibernate, MyBatis, Eloquent, Django ORM 같은 도구는 내부적으로 prepared statement를 써요. 그러나 함정이 있어요.
+</p>
+
+<h3>1. Native Query / Raw SQL</h3>
+
+<pre><code class="language-java">// 위험한 JPA 사용: 문자열 연결
+String jpql = "SELECT u FROM User u WHERE u.name = '" + name + "'";
+em.createQuery(jpql);
+
+// 안전한 사용: 파라미터 바인딩
+String jpql = "SELECT u FROM User u WHERE u.name = :name";
+em.createQuery(jpql).setParameter("name", name);</code></pre>
+
+<p>
+  Native query를 문자열 연결로 만들면 ORM 안에서도 SQL Injection이 가능해요. JPA의 <code>@Query</code>, MyBatis의 <code>${}</code>(문자열 치환, 위험)과 <code>#{}</code>(파라미터 바인딩, 안전)의 차이를 외워두세요.
+</p>
+
+<h3>2. Order By / Column Name 동적 결정</h3>
+
+<p>
+  prepared statement는 컬럼 이름이나 ORDER BY 절을 바인딩 못 해요. 정렬 컬럼을 사용자 입력으로 받으면 위험해져요.
+</p>
+
+<pre><code class="language-java">// 위험한 코드
+String sortBy = request.getParameter("sortBy");   // 사용자 입력
+String sql = "SELECT * FROM users ORDER BY " + sortBy;</code></pre>
+
+<p>
+  방어는 <strong>화이트리스트</strong>예요. 허용된 컬럼 이름만 통과시켜요.
+</p>
+
+<pre><code class="language-java">Set&lt;String&gt; allowedColumns = Set.of("id", "name", "created_at");
+if (!allowedColumns.contains(sortBy)) {
+    throw new BadRequestException("invalid sort");
+}
+String sql = "SELECT * FROM users ORDER BY " + sortBy;</code></pre>
+
+<h3>3. LIKE 와일드카드</h3>
+
+<p>
+  LIKE 검색의 와일드카드(<code>%</code>, <code>_</code>)는 SQL Injection은 아니지만 비슷한 자리예요. 사용자 입력이 <code>%</code>로만 이루어지면 모든 데이터가 매치돼요. DoS 위험이거나 의도 외 데이터 노출. 이스케이프하거나 길이를 제한해야 해요.
+</p>
+
+<h2>2차 SQL Injection (Stored)</h2>
+
+<p>
+  보통 SQL Injection은 입력이 즉시 쿼리에 들어가는 형태예요. 2차 공격은 다르게 동작해요.
+</p>
+
+<ol>
+  <li>공격자가 회원가입 시 username에 <code>'; DROP TABLE</code>을 넣어요. 회원가입 쿼리는 prepared statement라 안전해요. 이 문자열이 그대로 DB에 저장돼요.</li>
+  <li>나중에 관리자 화면에서 사용자 이름을 가져와 다른 쿼리에 끼워 넣을 때, 그 자리에서 prepared statement를 안 쓰면 그때 공격이 실행돼요.</li>
+</ol>
+
+<p>
+  방어는 똑같아요. <strong>모든 SQL 생성 자리에서 예외 없이 prepared statement</strong>. "DB에서 가져온 값이라 안전하다"는 가정이 무너지는 자리예요.
+</p>
+
+<h2>Blind SQL Injection</h2>
+
+<p>
+  공격자가 결과를 직접 볼 수 없는 환경이라도 공격이 가능해요. 응답의 미세한 차이나 응답 시간으로 정보를 빼내는 거예요.
+</p>
+
+<ul>
+  <li><strong>Boolean-based</strong>: <code>AND 1=1</code>이면 정상, <code>AND 1=2</code>면 오류. 차이를 보고 한 비트씩 정보를 빼내요.</li>
+  <li><strong>Time-based</strong>: <code>AND SLEEP(5)</code> 같은 함수로 응답이 5초 지연되면 조건이 참인 걸 알 수 있어요.</li>
+</ul>
+
+<p>
+  방어는 같아요. prepared statement면 둘 다 막혀요.
+</p>
+
+<h2>운영 단계의 추가 방어</h2>
+
+<p>
+  코드 수준 방어가 1순위지만, 다층 방어가 안전해요.
+</p>
+
+<ul>
+  <li><strong>최소 권한 원칙</strong>: 애플리케이션 DB 계정이 DROP, ALTER 같은 위험한 권한을 못 가지게. 읽기 전용 계정과 쓰기 계정 분리.</li>
+  <li><strong>WAF (Web Application Firewall)</strong>: 의심스러운 패턴을 차단. 우회 가능하지만 한 겹 더.</li>
+  <li><strong>로깅과 알람</strong>: 비정상 쿼리 패턴 감지. SQL 에러 빈도 모니터링.</li>
+  <li><strong>코드 리뷰 / 정적 분석</strong>: SonarQube, Snyk 같은 도구가 위험한 패턴을 잡아줘요.</li>
+</ul>
+
+<h2>면접 단골 질문</h2>
+
+<ul>
+  <li><strong>"SQL Injection이 뭔가요?"</strong>: 사용자 입력이 SQL 코드로 해석돼서 의도 외 동작이 일어나요.</li>
+  <li><strong>"어떻게 막나요?"</strong>: Prepared statement를 써요. 동적 컬럼·정렬은 화이트리스트로 막아요.</li>
+  <li><strong>"ORM을 쓰면 안전한가요?"</strong>: 대체로 안전해요. 다만 native query, 동적 컬럼 자리는 여전히 위험해요.</li>
+  <li><strong>"Blind SQL Injection이 뭐예요?"</strong>: 결과를 못 보는 상황에서 응답 차이·시간으로 정보를 빼내는 공격이에요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 XSS(Cross-Site Scripting)를 봐요. 사용자 입력이 HTML/JavaScript로 실행되는 사고예요. Reflected, Stored, DOM 세 종류와 CSP, HTTP-only 쿠키, 이스케이프·sanitize 방어를 정리해요.
+</p>
