@@ -1,0 +1,228 @@
+---
+title: "쓰기 경합과 방어 패턴"
+subtitle: "낙관적 락, 비관적 락, 상태 머신, 보상 트랜잭션. 키로 막을 수 없는 동시성 자리에서 쓰는 패턴이에요."
+dateText: "2026.05.16"
+episode: 3
+episodes: 3
+---
+
+<h2>키로 막을 수 없는 자리</h2>
+
+<p>
+  2편의 키 기반 패턴은 "같은 요청이 두 번 오는" 문제를 풀어요. 그런데 다른 종류의 문제가 있어요. <strong>다른 요청이 동시에 와서 충돌하는</strong> 자리. 이쪽은 키만으로는 안 막혀요.
+</p>
+
+<p>
+  예를 들어 잔액 100원 계좌에서 두 명이 동시에 80원씩 빼려고 해요. 두 요청 다 정상 요청이라 idempotency key가 달라요. 둘 다 통과하면 잔액이 -60원이 돼요. 이건 멱등성이 아니라 동시성 제어의 영역이에요.
+</p>
+
+<p>
+  멱등성 설계의 마지막 조각이 이 경합을 다루는 패턴이에요. 멱등화의 효과를 끝까지 지키려면 같이 봐야 해요.
+</p>
+
+<h2>낙관적 락 (Optimistic Locking)</h2>
+
+<p>
+  "충돌이 드물다"고 낙관적으로 가정하고, 충돌이 일어났을 때만 잡아요. version 컬럼이 핵심이에요.
+</p>
+
+<pre><code class="language-sql">CREATE TABLE accounts (
+    id BIGINT PRIMARY KEY,
+    balance DECIMAL(10,2),
+    version INT NOT NULL DEFAULT 0
+);</code></pre>
+
+<h3>업데이트 흐름</h3>
+
+<ol>
+  <li>레코드를 읽어요. balance=100, version=5.</li>
+  <li>비즈니스 로직으로 새 값 계산. balance=20.</li>
+  <li>UPDATE에서 version을 조건으로 걸어요.</li>
+</ol>
+
+<pre><code class="language-sql">UPDATE accounts
+SET balance = 20, version = 6
+WHERE id = 1 AND version = 5;</code></pre>
+
+<p>
+  다른 트랜잭션이 먼저 업데이트해서 version이 6이 됐다면, 내 UPDATE는 0 rows를 영향받아요. "충돌"이라는 신호예요. 재시도하거나 사용자에게 알려요.
+</p>
+
+<h3>장점과 한계</h3>
+
+<ul>
+  <li><strong>장점</strong>: 락이 없으니 성능이 좋아요. 충돌이 드물면 거의 비용이 없어요.</li>
+  <li><strong>한계</strong>: 충돌이 잦으면 재시도가 폭증해요. Hot row가 있는 자리에는 부적합해요.</li>
+</ul>
+
+<h2>비관적 락 (Pessimistic Locking)</h2>
+
+<p>
+  "충돌이 잦다"고 비관적으로 가정하고, 미리 락을 잡아요. SELECT ... FOR UPDATE가 대표적이에요.
+</p>
+
+<pre><code class="language-sql">BEGIN;
+SELECT balance FROM accounts WHERE id = 1 FOR UPDATE;
+-- 다른 트랜잭션은 이 행을 못 읽거나 못 씀
+UPDATE accounts SET balance = 20 WHERE id = 1;
+COMMIT;</code></pre>
+
+<p>
+  트랜잭션 내내 락이 유지돼요. 다른 트랜잭션은 락이 풀릴 때까지 대기해요. 직렬화에 가까운 동작이에요.
+</p>
+
+<h3>장점과 한계</h3>
+
+<ul>
+  <li><strong>장점</strong>: 충돌 가능성이 원천 차단돼요. 재시도 로직이 단순해져요.</li>
+  <li><strong>한계</strong>: 처리량이 낮아져요. 데드락 위험이 있어요. 분산 환경에서는 분산 락이 따로 필요해요.</li>
+</ul>
+
+<h2>상태 머신 (State Machine)</h2>
+
+<p>
+  주문이나 결제 같은 객체는 상태가 있어요. <code>created → paid → shipped → delivered</code> 같은 흐름이에요. 상태 전이를 엄격하게 정의하면 중복 처리를 막을 수 있어요.
+</p>
+
+<pre><code class="language-sql">UPDATE orders
+SET status = 'paid', paid_at = NOW()
+WHERE id = ?
+  AND status = 'created';</code></pre>
+
+<p>
+  결제 확정 처리예요. 같은 요청이 두 번 들어와도 두 번째는 0 rows예요. status가 이미 'paid'라서 조건이 안 맞아요. 자연스럽게 멱등이에요.
+</p>
+
+<h3>적용 영역</h3>
+
+<ul>
+  <li>주문 결제 확정 (created → paid)</li>
+  <li>배송 시작 (paid → shipped)</li>
+  <li>환불 처리 (paid → refunded)</li>
+  <li>토큰 사용 (issued → used)</li>
+</ul>
+
+<p>
+  "어떤 상태에서만 이 작업이 가능"을 SQL 조건으로 굳히면, 멱등성과 일관성을 한 번에 확보해요.
+</p>
+
+<h3>이벤트 소싱과의 결합</h3>
+
+<p>
+  상태 머신을 더 밀고 가면 이벤트 소싱이 돼요. 현재 상태 대신 상태 전이 이벤트를 저장하고, 같은 이벤트는 한 번만 추가돼요. event_id에 unique constraint를 걸어요.
+</p>
+
+<h2>보상 트랜잭션과 멱등성</h2>
+
+<p>
+  Saga 패턴(분산 트랜잭션 시리즈 3편 참조)에서는 각 단계가 실패하면 보상 단계를 실행해요. 보상 단계가 멱등하지 않으면 재시도가 위험해져요.
+</p>
+
+<h3>보상 단계 멱등화 예시</h3>
+
+<pre><code class="language-sql">-- 결제 환불 (보상 단계)
+UPDATE payments
+SET status = 'refunded', refunded_at = NOW()
+WHERE order_id = ?
+  AND status = 'paid';</code></pre>
+
+<p>
+  이미 환불된 결제는 status가 'refunded'라 두 번째 호출은 0 rows. 자연스럽게 멱등이에요. 상태 머신이 보상 트랜잭션의 멱등화를 해 줘요.
+</p>
+
+<h3>외부 시스템 호출은 어떻게</h3>
+
+<p>
+  보상이 외부 API 호출이라면 더 까다로워요. 예를 들어 PG사에 환불 요청을 보낸다면, idempotency key를 같이 보내야 두 번째 호출이 중복 환불을 하지 않아요.
+</p>
+
+<pre><code class="language-http">POST /pg/refund
+Idempotency-Key: refund-{order_id}
+{"amount": 10000}</code></pre>
+
+<p>
+  PG사가 이 키를 보고 이미 처리한 환불이면 같은 결과를 돌려줘요. 보상 호출도 멱등하게 만들어야 Saga 전체가 안전해요.
+</p>
+
+<h2>분산 락과의 차이</h2>
+
+<p>
+  분산 락(distributed lock)도 비슷해 보이지만 다른 자리에서 써요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>패턴</th><th>핵심</th><th>예시</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>DB 비관적 락</td><td>한 DB 안의 행 락</td><td>같은 행을 동시에 수정 못 하게</td></tr>
+    <tr><td>분산 락 (Redis 등)</td><td>여러 시스템 간 락</td><td>크론 잡이 한 인스턴스에서만 돌게</td></tr>
+    <tr><td>낙관적 락 (version)</td><td>충돌 감지 후 재시도</td><td>편집 충돌 감지</td></tr>
+    <tr><td>상태 머신</td><td>전이 가능 상태로 제약</td><td>주문 상태 변경</td></tr>
+  </tbody>
+</table>
+
+<p>
+  어느 하나가 정답이 아니에요. 자리에 따라 다른 패턴이 맞아요. 한 시스템 안의 동시성은 DB 락이 적합하고, 여러 인스턴스에 걸친 동시성은 분산 락이 필요해요.
+</p>
+
+<h2>처리 결과 캐싱 (Result Caching)</h2>
+
+<p>
+  2편의 Idempotency Key 패턴을 확장한 거예요. 키만 막는 게 아니라, 응답까지 같이 저장해서 재시도가 와도 즉시 돌려줘요.
+</p>
+
+<pre><code class="language-sql">CREATE TABLE idempotency_keys (
+    key VARCHAR(64) PRIMARY KEY,
+    request_hash VARCHAR(64),
+    response_status INT,
+    response_body JSONB,
+    locked_at TIMESTAMP,
+    completed_at TIMESTAMP
+);</code></pre>
+
+<h3>처리 중인 상태 (locked)</h3>
+
+<p>
+  주의 자리가 있어요. 첫 요청을 처리 중일 때 같은 키로 재시도가 오면 어떻게 해요? 두 가지 선택지가 있어요.
+</p>
+
+<ul>
+  <li><strong>409 Conflict 반환</strong>: "처리 중이니 잠시 후에 다시 와요." 클라이언트가 재시도해요.</li>
+  <li><strong>완료를 기다려요</strong>: locked_at이 오래 안 됐으면 polling으로 대기해요. 완료되면 결과를 돌려줘요.</li>
+</ul>
+
+<p>
+  Stripe는 409를 줘요. 단순하고 명확해요. 락이 오래 잡혀 있는 경우(예: 30초 이상)는 stale로 보고 무시하거나 새로 처리해요.
+</p>
+
+<h2>실무 체크리스트</h2>
+
+<ul>
+  <li><strong>POST에 Idempotency-Key 강제</strong>: 결제 같은 critical API는 헤더 없으면 400으로 거부.</li>
+  <li><strong>DB unique constraint</strong>: 비즈니스 키(request_id, order_id)에 무조건.</li>
+  <li><strong>상태 머신 SQL</strong>: status 전이를 WHERE에 박아 넣기. 두 번째 호출이 0 rows로 떨어지게.</li>
+  <li><strong>보상 트랜잭션도 멱등</strong>: Saga의 모든 단계와 보상이 멱등인지 검증.</li>
+  <li><strong>외부 호출에도 멱등 키</strong>: PG, 메일, SMS 등 외부 시스템 호출 시 idempotency-key 전파.</li>
+  <li><strong>재시도 정책</strong>: 클라이언트가 같은 key로 재시도하도록 SDK·문서에 명시.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"낙관적 락과 비관적 락 중 뭐 써요?"</strong>: 충돌 빈도예요. 드물면 낙관, 잦으면 비관이에요.</li>
+  <li><strong>"잔액 차감 같은 자리는?"</strong>: 보통 비관적 락이나 atomic UPDATE를 써요. SELECT-update-SET 패턴은 race condition이 있어요.</li>
+  <li><strong>"상태 머신이 멱등성에 어떻게 도움?"</strong>: 전이 조건을 SQL WHERE에 넣어서 두 번째 호출이 자연스럽게 0 rows로 빠져요.</li>
+  <li><strong>"Saga에서 보상 트랜잭션이 실패하면?"</strong>: 보상도 멱등이라 재시도가 안전해야 해요. 안 그러면 중복 환불 같은 사고가 나요.</li>
+  <li><strong>"처리 중에 같은 키로 또 오면?"</strong>: 409 반환이 일반적이에요. 또는 polling으로 대기해요. stale lock을 처리하는 로직이 필요해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 Safe와 Idempotent의 차이, HTTP 메소드별 자연 멱등성을 봤어요. 2편은 비멱등을 멱등으로 만드는 세 가지 키 기반 패턴(HTTP Idempotency-Key, 메시지 Dedup ID, DB Unique Constraint)을, 3편은 키로 막을 수 없는 동시성 자리를 다루는 낙관적·비관적 락, 상태 머신, 보상 트랜잭션의 멱등화를 정리했어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>모든 레이어에서 멱등을 보장</strong>하는 것. HTTP, 메시지, DB, 외부 호출까지. 한 군데만 멱등하면 다른 데서 새요. 결제·재고·잔액 같은 critical 자리는 항상 여러 레이어로 막아야 해요.
+</p>
