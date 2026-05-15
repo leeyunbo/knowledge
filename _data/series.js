@@ -176,14 +176,15 @@ const seriesTitles = {
   "2026-05-normalization-vs-denormalization": "정규화 vs 반정규화",
   "2026-05-rest-원칙과-비판": "REST 원칙과 비판",
   "2026-05-monolith-vs-msa": "모놀리스 vs MSA",
-  "2026-05-web-security": "CSRF / XSS / SQL Injection"
+  "2026-05-web-security": "CSRF / XSS / SQL Injection",
+  "2026-05-distributed-transaction": "분산 트랜잭션 (2PC / Saga / Outbox)"
 };
 
 const cardOnly = {
   spring: { title: "Spring", cardDesc: "코어 internals, 트랜잭션, 부트 동작", page: "spring.html", done: 3, total: 12 },
   db: { title: "DB", cardDesc: "인덱스, 트랜잭션, 락, 모델링", page: "db.html", done: 4, total: 13 },
   network: { title: "네트워크", cardDesc: "TCP, HTTP, TLS, CORS, DNS", page: "network.html", done: 11, total: 12 },
-  distributed: { title: "분산 시스템 설계", cardDesc: "Resilience, 분산, 캐싱, 메시징, 아키텍처", page: "distributed.html", done: 4, total: 29 },
+  distributed: { title: "분산 시스템 설계", cardDesc: "Resilience, 분산, 캐싱, 메시징, 아키텍처", page: "distributed.html", done: 5, total: 29 },
   security: { title: "보안", cardDesc: "인증/인가, 웹 보안", page: "security.html", done: 1, total: 5 }
 };
 

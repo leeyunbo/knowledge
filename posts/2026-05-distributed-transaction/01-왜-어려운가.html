@@ -1,0 +1,138 @@
+---
+title: "분산 트랜잭션이 왜 어려운가"
+subtitle: "여러 시스템에 걸친 일관성을 어떻게 보장할까. ACID의 한계와 분산 환경의 본질을 봐요."
+dateText: "2026.05.13"
+episode: 1
+episodes: 4
+---
+
+<h2>모놀리스에서는 무료였던 것</h2>
+
+<p>
+  한 DB 안의 트랜잭션은 ACID로 보호받아요. <code>BEGIN</code> 후 여러 테이블을 손봐도, <code>COMMIT</code>이 떨어지기 전까지는 변경이 외부에 안 보이고, 중간에 실패하면 모든 변경이 한 번에 롤백돼요. 이 보장이 거의 공짜였어요.
+</p>
+
+<p>
+  주문 → 결제 → 재고차감을 한 DB에서 하는 코드.
+</p>
+
+<pre><code class="language-java">@Transactional
+public void placeOrder(Order order) {
+    orderRepo.save(order);
+    paymentRepo.charge(order.getUserId(), order.getAmount());
+    inventoryRepo.decrease(order.getProductId(), order.getQuantity());
+}</code></pre>
+
+<p>
+  세 작업 중 하나라도 실패하면 전체가 롤백돼요. 어느 자리에서 실패해도 데이터가 깨지지 않아요. DB가 ACID의 무게를 다 짊어져요.
+</p>
+
+<h2>분산되면 깨지는 자리</h2>
+
+<p>
+  같은 일을 MSA에서 한다고 해봐요. 주문은 OrderService, 결제는 PaymentService, 재고는 InventoryService. 세 서비스가 각자 자기 DB를 가져요. 한 트랜잭션으로 묶을 방법이 없어요.
+</p>
+
+<pre><code class="language-java">// 분산 환경에서 같은 일
+public void placeOrder(Order order) {
+    orderService.save(order);                       // OrderService DB
+    paymentService.charge(userId, amount);          // PaymentService DB
+    inventoryService.decrease(productId, qty);      // InventoryService DB
+}</code></pre>
+
+<p>
+  실패 시나리오가 여러 가지로 늘어나요.
+</p>
+
+<ol>
+  <li>주문 저장 후 결제 호출 직전에 OrderService가 죽음</li>
+  <li>결제는 성공했는데 재고차감이 실패함</li>
+  <li>모든 호출이 성공했지만 마지막 응답이 클라이언트에 안 도착해서 클라이언트가 재시도함</li>
+  <li>결제 응답을 못 받아서 결제 됐는지 안 됐는지 모름</li>
+  <li>재고차감은 200을 받았지만 실제로는 처리 안 됨</li>
+</ol>
+
+<p>
+  각 시나리오에서 데이터가 일관성 있는 상태로 남아야 해요. 안 그러면 결제만 되고 주문은 없거나, 재고는 빠졌는데 주문이 없는 식의 사고가 나요.
+</p>
+
+<h2>왜 분산은 본질적으로 어려운가</h2>
+
+<p>
+  세 가지 본질적 문제가 있어요.
+</p>
+
+<h3>1. 네트워크는 안 안정해요</h3>
+
+<p>
+  네트워크 호출은 다음 셋 중 하나로 끝나요.
+</p>
+
+<ul>
+  <li>성공 응답 받음</li>
+  <li>실패 응답 받음 (서버가 거절)</li>
+  <li>응답을 못 받음 (타임아웃, 끊김)</li>
+</ul>
+
+<p>
+  세 번째가 진짜 문제예요. <strong>응답을 못 받았다는 게 작업이 실패했다는 뜻은 아니에요</strong>. 서버에서 처리는 됐는데 응답만 못 받았을 수도 있어요. 클라이언트는 작업 상태를 모르는 상태가 돼요.
+</p>
+
+<h3>2. 부분 실패가 본질</h3>
+
+<p>
+  모놀리스에서는 시스템이 "다 되거나 다 안 되거나"였어요. 프로세스가 살아 있으면 모든 부분이 동작해요. 분산 시스템에서는 일부만 실패하는 자리가 매우 흔해요. OrderService는 멀쩡한데 PaymentService만 죽거나, 둘 다 살아 있지만 그 사이 네트워크가 끊기거나.
+</p>
+
+<h3>3. 시간 동기화의 부재</h3>
+
+<p>
+  분산 시스템에서는 "이게 먼저 일어났냐"를 정확히 알기 어려워요. 각 서버의 시계가 미세하게 다르고, NTP로 동기화해도 ms 단위 오차는 남아요. 두 이벤트의 정확한 순서를 알려면 별도 메커니즘(Lamport timestamp, vector clock, 분산 합의)이 필요해요.
+</p>
+
+<h2>분산 트랜잭션의 세 가지 답</h2>
+
+<table>
+  <thead>
+    <tr><th>패턴</th><th>일관성</th><th>가용성</th><th>복잡도</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>2-Phase Commit (2PC)</td><td>강한 일관성</td><td>낮음 (분산 잠금)</td><td>낮음 (DB가 처리)</td></tr>
+    <tr><td>Saga</td><td>결과적 일관성</td><td>높음</td><td>높음 (보상 트랜잭션)</td></tr>
+    <tr><td>Outbox</td><td>결과적 일관성</td><td>높음</td><td>중간</td></tr>
+  </tbody>
+</table>
+
+<p>
+  단순히 한 패턴이 다른 걸 대체하는 게 아니에요. 자리에 따라 다른 답이 맞아요. 다음 편들에서 각각을 봐요.
+</p>
+
+<h2>결과적 일관성 (Eventual Consistency)</h2>
+
+<p>
+  분산 시스템에서 자주 등장하는 개념이에요. <strong>지금은 일치 안 하지만 시간이 지나면 결국 일치한다</strong>는 보장. 강한 일관성보다 약하지만 가용성이 높아요.
+</p>
+
+<p>
+  예: 주문이 일어나면 OrderService에 저장되고, 그 사실이 이벤트로 PaymentService와 InventoryService에 전파돼요. 전파에 100ms~1초 정도 걸려요. 그 사이 짧은 시간은 "주문은 있는데 결제 정보는 아직 없는" 상태일 수 있어요. 하지만 결국엔 다 일치해요.
+</p>
+
+<p>
+  결과적 일관성을 받아들이려면 비즈니스 요구사항이 그걸 허용해야 해요. 금융처럼 강한 일관성이 필수인 자리에서는 어려워요. 반면 콘텐츠 시스템, 추천, 통계 같은 자리에서는 자연스러워요.
+</p>
+
+<h2>왜 2PC를 거의 안 쓰는가</h2>
+
+<p>
+  자세한 건 다음 편이지만, 결론만 미리 말하면: <strong>2PC는 가용성을 심하게 해쳐요</strong>. 모든 참여자가 살아 있어야만 트랜잭션이 진행되고, 그 사이 다른 트랜잭션은 막혀요. 분산 환경에서 일부 노드가 항상 죽거나 느려질 수 있다는 사실과 정면 충돌해요.
+</p>
+
+<p>
+  그래서 현대적 MSA는 거의 다 Saga 또는 Outbox로 가요. 결과적 일관성을 받아들이고 보상 메커니즘으로 복구하는 쪽.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 2PC의 동작과 한계를 봐요. 왜 한때 표준이었는지, 왜 지금은 거의 안 쓰는지를 동작 단계별로 정리해요.
+</p>

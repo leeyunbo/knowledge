@@ -1,0 +1,183 @@
+---
+title: "2-Phase Commit: 한때의 표준, 지금은 거의 안 쓰는 이유"
+subtitle: "2PC의 동작 단계, 강점, 그리고 왜 현대 MSA에서 거의 안 보이는지 정리해요."
+dateText: "2026.05.13"
+episode: 2
+episodes: 4
+---
+
+<h2>2PC의 약속</h2>
+
+<p>
+  2-Phase Commit은 분산 환경에서 ACID처럼 동작하는 트랜잭션을 만들려고 만들어진 프로토콜이에요. 여러 노드(서비스, DB)의 변경을 한꺼번에 커밋하거나 한꺼번에 롤백해요. "다 되거나 다 안 됨"의 분산 버전이에요.
+</p>
+
+<p>
+  핵심 등장 인물은 둘이에요.
+</p>
+
+<ul>
+  <li><strong>Coordinator</strong>: 트랜잭션을 총괄해요. 모든 참여자에게 명령을 보내고 결정해요.</li>
+  <li><strong>Participant</strong>: 실제 작업을 수행하는 노드. Coordinator의 명령에 따라 prepare → commit 또는 rollback.</li>
+</ul>
+
+<h2>두 단계의 동작</h2>
+
+<h3>Phase 1: Prepare (투표)</h3>
+
+<ol>
+  <li>Coordinator가 모든 Participant에게 "이 트랜잭션을 커밋할 수 있나?" 묻는 prepare 메시지를 보내요.</li>
+  <li>각 Participant는 자기 영역에서 작업을 시도해요. 락을 잡고, 변경을 준비하고, 디스크에 기록해요. <strong>아직 커밋은 안 함</strong>.</li>
+  <li>모든 게 잘 되면 "YES"(준비됨), 안 되면 "NO"(불가)를 응답.</li>
+</ol>
+
+<h3>Phase 2: Commit (결정)</h3>
+
+<ol>
+  <li>Coordinator가 모든 응답을 받아요.</li>
+  <li>전원 YES면: Coordinator가 "commit" 명령을 모두에게 보냄. 각 Participant가 실제 커밋하고 ACK 회신해요.</li>
+  <li>한 명이라도 NO면: Coordinator가 "rollback" 명령을 모두에게 보냄. 모두 롤백.</li>
+</ol>
+
+<svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:560px; margin:1.5rem auto;">
+  <text x="40" y="25" font-family="JetBrains Mono" font-size="11" fill="currentColor">Coordinator</text>
+  <text x="230" y="25" font-family="JetBrains Mono" font-size="11" fill="currentColor">Participant A</text>
+  <text x="450" y="25" font-family="JetBrains Mono" font-size="11" fill="currentColor">Participant B</text>
+
+  <line x1="80" y1="40" x2="80" y2="260" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+  <line x1="280" y1="40" x2="280" y2="260" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+  <line x1="500" y1="40" x2="500" y2="260" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+
+  <text x="40" y="65" font-family="JetBrains Mono" font-size="10" fill="currentColor" font-weight="600">Phase 1</text>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 85 80 L 275 80" marker-end="url(#dtarr)"/>
+    <text x="170" y="73" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">prepare?</text>
+    <path d="M 85 95 L 495 95" marker-end="url(#dtarr)"/>
+    <text x="385" y="88" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">prepare?</text>
+
+    <path d="M 275 115 L 85 115" marker-end="url(#dtarr)"/>
+    <text x="170" y="108" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">YES</text>
+    <path d="M 495 130 L 85 130" marker-end="url(#dtarr)"/>
+    <text x="290" y="123" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">YES</text>
+  </g>
+
+  <text x="40" y="165" font-family="JetBrains Mono" font-size="10" fill="currentColor" font-weight="600">Phase 2</text>
+
+  <g stroke="currentColor" stroke-width="1.4" fill="none">
+    <path d="M 85 180 L 275 180" marker-end="url(#dtarr)"/>
+    <text x="170" y="173" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">commit</text>
+    <path d="M 85 195 L 495 195" marker-end="url(#dtarr)"/>
+    <text x="385" y="188" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">commit</text>
+
+    <path d="M 275 215 L 85 215" marker-end="url(#dtarr)"/>
+    <text x="170" y="208" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">ACK</text>
+    <path d="M 495 230 L 85 230" marker-end="url(#dtarr)"/>
+    <text x="290" y="223" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">ACK</text>
+  </g>
+
+  <defs>
+    <marker id="dtarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<h2>2PC의 강점</h2>
+
+<p>
+  잘만 굴러가면 ACID 트랜잭션과 같은 보장을 줘요.
+</p>
+
+<ul>
+  <li><strong>강한 일관성</strong>: 모든 참여자가 동시에 커밋되거나 동시에 롤백돼요. 중간 상태가 없어요.</li>
+  <li><strong>표준화</strong>: XA 표준이 있고, JTA 같은 자바 표준 API가 지원해요. JBoss/WildFly, WebSphere 같은 EJB 서버가 기본 제공해요.</li>
+  <li><strong>개발자 단순함</strong>: 트랜잭션 매니저가 알아서 처리해요. 애플리케이션 코드는 단순해요.</li>
+</ul>
+
+<p>
+  과거 엔터프라이즈 자바 환경에서는 표준이었어요. DB 둘, MQ 하나를 묶어 XA로 트랜잭션 처리하는 게 흔한 패턴이었어요.
+</p>
+
+<h2>2PC의 치명적 한계</h2>
+
+<h3>1. 블로킹 프로토콜</h3>
+
+<p>
+  Phase 1에서 각 Participant는 락을 잡고 있어요. Phase 2가 끝날 때까지 락이 풀리지 않아요. 그 사이 다른 트랜잭션이 같은 자원에 접근하려고 하면 대기.
+</p>
+
+<p>
+  네트워크가 느리거나 한 Participant가 응답이 늦으면 모든 노드가 함께 멈춰요. 분산 환경에서 한 노드가 느려지는 건 매우 흔한 일인데, 그게 전체 시스템을 멈추게 만들어요.
+</p>
+
+<h3>2. Coordinator 단일 장애점</h3>
+
+<p>
+  Phase 1 후 Phase 2가 시작되기 직전에 Coordinator가 죽으면 가장 큰 문제가 발생해요. Participant들은 prepare 응답을 하고 락을 잡은 채로 기다리는데, Coordinator는 commit인지 rollback인지 결정을 못 알려줘요. 락은 계속 잡힌 채.
+</p>
+
+<p>
+  이 상태를 풀려면 사람이 개입해야 해요. "이 트랜잭션은 어떻게 처리할지" 운영자가 결정해야 해요. 비현실적이에요.
+</p>
+
+<h3>3. 네트워크 분단에 약함</h3>
+
+<p>
+  Coordinator와 Participant 사이 네트워크가 끊기면 위와 같은 상황이 발생해요. 클라우드 환경의 일시적 네트워크 글리치만으로도 트랜잭션이 hang.
+</p>
+
+<h3>4. 가용성 저하</h3>
+
+<p>
+  CAP 정리 관점에서 2PC는 강한 일관성을 위해 가용성을 희생해요. 노드 하나가 죽으면 전체 트랜잭션이 멈춰요. 분산 시스템의 핵심 동기인 "한 노드 죽어도 시스템은 계속 동작"이 깨져요.
+</p>
+
+<h3>5. 성능 저하</h3>
+
+<p>
+  매 트랜잭션마다 두 번의 네트워크 라운드. RTT 비용이 매번 발생. 모놀리스의 단일 트랜잭션보다 훨씬 느려요.
+</p>
+
+<h2>3PC는 답인가?</h2>
+
+<p>
+  2PC의 블로킹 문제를 풀려고 3-Phase Commit이 제안됐어요. 중간에 pre-commit 단계를 두어 Coordinator 장애 시에도 진행이 가능하게 만들었어요.
+</p>
+
+<p>
+  그런데 3PC도 실무에서 거의 안 써요. 네트워크 분단 상황에서 여전히 한계가 있고, 단계가 늘어 더 느려지고 복잡해요. 더 본질적으로는, 분산 환경에서 진짜 ACID는 비싸다는 사실이 받아들여지면서, 사람들이 결과적 일관성으로 옮겨갔어요.
+</p>
+
+<h2>2PC가 아직 등장하는 자리</h2>
+
+<p>
+  완전히 사라진 건 아니에요. 일부 자리에서는 여전히 유용해요.
+</p>
+
+<ul>
+  <li><strong>한 DB 안의 분산 트랜잭션</strong>: PostgreSQL의 prepared transaction, MySQL의 XA. 같은 클러스터 안에서 짧게 사용.</li>
+  <li><strong>레거시 엔터프라이즈</strong>: 이미 JTA·XA로 짜여 있는 시스템. 새로 짤 게 아니라면 그대로.</li>
+  <li><strong>강한 일관성이 무조건 필요한 자리</strong>: 금융 거래 일부. 다만 이런 자리도 점점 다른 패턴으로 옮겨감.</li>
+</ul>
+
+<h2>현대적 흐름</h2>
+
+<p>
+  거의 모든 새 분산 시스템은 2PC 대신 다음 둘 중 하나를 택해요.
+</p>
+
+<ul>
+  <li><strong>Saga</strong>: 일련의 로컬 트랜잭션이에요. 실패 시 보상 트랜잭션으로 복구해요. 결과적 일관성을 줘요.</li>
+  <li><strong>Outbox 패턴</strong>: 로컬 트랜잭션과 이벤트 발행을 묶어요. 메시지 브로커로 비동기 전파해요.</li>
+</ul>
+
+<p>
+  둘 다 강한 일관성을 포기하는 대신 가용성·성능·운영 단순함을 얻어요. 다음 두 편에서 각각을 봐요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 Saga 패턴을 봐요. 일련의 로컬 트랜잭션과 보상 트랜잭션을 어떻게 엮는지, choreography와 orchestration의 두 가지 구현 방식, 실패 시 복구 흐름을 정리해요.
+</p>

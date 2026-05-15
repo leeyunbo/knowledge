@@ -144,7 +144,7 @@
 - [ ] 쿼리 플래너 읽는 법 (3편)
 - [ ] HikariCP — Connection Pool 튜닝 (3편)
 - [ ] Replication — Master-Slave lag (3편)
-- [ ] 분산 트랜잭션 — 2PC, Saga, Outbox (4편)
+- [x] ★ 분산 트랜잭션 — 2PC, Saga, Outbox (4편) — P1에서 승격
 - [ ] 샤딩과 파티셔닝 (3편)
 
 ### Spring 코어 internals

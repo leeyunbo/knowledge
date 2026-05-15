@@ -1,0 +1,252 @@
+---
+title: "Outbox 패턴: DB 변경과 이벤트 발행을 같이 묶기"
+subtitle: "분산 환경에서 가장 자주 만나는 함정 하나를 푸는 패턴이에요. 메시지 유실·중복을 어떻게 막는지 정리해요."
+dateText: "2026.05.13"
+episode: 4
+episodes: 4
+---
+
+<h2>풀려는 문제: dual-write 함정</h2>
+
+<p>
+  Saga에서 핵심 인프라가 "이벤트 발행"이에요. 자기 DB에 변경을 저장한 다음, 메시지 브로커(Kafka, RabbitMQ)에 이벤트를 발행해 다른 서비스가 그걸 알게 해요. 그런데 이 둘을 같이 처리하는 게 의외로 어려워요.
+</p>
+
+<pre><code class="language-java">// 위험한 패턴 (dual write)
+@Transactional
+public void createOrder(Order order) {
+    orderRepo.save(order);                          // DB 저장
+    eventBus.publish(new OrderCreated(order.id));   // 메시지 발행
+}</code></pre>
+
+<p>
+  이 코드의 문제는 두 작업이 같은 트랜잭션 안에 있는 것처럼 보이지만 사실은 아니라는 거예요. <code>@Transactional</code>은 DB 트랜잭션만 관리해요. 메시지 발행은 그 안에 안 들어가요. 다음 시나리오가 발생할 수 있어요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>시나리오</th><th>DB</th><th>메시지</th><th>결과</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>DB 저장 후 메시지 발행 실패</td><td>저장됨</td><td>발행 안 됨</td><td>주문은 있는데 아무도 몰라요. 결제와 재고가 진행 안 돼요.</td></tr>
+    <tr><td>메시지 발행 후 DB 커밋 실패</td><td>롤백</td><td>이미 발행됨</td><td>없는 주문에 대해 결제·재고가 진행돼요. 큰일이에요.</td></tr>
+    <tr><td>중간에 서버 죽음</td><td>둘 중 하나만</td><td>둘 중 하나만</td><td>불일치 상태로 남아요.</td></tr>
+  </tbody>
+</table>
+
+<p>
+  이게 dual-write 함정이에요. 두 시스템(DB + 메시지 브로커)에 동시 쓰기를 원자적으로 만들 수 없는 데서 오는 문제. 2PC로 가야 하는데, 그건 가용성을 해쳐요(이전 편 참조). Outbox 패턴이 이걸 풀어요.
+</p>
+
+<h2>Outbox의 발상</h2>
+
+<p>
+  핵심은 단순해요. <strong>이벤트를 메시지 브로커에 직접 발행하지 말고, 같은 DB에 outbox 테이블로 저장</strong>하는 거예요. 비즈니스 변경과 이벤트 기록을 한 트랜잭션 안에 묶을 수 있어요.
+</p>
+
+<pre><code class="language-java">// 안전한 패턴 (Outbox)
+@Transactional
+public void createOrder(Order order) {
+    orderRepo.save(order);
+
+    OutboxEvent event = new OutboxEvent(
+        "OrderCreated",
+        toJson(new OrderCreatedPayload(order.id))
+    );
+    outboxRepo.save(event);
+}</code></pre>
+
+<p>
+  이 한 트랜잭션이 커밋되면 주문 데이터와 이벤트 기록이 같이 영속화돼요. 둘 다 저장되거나 둘 다 안 저장돼요. 일관성이 보장돼요.
+</p>
+
+<p>
+  그다음 별도 프로세스(또는 같은 프로세스의 별도 스레드)가 outbox 테이블을 읽어 메시지 브로커에 발행해요. 발행 후 outbox 행을 "처리됨"으로 마크하거나 삭제해요.
+</p>
+
+<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:560px; margin:1.5rem auto;">
+  <rect x="20" y="30" width="160" height="60" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="100" y="55" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">OrderService</text>
+  <text x="100" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">@Transactional</text>
+
+  <rect x="220" y="20" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="300" y="44" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">orders 테이블</text>
+
+  <rect x="220" y="70" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="300" y="94" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">outbox 테이블</text>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 180 50 L 220 40" marker-end="url(#obarr)"/>
+    <path d="M 180 60 L 220 85" marker-end="url(#obarr)"/>
+  </g>
+
+  <text x="300" y="135" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">한 트랜잭션</text>
+
+  <rect x="200" y="150" width="200" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/>
+  <text x="300" y="172" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">Outbox Relay</text>
+  <text x="300" y="188" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">(별도 프로세스)</text>
+
+  <rect x="430" y="150" width="150" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="505" y="172" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">Kafka</text>
+  <text x="505" y="188" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">/ RabbitMQ</text>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 300 110 L 300 150" marker-end="url(#obarr)"/>
+    <path d="M 400 175 L 430 175" marker-end="url(#obarr)"/>
+  </g>
+
+  <defs>
+    <marker id="obarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<h2>Outbox 테이블 스키마</h2>
+
+<pre><code class="language-sql">CREATE TABLE outbox (
+    id BIGSERIAL PRIMARY KEY,
+    aggregate_type VARCHAR(50),    -- 'Order', 'Payment'
+    aggregate_id VARCHAR(50),       -- 어떤 자원에 대한 이벤트
+    event_type VARCHAR(50),         -- 'OrderCreated'
+    payload JSONB,                  -- 이벤트 본문
+    created_at TIMESTAMP DEFAULT NOW(),
+    processed_at TIMESTAMP,         -- 발행 완료 시점
+    INDEX idx_unprocessed (processed_at) WHERE processed_at IS NULL
+);</code></pre>
+
+<p>
+  Relay 프로세스는 <code>processed_at IS NULL</code> 행만 골라 발행하고, 발행 성공하면 그 자리에 시각을 채워요. 또는 발행 후 삭제. 부분 인덱스로 미처리 행만 빠르게 찾을 수 있게.
+</p>
+
+<h2>Relay 구현: 두 가지 방식</h2>
+
+<h3>1. Polling Publisher</h3>
+
+<p>
+  단순한 방식이에요. 별도 워커가 주기적으로 outbox를 polling하고 미발행 이벤트를 brokerage에 전송.
+</p>
+
+<pre><code class="language-java">@Scheduled(fixedDelay = 1000)
+public void publish() {
+    List&lt;OutboxEvent&gt; events = outboxRepo.findUnprocessed(100);
+    for (OutboxEvent e : events) {
+        try {
+            kafka.send(topic(e.eventType), e.payload);
+            outboxRepo.markProcessed(e.id);
+        } catch (Exception ex) {
+            log.error("publish failed, retry next cycle", ex);
+            break;   // 순서 보존 위해 멈춤
+        }
+    }
+}</code></pre>
+
+<p>
+  장점은 단순함. 단점은 polling 지연(1초 단위면 평균 0.5초 지연)과 DB 부하.
+</p>
+
+<h3>2. Change Data Capture (CDC)</h3>
+
+<p>
+  DB의 binlog/WAL을 직접 읽어 변경을 캡처. Debezium 같은 도구가 표준이에요. PostgreSQL의 logical replication이나 MySQL의 binlog를 읽고, outbox 테이블에 INSERT가 생기면 즉시 Kafka로 전송.
+</p>
+
+<p>
+  장점은 거의 실시간(ms 단위 지연), DB에 추가 부하 없음. 단점은 인프라 복잡도예요. Debezium과 Kafka Connect를 운영해야 해요.
+</p>
+
+<h2>발행 보장 수준</h2>
+
+<p>
+  Outbox의 핵심 보장은 <strong>at-least-once delivery</strong>예요. 이벤트가 적어도 한 번은 발행돼요. 발행 실패하면 다음 사이클에 재시도해요. 영원히 잃어버리지 않아요.
+</p>
+
+<p>
+  대신 <strong>중복 가능성</strong>이 있어요. Relay가 발행은 했는데 processed_at 마킹 전에 죽으면, 다음 사이클에 같은 이벤트를 또 발행해요. 같은 이벤트가 두 번 가는 거예요.
+</p>
+
+<p>
+  소비자 쪽에서 <strong>idempotent</strong> 처리가 필수예요. 이벤트에 고유 ID(outbox.id)를 담고, 소비자는 이미 처리한 ID는 무시. 이걸로 사실상 exactly-once 효과를 얻어요.
+</p>
+
+<h2>Inbox 패턴: 소비자 쪽 거울</h2>
+
+<p>
+  Outbox가 발행 쪽 패턴이라면, Inbox는 수신 쪽 패턴이에요. 소비자가 받은 이벤트를 즉시 처리하지 말고, 일단 inbox 테이블에 저장한 다음 별도로 처리.
+</p>
+
+<pre><code class="language-java">// 소비자 쪽
+@Transactional
+public void handle(OrderCreated event) {
+    if (inboxRepo.existsById(event.id)) {
+        return;   // 이미 처리된 이벤트. 무시.
+    }
+    inboxRepo.save(new InboxEvent(event.id, event.type));
+
+    // 같은 트랜잭션 안에서 비즈니스 처리
+    paymentService.charge(event.userId, event.amount);
+}</code></pre>
+
+<p>
+  이벤트 처리와 처리 기록을 같은 트랜잭션에 묶어 idempotency가 보장돼요. 중복 수신 시 자연스럽게 무시돼요.
+</p>
+
+<h2>실무 운영 포인트</h2>
+
+<h3>1. Outbox 테이블 정리</h3>
+
+<p>
+  processed 이벤트를 영원히 두면 테이블이 무한정 커져요. 일정 시간(7일 등) 지난 행을 주기적으로 삭제. 또는 별도 archive 테이블로 이동.
+</p>
+
+<h3>2. 순서 보존</h3>
+
+<p>
+  같은 aggregate에 대한 이벤트는 순서가 보장돼야 해요. 예: <code>OrderCreated</code> → <code>OrderPaid</code> → <code>OrderShipped</code>. Kafka에서는 같은 aggregate_id를 partition key로 써서 같은 파티션에 들어가게.
+</p>
+
+<h3>3. Outbox 모니터링</h3>
+
+<p>
+  미처리 행 수가 점점 늘면 relay가 죽었거나 발행이 느려진 거예요. 알람을 걸어야 해요. 미처리 100건 초과 시 알림 같은 식.
+</p>
+
+<h3>4. Schema 진화</h3>
+
+<p>
+  이벤트 payload의 스키마가 바뀌면 소비자가 깨질 수 있어요. Schema Registry(Avro, Protobuf)나 호환성 정책(추가 필드만 허용)으로 관리.
+</p>
+
+<h2>Outbox vs CDC</h2>
+
+<p>
+  Outbox 패턴은 명시적으로 이벤트를 만들어 저장. CDC만으로 충분한 자리도 있어요. DB의 모든 변경을 자동으로 캡처해서 이벤트로 만들면 outbox 테이블이 따로 필요 없을 수도 있어요.
+</p>
+
+<p>
+  다만 CDC만으로 다 푸는 건 비즈니스 의미를 잃어요. <code>orders</code> 테이블의 INSERT가 "OrderCreated 이벤트"인지, "OrderImported 이벤트"인지 구분이 안 돼요. Outbox 테이블은 비즈니스 의미를 명시적으로 담아요.
+</p>
+
+<p>
+  실무에서는 둘 다 같이 써요. 비즈니스 이벤트는 outbox, 단순 변경 감지는 CDC.
+</p>
+
+<h2>면접 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"분산 트랜잭션 어떻게 처리하나요?"</strong>: 2PC는 안 씀. Saga 또는 Outbox로 결과적 일관성.</li>
+  <li><strong>"Outbox 패턴이 뭐예요?"</strong>: DB 변경과 이벤트를 같은 트랜잭션에 묶고, 별도 프로세스가 메시지 브로커로 전달.</li>
+  <li><strong>"왜 그냥 send 호출 안 하나요?"</strong>: dual-write 함정. DB 커밋과 메시지 발행이 따로라 일관성 깨짐.</li>
+  <li><strong>"Exactly-once 가능?"</strong>: at-least-once + idempotent 처리 = 사실상 exactly-once.</li>
+  <li><strong>"Saga와 Outbox 관계?"</strong>: Outbox는 Saga의 이벤트 발행 인프라. Saga가 "흐름", Outbox가 "안전한 전달".</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 분산 트랜잭션이 왜 본질적으로 어려운지, 네트워크 불안정과 부분 실패의 의미를 봤어요. 2편에서는 2PC의 동작과 한계, 왜 거의 안 쓰는지를 봤어요. 3편에서는 Saga의 발상, Choreography vs Orchestration, 보상 트랜잭션 설계를 봤어요. 4편에서는 Outbox 패턴으로 dual-write 함정을 풀고, CDC와 Inbox 패턴까지 정리했어요.
+</p>
+
+<p>
+  분산 트랜잭션은 모놀리스의 ACID처럼 깔끔하지 않아요. 결과적 일관성을 받아들이고, idempotent 처리·보상·outbox 같은 패턴을 조합해서 운영해야 해요. 면접에서 이 자리는 단골이고, 깊이 묻기 좋은 자리예요.
+</p>
