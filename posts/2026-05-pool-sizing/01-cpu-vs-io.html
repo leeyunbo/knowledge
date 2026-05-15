@@ -1,0 +1,168 @@
+---
+title: "풀 사이징 이론: CPU bound vs I/O bound"
+subtitle: "스레드풀과 커넥션풀의 크기를 어떻게 정할지. 추측이 아니라 공식과 측정 기반으로 봐요."
+dateText: "2026.05.14"
+episode: 1
+episodes: 2
+---
+
+<h2>"풀 크기를 얼마로 잡아야 할까"</h2>
+
+<p>
+  실무에서 가장 자주 받는 질문 중 하나예요. ThreadPoolExecutor의 corePoolSize, HikariCP의 maxPoolSize, WAS의 worker thread 수. 답은 자리에 따라 다르고, 추측으로 정하면 거의 항상 틀려요.
+</p>
+
+<p>
+  이 글에서는 두 가지를 봐요. 첫째, 작업이 CPU bound인지 I/O bound인지 따져서 시작 값을 정하는 공식. 둘째, 다음 편에서 Little's Law로 실측 기반으로 조정하는 방법.
+</p>
+
+<h2>CPU bound vs I/O bound</h2>
+
+<p>
+  스레드가 시간을 어디에 쓰느냐가 핵심이에요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>유형</th><th>특징</th><th>예시</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>CPU bound</td><td>대부분의 시간을 CPU 계산에 사용</td><td>이미지 처리, 암호화, 정렬 같은 알고리즘</td></tr>
+    <tr><td>I/O bound</td><td>대부분의 시간을 대기에 사용</td><td>DB 쿼리, HTTP 호출, 파일 읽기</td></tr>
+  </tbody>
+</table>
+
+<p>
+  같은 함수 안에 둘이 섞여 있을 수도 있어요. 예: "DB에서 데이터 받아서(I/O) JSON 직렬화(CPU)". 그땐 두 시간의 비율을 봐요.
+</p>
+
+<h2>CPU bound 공식</h2>
+
+<p>
+  CPU 코어 수보다 스레드를 많이 만들어도 한 번에 처리되는 양은 안 늘어요. 코어가 8개면 동시에 8개 스레드만 진짜로 실행돼요. 나머지는 시간 쪼개기로 번갈아 가며 실행되는데, 그 컨텍스트 스위칭 비용이 추가될 뿐이에요.
+</p>
+
+<p>
+  그래서 CPU bound 작업의 풀 크기는 다음 공식이 출발점이에요.
+</p>
+
+<pre><code class="language-text">스레드 수 = CPU 코어 수 + 1</code></pre>
+
+<p>
+  "+1"의 의미는 한 스레드가 잠깐 멈췄을 때(메모리 페이지 폴트, GC) 다른 스레드가 대신 실행되게 하기 위한 여유분이에요. CPU bound라면 이 정도가 한계예요. 더 늘리면 컨텍스트 스위칭만 비싸져요.
+</p>
+
+<p>
+  자바에서 코어 수는 <code>Runtime.getRuntime().availableProcessors()</code>로 얻어요. 컨테이너 환경에서는 cgroups CPU 제한을 반영해요(자바 10+).
+</p>
+
+<h2>I/O bound 공식 (Brian Goetz)</h2>
+
+<p>
+  I/O bound 작업은 사정이 달라요. 스레드가 대부분 대기 중이라 CPU 코어 수와 별 상관 없어요. 대기하는 동안 다른 스레드가 CPU를 쓸 수 있어요. 그래서 코어 수보다 훨씬 많은 스레드를 둬도 돼요.
+</p>
+
+<p>
+  Brian Goetz의 <em>Java Concurrency in Practice</em>에 나오는 공식이에요.
+</p>
+
+<pre><code class="language-text">스레드 수 = CPU 코어 수 × CPU 활용 목표 × (1 + 대기 시간 / CPU 시간)</code></pre>
+
+<p>
+  각 항을 풀어 보면 이래요.
+</p>
+
+<ul>
+  <li><strong>CPU 코어 수</strong>: 위와 같음.</li>
+  <li><strong>CPU 활용 목표</strong>: 0.0~1.0. 일반적으로 0.7~0.9. 모든 CPU를 풀로 쓰면 다른 프로세스에 영향이 커요.</li>
+  <li><strong>(1 + 대기 시간 / CPU 시간)</strong>: 한 작업의 실제 처리 시간 중 대기와 CPU의 비율. 대기가 90%, CPU가 10%면 1 + 9 = 10이에요.</li>
+</ul>
+
+<p>
+  예시: 8 코어 서버, CPU 활용 목표 0.8, 대기 시간 90% / CPU 시간 10%인 API 서버.
+</p>
+
+<pre><code class="language-text">8 × 0.8 × (1 + 90/10) = 8 × 0.8 × 10 = 64 스레드</code></pre>
+
+<p>
+  CPU 8 코어인데 스레드 64개를 둬도 된다는 결과가 나와요. 대기가 많은 작업이라 직관에 안 맞아 보이지만 맞아요. 대부분 시간이 DB·외부 API 응답을 기다리는 데 쓰니까 그동안 다른 요청이 CPU를 쓸 수 있어요.
+</p>
+
+<h2>실제 측정 방법</h2>
+
+<p>
+  공식의 "대기 시간/CPU 시간"을 실제로 측정해야 해요. 두 가지 방법이 있어요.
+</p>
+
+<h3>1. APM 도구</h3>
+
+<p>
+  Datadog, New Relic, Pinpoint 같은 도구가 메서드별 시간을 쪼개 줘요. "이 요청 평균 200ms 중 DB가 150ms, 외부 API가 30ms, 내 코드가 20ms" 같은 식.
+</p>
+
+<h3>2. 직접 측정</h3>
+
+<p>
+  AOP나 인터셉터로 메서드별 시간을 기록해요. 또는 <code>StopWatch</code>로 구간을 측정해요. 운영 일주일치 데이터를 모아 평균을 내요.
+</p>
+
+<pre><code class="language-java">long start = System.nanoTime();
+// 외부 호출
+long ioTime = System.nanoTime() - start;
+
+start = System.nanoTime();
+// CPU 작업 (직렬화, 계산)
+long cpuTime = System.nanoTime() - start;</code></pre>
+
+<h2>HikariCP 같은 커넥션풀의 사이징</h2>
+
+<p>
+  DB 커넥션풀은 약간 다른 관점이 필요해요. <strong>커넥션 수가 너무 많으면 오히려 느려져요</strong>. DB가 동시 처리할 수 있는 능력에는 한계가 있고, 그걸 넘으면 락 경합·메모리 부족·디스크 IO 경합으로 throughput이 떨어져요.
+</p>
+
+<p>
+  HikariCP 위키의 권장 공식이에요.
+</p>
+
+<pre><code class="language-text">connections = (코어 수 × 2) + 실효 스핀들 수</code></pre>
+
+<p>
+  실효 스핀들 수는 디스크 수예요. SSD면 1~2개 정도로 봐요. PostgreSQL 같은 DB는 코어 수 × 2가 좋은 출발점이에요. DB 서버가 8 코어면 클라이언트가 어느 한 쪽에서 16~20 커넥션이면 충분해요.
+</p>
+
+<p>
+  여러 클라이언트 인스턴스가 있다면 합쳐서 그 정도예요. 인스턴스 10대면 한 인스턴스 당 2개씩 잡으면 돼요.
+</p>
+
+<h2>"많을수록 빠르다"는 함정</h2>
+
+<p>
+  풀을 키우면 처리량이 늘어날 것 같지만 사실은 곡선이에요.
+</p>
+
+<svg viewBox="0 0 600 240" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:560px; margin:1.5rem auto;">
+  <line x1="60" y1="200" x2="540" y2="200" stroke="currentColor" stroke-width="1.2"/>
+  <line x1="60" y1="40" x2="60" y2="200" stroke="currentColor" stroke-width="1.2"/>
+
+  <text x="300" y="225" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">풀 크기</text>
+  <text x="30" y="120" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor" transform="rotate(-90, 30, 120)">처리량</text>
+
+  <path d="M 60 195 Q 200 100 320 70 Q 420 60 540 130" fill="none" stroke="currentColor" stroke-width="1.8"/>
+
+  <line x1="320" y1="70" x2="320" y2="200" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="320" y="55" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">최적점</text>
+  <text x="320" y="218" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">N</text>
+
+  <text x="200" y="135" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">병렬 부족</text>
+  <text x="450" y="100" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">경합 증가</text>
+</svg>
+
+<p>
+  최적점이 있어요. 그 이하면 병렬 처리 능력 부족, 그 이상이면 컨텍스트 스위칭·락 경합·메모리 압박으로 오히려 느려져요. 공식은 시작점이고, 실측으로 조정해야 진짜 최적점을 찾아요.
+</p>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 Little's Law를 봐요. 시스템의 실제 부하·응답시간·동시 요청 수를 묶어주는 공식이에요. 모니터링 데이터에서 풀 크기를 역산하는 방법, 그리고 풀 크기 변경의 효과를 측정하는 방법을 정리해요.
+</p>

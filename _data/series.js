@@ -40,7 +40,7 @@ const concurrency = {
         { num: 8, label: "ExecutorService", title: "ExecutorService", desc: "작업 제출 모델. Executors 팩토리의 함정. submit vs execute", x: 180, y: 280, ring: 1.35, status: "done", slug: "2026-05-executorservice", entry: "01-executorservice-정체.html", episodes: 2 },
         { num: 9, label: "ThreadPoolExecutor", title: "ThreadPoolExecutor 7인자", desc: "core/max poolSize, keepAlive, workQueue, ThreadFactory, RejectedExecutionHandler", x: 160, y: 410, ring: 0.6, status: "done", slug: "2026-05-threadpoolexecutor-7인자", entry: "01-7인자-개요.html", episodes: 4 },
         { num: 10, label: "Future", title: "Future / Callable", desc: "get()의 블로킹과 타임아웃. cancel()의 진짜 의미 (인터럽트 시그널)", x: 280, y: 540, ring: 1.65, status: "done", slug: "2026-05-future-callable", entry: "01-future-기본.html", episodes: 2 },
-        { num: 11, label: "풀 사이징", title: "풀 사이징 이론", desc: "CPU bound vs I/O bound 공식. Little's Law. 모니터링 지표", x: 100, y: 550, status: "locked" }
+        { num: 11, label: "풀 사이징", title: "풀 사이징 이론", desc: "CPU bound vs I/O bound 공식. Little's Law. 모니터링 지표", x: 100, y: 550, ring: 1.95, status: "done", slug: "2026-05-pool-sizing", entry: "01-cpu-vs-io.html", episodes: 2 }
       ]
     },
     {
@@ -177,7 +177,8 @@ const seriesTitles = {
   "2026-05-rest-원칙과-비판": "REST 원칙과 비판",
   "2026-05-monolith-vs-msa": "모놀리스 vs MSA",
   "2026-05-web-security": "CSRF / XSS / SQL Injection",
-  "2026-05-distributed-transaction": "분산 트랜잭션 (2PC / Saga / Outbox)"
+  "2026-05-distributed-transaction": "분산 트랜잭션 (2PC / Saga / Outbox)",
+  "2026-05-pool-sizing": "풀 사이징 이론"
 };
 
 const cardOnly = {

@@ -1,0 +1,182 @@
+---
+title: "Little's Law와 풀 사이징 실측"
+subtitle: "L = λW. 시스템의 동시 작업 수와 도착률·응답시간을 묶어 주는 공식이에요. 모니터링으로 풀 크기를 검증해요."
+dateText: "2026.05.14"
+episode: 2
+episodes: 2
+---
+
+<h2>Little's Law가 뭐예요</h2>
+
+<p>
+  대기 행렬 이론의 가장 기본적인 공식이에요. 시스템에 들어오는 작업을 안정 상태(steady state)로 본다면:
+</p>
+
+<pre><code class="language-text">L = λ × W</code></pre>
+
+<ul>
+  <li><strong>L</strong>: 시스템 안에 있는 평균 작업 수 (concurrency)</li>
+  <li><strong>λ (lambda)</strong>: 단위 시간당 도착하는 작업 수 (throughput, RPS)</li>
+  <li><strong>W</strong>: 한 작업의 평균 응답 시간 (latency)</li>
+</ul>
+
+<p>
+  단순히 말하면 "동시 작업 수 = 초당 요청 × 한 요청 당 시간"이에요. 한 식이지만 풀 사이징의 거의 모든 것을 풀어요.
+</p>
+
+<h2>풀 크기는 L과 같아야 해요</h2>
+
+<p>
+  핵심 통찰. 시스템이 정상 동작하려면 풀 크기가 평균 동시 작업 수(L) 이상이어야 해요. L보다 작으면 큐가 쌓이고 응답 시간이 늘어요.
+</p>
+
+<p>
+  예시 계산. API 서버가 초당 100 요청을 받고 각 요청이 평균 200ms 걸린다면:
+</p>
+
+<pre><code class="language-text">L = 100 × 0.2 = 20</code></pre>
+
+<p>
+  평균적으로 20개 요청이 동시에 처리되고 있어야 해요. 풀 크기가 그보다 작으면 부족하고, 그보다 클 필요는 별로 없어요.
+</p>
+
+<h2>피크 부하 대응</h2>
+
+<p>
+  평균이 20이라도 트래픽은 spiky해요. 짧은 시간 동안 평균의 2~3배가 몰릴 수 있어요. 풀 크기는 평균이 아니라 <strong>P95이나 P99 동시성</strong>을 처리할 수 있어야 해요.
+</p>
+
+<p>
+  실무에서는 보통 평균의 1.5~3배를 잡아요. 20이 평균이면 30~60. 단, 너무 크게 잡으면 1편에서 본 "경합 증가" 영역으로 가니 측정·관찰이 필수.
+</p>
+
+<h2>모니터링 지표</h2>
+
+<p>
+  풀 사이징을 위해 봐야 할 지표는 4가지예요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>지표</th><th>의미</th><th>해석</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>처리량 (RPS)</td><td>초당 처리 요청 수 (λ)</td><td>부하 크기</td></tr>
+    <tr><td>응답 시간 (P50/P95/P99)</td><td>한 요청 처리 시간 (W)</td><td>지연 분포</td></tr>
+    <tr><td>활성 스레드/커넥션 수</td><td>풀에서 사용 중인 수 (L)</td><td>실제 동시성</td></tr>
+    <tr><td>큐 대기 시간</td><td>풀이 꽉 차서 대기한 시간</td><td>풀 부족 신호</td></tr>
+  </tbody>
+</table>
+
+<p>
+  활성 스레드 수가 최대치에 자주 닿는다면 풀이 부족해요. 큐 대기 시간이 0보다 크면 확실히 부족한 거예요.
+</p>
+
+<h2>HikariCP 모니터링 예시</h2>
+
+<p>
+  HikariCP는 JMX와 Micrometer로 다음 지표를 노출해요.
+</p>
+
+<ul>
+  <li><code>hikaricp.connections.active</code>: 사용 중인 커넥션</li>
+  <li><code>hikaricp.connections.idle</code>: 유휴 커넥션</li>
+  <li><code>hikaricp.connections.pending</code>: 커넥션 대기 중인 스레드 수</li>
+  <li><code>hikaricp.connections.acquire</code>: 커넥션 획득 시간</li>
+</ul>
+
+<p>
+  pending이 자주 0보다 크면 풀 부족 신호예요. acquire 시간이 길어지면 그 사이 모든 요청이 느려져요. 알람을 걸어두는 게 좋아요.
+</p>
+
+<h2>병목을 찾는 방법</h2>
+
+<p>
+  풀 크기를 늘려도 응답 시간이 줄지 않으면 풀이 병목이 아닌 거예요. 다른 자리에 진짜 병목이 있어요.
+</p>
+
+<ol>
+  <li><strong>풀이 다 안 차 있는데 응답이 느림</strong>: 작업 자체가 느린 것. DB 쿼리, 외부 API 응답 시간을 측정해요.</li>
+  <li><strong>풀이 자주 차 있고 pending이 큼</strong>: 풀 부족. 사이즈를 늘리거나 처리를 더 빠르게 해요.</li>
+  <li><strong>풀을 늘려도 처리량이 안 늠</strong>: 풀 뒤의 자원이 한계. DB CPU·IOPS, 외부 API rate limit 등.</li>
+</ol>
+
+<p>
+  Little's Law를 거꾸로 써서 병목 자리를 추정할 수도 있어요. "처리량이 RPS = 100에서 안 늘어요"인데 평균 응답 200ms면, 동시성은 항상 20에 박혀 있다는 뜻이에요. 동시성이 풀 크기보다 작은데 막혀 있으면 풀이 아닌 다른 자원이 병목이에요.
+</p>
+
+<h2>WAS 워커 스레드의 사이징</h2>
+
+<p>
+  Tomcat·Jetty·Undertow 같은 WAS는 요청을 워커 스레드로 처리해요. 이 풀의 사이즈도 같은 공식.
+</p>
+
+<ul>
+  <li><code>server.tomcat.threads.max</code> (Spring Boot 기본 200)</li>
+  <li>실측 후 200이 부족하면 늘리고, 항상 30% 미만이면 줄여요</li>
+  <li>너무 크면 메모리에 압박이 가요. 스레드 하나 당 스택이 ~1MB 정도예요.</li>
+</ul>
+
+<p>
+  주의: WAS 워커 스레드 풀과 DB 커넥션풀은 별개예요. WAS 200 스레드인데 DB 10 커넥션이면, 한 번에 10개만 DB 쓸 수 있어요. 나머지 190은 대기. 균형을 맞춰야 해요.
+</p>
+
+<h2>풀 크기 튜닝 절차</h2>
+
+<ol>
+  <li><strong>공식으로 시작점 잡기</strong>: 1편의 CPU/I/O bound 공식.</li>
+  <li><strong>운영 모니터링 일주일</strong>: 활성/대기, 응답시간, 처리량 모음.</li>
+  <li><strong>병목 식별</strong>: 풀이 자주 차는지, 풀 뒤가 막히는지.</li>
+  <li><strong>조정</strong>: 부족하면 늘리고, 여유 있으면 줄여요.</li>
+  <li><strong>변경 후 다시 측정</strong>: 진짜 좋아졌는지 확인. P95·P99도 같이.</li>
+</ol>
+
+<p>
+  한 번에 큰 폭으로 바꾸지 마세요. 30% 정도씩 단계적으로. 너무 키우면 1편의 "경합 증가" 영역에 빠져서 오히려 나빠져요.
+</p>
+
+<h2>실무에서 자주 만나는 잘못된 사이징</h2>
+
+<ul>
+  <li><strong>HikariCP를 100, 200으로 잡음</strong>: DB가 못 버텨요. 보통 8~20이면 충분해요.</li>
+  <li><strong>스레드풀을 1000으로 잡음</strong>: 메모리 압박, 컨텍스트 스위칭 폭발. 100~300으로 줄이면 처리량이 늘어나요.</li>
+  <li><strong>외부 API 호출인데 풀이 작음</strong>: 8 코어에 스레드 16개로 잡았다면, 대기 비율 90%일 때 사실 100개 이상이 필요해요.</li>
+  <li><strong>모든 작업을 같은 풀에서</strong>: 빠른 작업이 느린 작업에 막혀요. 풀을 종류별로 나누는 게 좋음.</li>
+</ul>
+
+<h2>풀을 종류별로 나누기</h2>
+
+<p>
+  특정 작업이 다른 작업의 자원을 잡아먹지 않게 풀을 분리해요.
+</p>
+
+<ul>
+  <li><strong>HTTP 워커 풀</strong>: 사용자 요청을 처리해요. WAS 기본이에요.</li>
+  <li><strong>외부 API 호출 풀</strong>: 다른 회사 API라 느려요. 별도 풀로 격리해요.</li>
+  <li><strong>배치 작업 풀</strong>: 무거운 작업이라 사용자 요청을 막지 않게 분리해요.</li>
+  <li><strong>이벤트 처리 풀</strong>: 비동기 이벤트 컨슈머용이에요.</li>
+</ul>
+
+<p>
+  이 분리는 Bulkhead 패턴과 비슷해요. 한 자리가 망가져도 다른 자리는 살아남는 구조예요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"스레드풀 크기 어떻게 정하나요?"</strong>: CPU bound면 코어 수+1, I/O bound면 Brian Goetz 공식을 써요. 시작점이고 실측으로 조정해요.</li>
+  <li><strong>"HikariCP는 몇 개로?"</strong>: 코어 수×2 정도예요. 100~200은 너무 많아요.</li>
+  <li><strong>"Little's Law가 뭐예요?"</strong>: L = λW. 동시 작업 수 = 처리량 × 응답 시간.</li>
+  <li><strong>"풀을 키웠는데 빨라지지 않아요"</strong>: 풀이 병목이 아닌 거예요. 풀 뒤의 자원(DB, 외부 API)을 확인해요.</li>
+  <li><strong>"풀을 종류별로 나누는 이유?"</strong>: Bulkhead 패턴이에요. 한 종류의 부하가 다른 종류를 막지 않게 분리해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 CPU bound와 I/O bound의 차이, 두 가지 공식(코어수+1, Brian Goetz), HikariCP의 사이징 가이드라인을 봤어요. 2편에서는 Little's Law로 풀 크기를 정량 검증하고, 모니터링 지표로 병목을 찾고, 실무에서 자주 만나는 잘못된 사이징과 풀 분리 패턴을 정리했어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>공식으로 시작하고, 측정으로 조정해요</strong>. 추측만으로 정하지 마세요. 모니터링 지표 없이 풀 크기를 바꾸는 건 거의 도박이에요.
+</p>
