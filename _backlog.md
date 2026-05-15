@@ -105,7 +105,7 @@
 - [ ] ★ Circuit Breaker 보강 (기존 시리즈 확장)
 
 ### 운영/인프라
-- [ ] ★ Load Balancer — L4 vs L7 (2편)
+- [x] ★ Load Balancer — L4 vs L7 (2편)
 - [ ] ★ Reverse Proxy / API Gateway (3편)
 - [ ] ★ Graceful Shutdown 설계 (2편)
 
