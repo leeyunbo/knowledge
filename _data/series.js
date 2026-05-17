@@ -108,7 +108,7 @@ const java = {
       topics: [
         { num: 4, label: "JVM 메모리", title: "JVM 메모리 구조", desc: "Heap / Metaspace / Stack / Direct Memory", x: 400, y: 130, ring: 1.4, status: "done", slug: "2026-05-jvm-메모리-구조", entry: "01-jvm-메모리-영역-개요.html", episodes: 4 },
         { num: 5, label: "GC", title: "GC 진화사", desc: "Serial → CMS → G1 → ZGC, Shenandoah", x: 470, y: 270, ring: 1.8, status: "done", slug: "2026-05-gc-진화사", entry: "01-gc가-풀려는-문제.html", episodes: 5 },
-        { num: 6, label: "ClassLoader", title: "ClassLoader 동작", desc: "부모 위임 모델, Bootstrap / Extension / Application", x: 330, y: 270, status: "locked" }
+        { num: 6, label: "ClassLoader", title: "ClassLoader 동작", desc: "부모 위임 모델, Bootstrap / Extension / Application", x: 330, y: 270, ring: 2.6, status: "done", slug: "2026-05-classloader", entry: "01-부모-위임-모델.html", episodes: 3 }
       ]
     },
     {
@@ -181,7 +181,8 @@ const seriesTitles = {
   "2026-05-pool-sizing": "풀 사이징 이론",
   "2026-05-load-balancer": "Load Balancer L4 vs L7",
   "2026-05-idempotency-patterns": "멱등성 설계 패턴",
-  "2026-05-collection-비교": "Collection 비교"
+  "2026-05-collection-비교": "Collection 비교",
+  "2026-05-classloader": "ClassLoader 동작"
 };
 
 const cardOnly = {

@@ -1,0 +1,206 @@
+---
+title: "사용자 정의 ClassLoader"
+subtitle: "URLClassLoader로 동적 jar 로딩, ClassLoader 직접 구현, 모듈 시스템 도입 이후의 변화를 정리해요."
+dateText: "2026.05.17"
+episode: 2
+episodes: 3
+---
+
+<h2>왜 직접 만드나요</h2>
+
+<p>
+  Application ClassLoader가 classpath의 클래스를 다 로드해 주는데, 굳이 ClassLoader를 만드는 자리가 있어요. 보통 이런 요구예요.
+</p>
+
+<ul>
+  <li><strong>동적 로딩</strong>: 실행 중에 jar 파일을 새로 받아서 클래스를 불러와요. 플러그인 시스템 같은 자리예요.</li>
+  <li><strong>격리</strong>: 같은 이름의 클래스가 두 버전 필요해요. WAS의 webapp 격리, 마이크로 모듈 시스템이 그래요.</li>
+  <li><strong>변환</strong>: 클래스 바이트코드를 로딩 시점에 수정해요. AOP 프레임워크나 코드 instrument 도구가 써요.</li>
+  <li><strong>네트워크 로딩</strong>: classpath가 아닌 자리(원격 서버, DB)에서 바이트코드를 가져와요.</li>
+</ul>
+
+<h2>URLClassLoader로 동적 로딩</h2>
+
+<p>
+  가장 쉬운 방법이에요. URL 배열만 주면 그 위치의 jar에서 클래스를 가져와요.
+</p>
+
+<pre><code class="language-java">URL jarUrl = new URL("file:///path/to/plugin.jar");
+URLClassLoader loader = new URLClassLoader(
+    new URL[]{ jarUrl },
+    getClass().getClassLoader()  // 부모 로더
+);
+
+Class&lt;?&gt; cls = loader.loadClass("com.plugin.MyPlugin");
+Object instance = cls.getDeclaredConstructor().newInstance();</code></pre>
+
+<p>
+  두 번째 인자가 부모 로더예요. 이 부모는 부모 위임 모델로 먼저 클래스 검색을 시도해요. 직접 명시하지 않으면 시스템 ClassLoader가 부모예요.
+</p>
+
+<h3>플러그인 패턴</h3>
+
+<p>
+  플러그인이 공통 인터페이스(예: <code>Plugin</code>)를 구현했다고 약속하면, 동적으로 로드해 호출할 수 있어요.
+</p>
+
+<pre><code class="language-java">public interface Plugin {
+    void execute();
+}
+
+// 메인 앱
+URLClassLoader loader = new URLClassLoader(
+    new URL[]{ new URL("file:///plugins/plugin.jar") }
+);
+
+Class&lt;?&gt; cls = loader.loadClass("com.example.MyPlugin");
+Plugin plugin = (Plugin) cls.getDeclaredConstructor().newInstance();
+plugin.execute();</code></pre>
+
+<p>
+  주의 자리가 있어요. <code>Plugin</code> 인터페이스는 메인 앱과 플러그인 모두 같은 ClassLoader가 로드한 거여야 해요. 그렇지 않으면 1편의 ClassCastException이 발생해요.
+</p>
+
+<h2>ClassLoader 직접 구현</h2>
+
+<p>
+  더 세밀한 제어가 필요하면 <code>ClassLoader</code>를 상속해요. 보통 <code>findClass</code>만 오버라이드해요.
+</p>
+
+<pre><code class="language-java">public class MyClassLoader extends ClassLoader {
+    public MyClassLoader(ClassLoader parent) {
+        super(parent);
+    }
+
+    @Override
+    protected Class&lt;?&gt; findClass(String name) throws ClassNotFoundException {
+        byte[] bytecode = loadBytecode(name);
+        return defineClass(name, bytecode, 0, bytecode.length);
+    }
+
+    private byte[] loadBytecode(String name) {
+        // 파일·네트워크·DB 등에서 바이트코드 가져오기
+        ...
+    }
+}</code></pre>
+
+<h3>왜 loadClass가 아니라 findClass인가요</h3>
+
+<p>
+  <code>loadClass</code>는 ClassLoader의 표준 진입점이에요. 부모 위임을 먼저 수행하고, 부모가 못 찾으면 <code>findClass</code>를 호출해요. 우리가 직접 클래스를 찾는 로직은 <code>findClass</code>에 넣고, 부모 위임 처리는 부모 클래스의 <code>loadClass</code>에 맡기는 게 정석이에요.
+</p>
+
+<pre><code class="language-java">// ClassLoader.loadClass의 기본 구현 (단순화)
+protected Class&lt;?&gt; loadClass(String name, boolean resolve)
+        throws ClassNotFoundException {
+    Class&lt;?&gt; c = findLoadedClass(name);  // 이미 로드돼 있는지
+    if (c == null) {
+        try {
+            if (parent != null) {
+                c = parent.loadClass(name, false);  // 부모에 위임
+            } else {
+                c = findBootstrapClassOrNull(name);
+            }
+        } catch (ClassNotFoundException e) {
+            // 부모도 못 찾으면 직접 찾기
+        }
+        if (c == null) {
+            c = findClass(name);
+        }
+    }
+    if (resolve) resolveClass(c);
+    return c;
+}</code></pre>
+
+<h2>부모 위임을 깨야 하는 자리</h2>
+
+<p>
+  WAS나 OSGi처럼 격리가 필요한 환경에서는 의도적으로 부모 위임을 깨요. Tomcat의 WebappClassLoader가 대표적이에요.
+</p>
+
+<h3>Tomcat의 child-first 전략</h3>
+
+<p>
+  일반적인 부모 위임은 "부모 먼저, 자식 나중에"예요. Tomcat은 webapp의 클래스 격리를 위해 반대로 동작해요.
+</p>
+
+<ol>
+  <li>먼저 자기 자신(WebappClassLoader)이 찾아봐요.</li>
+  <li>없으면 부모(Common ClassLoader)에 위임해요.</li>
+  <li>예외: <code>java.*</code> 같은 핵심 패키지는 무조건 부모에 위임. 보안 때문이에요.</li>
+</ol>
+
+<p>
+  왜 이렇게 해요? webapp이 자기 jar에 들어 있는 라이브러리를 우선 쓰게 하기 위해서예요. 컨테이너에 들어 있는 라이브러리 버전과 webapp이 원하는 버전이 다를 수 있어요. webapp이 자기 버전을 쓰면 격리가 가능해요.
+</p>
+
+<h3>Spring Boot의 LaunchedURLClassLoader</h3>
+
+<p>
+  Spring Boot의 fat jar는 내부에 <code>BOOT-INF/lib/*.jar</code>로 라이브러리가 들어 있어요. 표준 ClassLoader는 jar 안의 jar를 못 읽어요. Spring Boot가 자체 ClassLoader로 이걸 해결해요.
+</p>
+
+<h2>모듈 시스템(JPMS)과 ClassLoader</h2>
+
+<p>
+  자바 9의 모듈 시스템(JPMS)이 들어오면서 ClassLoader 구조가 좀 정리됐어요. 클래스 로더는 그대로지만, 그 위에 "모듈 레이어"가 생겼어요.
+</p>
+
+<h3>주요 변화</h3>
+
+<ul>
+  <li><strong>Extension → Platform</strong>: 8까지 있던 Extension ClassLoader가 사라지고 Platform ClassLoader가 등장했어요.</li>
+  <li><strong>모듈 경계</strong>: 같은 클래스 로더가 로드한 클래스라도 다른 모듈이면 접근이 제한돼요. <code>requires</code>·<code>exports</code>로 명시해야 해요.</li>
+  <li><strong>분할 패키지 금지</strong>: 같은 패키지를 두 모듈이 못 가져요. classpath 시절의 흔한 충돌이 사라졌어요.</li>
+</ul>
+
+<h3>ModuleLayer</h3>
+
+<p>
+  같은 ClassLoader 위에 여러 ModuleLayer를 둬서 모듈을 격리해요. 동적으로 모듈을 추가·제거할 수 있어요. 플러그인 시스템을 만든다면 옛 URLClassLoader 대신 ModuleLayer를 쓰는 게 자바 9+ 시대 정석이에요.
+</p>
+
+<pre><code class="language-java">// 자바 9+ 모듈 동적 로딩 (단순화)
+Path pluginPath = Path.of("/plugins");
+ModuleFinder finder = ModuleFinder.of(pluginPath);
+Configuration parent = ModuleLayer.boot().configuration();
+Configuration cf = parent.resolve(finder, ModuleFinder.of(),
+    Set.of("com.plugin"));
+
+ModuleLayer layer = ModuleLayer.boot()
+    .defineModulesWithOneLoader(cf, ClassLoader.getSystemClassLoader());
+
+Class&lt;?&gt; cls = layer.findLoader("com.plugin")
+    .loadClass("com.plugin.MyPlugin");</code></pre>
+
+<h2>ClassLoader와 메모리</h2>
+
+<p>
+  ClassLoader는 자기가 로드한 클래스를 GC가 회수하지 못하게 잡고 있어요. 클래스를 언로드하려면 그 ClassLoader를 회수해야 해요.
+</p>
+
+<h3>Class·ClassLoader·Instance의 참조 관계</h3>
+
+<ul>
+  <li>인스턴스가 Class 객체를 참조하고, Class 객체가 ClassLoader를 참조해요.</li>
+  <li>ClassLoader는 자기가 로드한 모든 Class 객체를 참조해요.</li>
+</ul>
+
+<p>
+  ClassLoader가 살아 있으면 그 안의 클래스 전체가 살아 있어요. 특정 인스턴스 하나만 남아 있어도 전체 클래스 그룹이 GC 대상이 아니에요. 다음 편에서 이게 어떤 문제를 일으키는지 자세히 봐요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"URLClassLoader는 언제 써요?"</strong>: 실행 중에 jar를 동적으로 로드할 때요. 플러그인 패턴이 대표적이에요.</li>
+  <li><strong>"ClassLoader를 직접 구현할 때 뭘 오버라이드?"</strong>: 보통 findClass만 오버라이드해요. 부모 위임 로직은 ClassLoader.loadClass가 알아서 해 줘요.</li>
+  <li><strong>"Tomcat의 ClassLoader는 왜 child-first?"</strong>: webapp이 자기가 가진 라이브러리 버전을 우선 쓰게 하기 위해서요. 컨테이너 라이브러리와의 충돌을 막아요.</li>
+  <li><strong>"자바 9의 모듈 시스템이 ClassLoader에 미친 영향?"</strong>: ModuleLayer 개념이 추가됐어요. 같은 ClassLoader 위에서도 모듈로 격리할 수 있어요. Extension이 Platform으로 바뀐 것도 그 일환이에요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편은 실무에서 ClassLoader가 일으키는 문제예요. ClassLoader 누수로 인한 메모리 누수, ClassCastException과 NoClassDefFoundError의 차이, Spring Boot의 자체 ClassLoader 구조 같은 자리를 다뤄요.
+</p>

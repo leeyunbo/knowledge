@@ -14,7 +14,7 @@
 ### JVM 내부
 - [x] ★ JVM 메모리 구조 — Heap / Metaspace / Stack / Direct Memory (4편)
 - [x] ★ GC 진화사 — Serial → ZGC, Shenandoah (5편)
-- [ ] ★ ClassLoader 동작 — 부모 위임 모델 (3편)
+- [x] ★ ClassLoader 동작 — 부모 위임 모델 (3편)
 
 ### 동시성 (Level 2 — j.u.c 별자리 23개)
 
