@@ -1,0 +1,192 @@
+---
+title: "HashMap vs TreeMap (vs LinkedHashMap)"
+subtitle: "Map의 세 가지 얼굴. 해시 기반, 트리 기반, 삽입 순서 보존. 정렬·순회 순서가 선택을 가르는 자리예요."
+dateText: "2026.05.17"
+episode: 2
+episodes: 3
+---
+
+<h2>Map의 세 구현</h2>
+
+<p>
+  자바의 <code>Map</code> 인터페이스에는 자주 쓰는 구현이 세 가지 있어요. 내부 자료구조와 순서 보장 방식이 달라요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>구현</th><th>내부 구조</th><th>순서</th><th>주요 시간 복잡도</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>HashMap</td><td>해시 테이블 (배열 + 버킷)</td><td>없음</td><td>평균 O(1)</td></tr>
+    <tr><td>LinkedHashMap</td><td>해시 테이블 + 이중 연결 리스트</td><td>삽입 순서 (또는 접근 순서)</td><td>평균 O(1)</td></tr>
+    <tr><td>TreeMap</td><td>Red-Black Tree</td><td>키 정렬 순서</td><td>O(log n)</td></tr>
+  </tbody>
+</table>
+
+<h2>HashMap, 기본값</h2>
+
+<p>
+  해시 기반이라 평균 O(1)로 빠르고 메모리 효율도 좋아요. 자세한 내부는 별도 시리즈에서 다뤘어요(<code>HashMap 내부</code> 시리즈 참조). 여기선 다른 구현과의 비교만 해요.
+</p>
+
+<h3>HashMap의 특성</h3>
+
+<ul>
+  <li><strong>빠름</strong>: 키 해시로 버킷을 바로 찾아요.</li>
+  <li><strong>순서 없음</strong>: iteration 순서가 보장되지 않아요. JVM 버전·해시 분포에 따라 달라요.</li>
+  <li><strong>null 허용</strong>: 키 1개, 값 여러 개 null 가능.</li>
+  <li><strong>스레드 안전 아님</strong>: 동시성 필요하면 ConcurrentHashMap.</li>
+</ul>
+
+<h3>실무에서 쓰는 자리</h3>
+
+<p>
+  "키-값 매핑이 필요하다"는 거의 모든 자리예요. 캐시·인덱스·사전 같은 일반 용도면 HashMap이 기본이에요.
+</p>
+
+<h2>LinkedHashMap, 순서가 필요할 때</h2>
+
+<p>
+  HashMap에 이중 연결 리스트를 더한 구조예요. 각 엔트리가 해시 버킷 안에 있으면서, 동시에 입력 순서대로 prev/next로 연결돼 있어요.
+</p>
+
+<pre><code class="language-java">// LinkedHashMap의 엔트리 (단순화)
+static class Entry&lt;K, V&gt; extends HashMap.Node&lt;K, V&gt; {
+    Entry&lt;K, V&gt; before, after;  // 입력 순서 연결
+}</code></pre>
+
+<h3>두 가지 순서 모드</h3>
+
+<ul>
+  <li><strong>삽입 순서 (insertion-order)</strong>: 기본값. 넣은 순서대로 순회해요.</li>
+  <li><strong>접근 순서 (access-order)</strong>: 생성자에 <code>accessOrder=true</code>. get·put할 때마다 끝으로 이동. LRU 캐시의 토대예요.</li>
+</ul>
+
+<pre><code class="language-java">// 간단한 LRU 캐시
+class LRUCache&lt;K, V&gt; extends LinkedHashMap&lt;K, V&gt; {
+    private final int capacity;
+
+    public LRUCache(int capacity) {
+        super(16, 0.75f, true);  // accessOrder = true
+        this.capacity = capacity;
+    }
+
+    @Override
+    protected boolean removeEldestEntry(Map.Entry&lt;K, V&gt; eldest) {
+        return size() &gt; capacity;
+    }
+}</code></pre>
+
+<p>
+  <code>removeEldestEntry</code>를 오버라이드하면 자동으로 오래된 항목을 제거해요. 50줄 미만의 LRU 캐시가 만들어져요.
+</p>
+
+<h3>오버헤드</h3>
+
+<p>
+  HashMap보다 엔트리당 8~16바이트 더 써요 (before/after 참조). 순회는 오히려 더 빠를 수 있어요. 버킷을 다 훑지 않고 연결 리스트만 따라가요.
+</p>
+
+<h2>TreeMap, 정렬이 필요할 때</h2>
+
+<p>
+  Red-Black Tree 기반이에요. 키가 항상 정렬돼 있어서 O(log n)에 모든 연산이 끝나요. <code>Comparator</code> 또는 키의 <code>Comparable</code>로 정렬 기준을 정해요.
+</p>
+
+<pre><code class="language-java">TreeMap&lt;Integer, String&gt; scores = new TreeMap&lt;&gt;();
+scores.put(95, "Alice");
+scores.put(72, "Bob");
+scores.put(88, "Charlie");
+
+// 정렬된 순서로 순회
+for (var entry : scores.entrySet()) {
+    System.out.println(entry);  // 72=Bob, 88=Charlie, 95=Alice
+}</code></pre>
+
+<h3>NavigableMap의 강력함</h3>
+
+<p>
+  TreeMap은 <code>NavigableMap</code> 인터페이스를 구현해요. "X 이하의 가장 큰 키", "범위 [a, b]의 모든 엔트리" 같은 쿼리를 O(log n)으로 답해요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>floorKey(k)</td><td>k 이하 가장 큰 키</td></tr>
+    <tr><td>ceilingKey(k)</td><td>k 이상 가장 작은 키</td></tr>
+    <tr><td>higherKey(k)</td><td>k 초과 가장 작은 키</td></tr>
+    <tr><td>lowerKey(k)</td><td>k 미만 가장 큰 키</td></tr>
+    <tr><td>subMap(from, to)</td><td>[from, to) 부분 맵</td></tr>
+    <tr><td>headMap(k) / tailMap(k)</td><td>k 미만 / k 이상 부분 맵</td></tr>
+  </tbody>
+</table>
+
+<h3>잘 맞는 자리</h3>
+
+<ul>
+  <li><strong>범위 쿼리</strong>: "100원~500원 구간의 상품" 같은 자리.</li>
+  <li><strong>가격 시간표</strong>: 시간을 키로 두고 floorKey로 "그 시각에 적용된 가격"을 찾는 패턴.</li>
+  <li><strong>이벤트 스케줄링</strong>: 다음 만료 시간을 O(log n)에 찾기.</li>
+</ul>
+
+<h2>세 구현 비교 정리</h2>
+
+<table>
+  <thead>
+    <tr><th>비교</th><th>HashMap</th><th>LinkedHashMap</th><th>TreeMap</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>get/put</td><td>O(1)</td><td>O(1)</td><td>O(log n)</td></tr>
+    <tr><td>순서</td><td>없음</td><td>삽입/접근</td><td>키 정렬</td></tr>
+    <tr><td>null 키 허용</td><td>1개</td><td>1개</td><td>안 됨 (Comparator 없으면)</td></tr>
+    <tr><td>메모리</td><td>가장 적음</td><td>중간</td><td>가장 많음 (트리 노드)</td></tr>
+    <tr><td>범위 쿼리</td><td>X</td><td>X</td><td>O(log n)</td></tr>
+    <tr><td>일반 용도</td><td>기본 선택</td><td>순서 필요</td><td>정렬·범위 필요</td></tr>
+  </tbody>
+</table>
+
+<h2>의사결정 흐름</h2>
+
+<ol>
+  <li>키 순서가 필요해요? → No면 <strong>HashMap</strong>.</li>
+  <li>삽입 순서나 LRU만 필요? → <strong>LinkedHashMap</strong>.</li>
+  <li>키 정렬·범위 쿼리가 필요? → <strong>TreeMap</strong>.</li>
+  <li>스레드 안전이 필요? → <strong>ConcurrentHashMap</strong>(순서 무관) 또는 <strong>ConcurrentSkipListMap</strong>(정렬 필요).</li>
+</ol>
+
+<h2>실무에서 자주 보는 실수</h2>
+
+<h3>키의 hashCode·equals 미구현</h3>
+
+<p>
+  HashMap·LinkedHashMap의 키는 hashCode와 equals를 일관되게 구현해야 해요. 그렇지 않으면 put한 키를 get으로 못 찾는 사고가 나요. equals/hashCode 계약 시리즈에서 자세히 다뤘어요.
+</p>
+
+<h3>TreeMap 키의 Comparable 누락</h3>
+
+<p>
+  TreeMap에 Comparable이 아닌 객체를 키로 넣으면 ClassCastException이 떠요. Comparator를 생성자에 넘기지 않으면요. Comparable을 구현하거나, Comparator를 같이 줘야 해요.
+</p>
+
+<h3>HashMap의 순서 가정</h3>
+
+<p>
+  "HashMap의 순서는 입력 순서다"라고 가정하는 코드를 가끔 봐요. JVM 버전이 바뀌면 깨져요. 순서가 필요하면 LinkedHashMap을 명시적으로 써야 해요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"HashMap과 TreeMap 차이?"</strong>: 해시 vs 트리예요. HashMap은 O(1)에 빠르지만 순서가 없어요. TreeMap은 O(log n)이지만 정렬이 보장돼요.</li>
+  <li><strong>"LinkedHashMap의 LRU 구현?"</strong>: accessOrder=true와 removeEldestEntry 오버라이드면 끝이에요. 50줄 미만.</li>
+  <li><strong>"범위 쿼리가 필요해요"</strong>: TreeMap의 subMap·floorKey·ceilingKey를 써요. ConcurrentSkipListMap은 동시성까지 보장해요.</li>
+  <li><strong>"HashMap의 순서가 보장돼요?"</strong>: 아니요. 입력 순서·자연 순서 다 보장되지 않아요. 순서가 필요하면 LinkedHashMap·TreeMap이에요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편은 Set 인터페이스의 세 구현과 자료구조 선택의 종합 정리예요. HashSet, LinkedHashSet, TreeSet의 차이와 List·Map·Set 사이의 선택 기준을 한눈에 모아요.
+</p>

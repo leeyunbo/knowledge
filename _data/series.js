@@ -98,7 +98,7 @@ const java = {
       topics: [
         { num: 1, label: "equals · hashCode", title: "equals와 hashCode의 함정", desc: "equals만 오버라이드하면 객체가 사라지는 이유, hashCode 계약 세 규칙", x: 180, y: 130, ring: 0, status: "done", slug: "2026-04-equals-hashcode-계약", entry: "01-equals만-오버라이드하면.html", episodes: 3 },
         { num: 2, label: "HashMap", title: "HashMap 내부", desc: "해시 충돌 처리, 리해싱, treeify (8 임계값)", x: 250, y: 270, ring: 1.0, status: "done", slug: "2026-05-hashmap-내부", entry: "01-기본-구조.html", episodes: 4 },
-        { num: 3, label: "Collection", title: "Collection 비교", desc: "ArrayList vs LinkedList, HashMap vs TreeMap", x: 110, y: 270, status: "locked" }
+        { num: 3, label: "Collection", title: "Collection 비교", desc: "ArrayList vs LinkedList, HashMap vs TreeMap", x: 110, y: 270, ring: 2.2, status: "done", slug: "2026-05-collection-비교", entry: "01-arraylist-vs-linkedlist.html", episodes: 3 }
       ]
     },
     {
@@ -180,7 +180,8 @@ const seriesTitles = {
   "2026-05-distributed-transaction": "분산 트랜잭션 (2PC / Saga / Outbox)",
   "2026-05-pool-sizing": "풀 사이징 이론",
   "2026-05-load-balancer": "Load Balancer L4 vs L7",
-  "2026-05-idempotency-patterns": "멱등성 설계 패턴"
+  "2026-05-idempotency-patterns": "멱등성 설계 패턴",
+  "2026-05-collection-비교": "Collection 비교"
 };
 
 const cardOnly = {

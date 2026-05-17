@@ -1,0 +1,240 @@
+---
+title: "Set 비교와 자료구조 선택 기준"
+subtitle: "HashSet, LinkedHashSet, TreeSet. 그리고 List·Map·Set 사이의 선택을 한눈에 정리해요."
+dateText: "2026.05.17"
+episode: 3
+episodes: 3
+---
+
+<h2>Set은 Map의 친척</h2>
+
+<p>
+  자바의 Set 구현은 거의 다 Map 위에 얹은 거예요. 키만 쓰고 값은 더미를 두는 방식이에요. 그래서 Set과 Map의 시간 복잡도·특성이 거의 같아요.
+</p>
+
+<pre><code class="language-java">// HashSet 내부 (단순화)
+public class HashSet&lt;E&gt; {
+    private transient HashMap&lt;E, Object&gt; map;
+    private static final Object PRESENT = new Object();
+
+    public boolean add(E e) {
+        return map.put(e, PRESENT) == null;
+    }
+}</code></pre>
+
+<p>
+  HashSet → HashMap, LinkedHashSet → LinkedHashMap, TreeSet → TreeMap을 감싼 거예요. 2편의 Map 비교가 그대로 Set에 적용돼요.
+</p>
+
+<h2>세 Set 구현</h2>
+
+<table>
+  <thead>
+    <tr><th>구현</th><th>기반</th><th>순서</th><th>주요 시간 복잡도</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>HashSet</td><td>HashMap</td><td>없음</td><td>평균 O(1)</td></tr>
+    <tr><td>LinkedHashSet</td><td>LinkedHashMap</td><td>삽입 순서</td><td>평균 O(1)</td></tr>
+    <tr><td>TreeSet</td><td>TreeMap</td><td>정렬 순서</td><td>O(log n)</td></tr>
+  </tbody>
+</table>
+
+<h3>HashSet, 기본 선택</h3>
+
+<p>
+  "이 원소가 이미 있나요?"가 핵심 질문일 때 써요. contains·add·remove가 O(1)이에요. 순서가 필요 없으면 거의 항상 HashSet이에요.
+</p>
+
+<h3>LinkedHashSet, 중복 제거와 순서 보존</h3>
+
+<p>
+  자주 쓰는 패턴이 있어요. "리스트에서 중복을 제거하면서 순서를 유지하고 싶다"예요.
+</p>
+
+<pre><code class="language-java">List&lt;String&gt; list = List.of("a", "b", "a", "c", "b");
+List&lt;String&gt; unique = new ArrayList&lt;&gt;(new LinkedHashSet&lt;&gt;(list));
+// [a, b, c]</code></pre>
+
+<p>
+  HashSet으로 하면 순서가 망가져요. LinkedHashSet이 정답이에요.
+</p>
+
+<h3>TreeSet, 정렬과 범위 쿼리</h3>
+
+<p>
+  Set인데 정렬도 필요하면 TreeSet이에요. NavigableSet 인터페이스로 floor/ceiling/headSet/tailSet 같은 강력한 쿼리를 O(log n)에 해요.
+</p>
+
+<pre><code class="language-java">TreeSet&lt;Integer&gt; ts = new TreeSet&lt;&gt;(Set.of(10, 20, 30, 40, 50));
+ts.floor(25);    // 20 (25 이하 가장 큰)
+ts.ceiling(25);  // 30 (25 이상 가장 작은)
+ts.subSet(15, 35); // [20, 30]</code></pre>
+
+<h2>List·Map·Set의 선택 기준</h2>
+
+<p>
+  세 인터페이스 중 어디서 시작할지가 첫 결정이에요.
+</p>
+
+<h3>List, 순서가 있고 중복 허용</h3>
+
+<ul>
+  <li>"순서대로 처리해야 한다."</li>
+  <li>"같은 값이 여러 번 들어갈 수 있다."</li>
+  <li>"인덱스로 접근한다."</li>
+</ul>
+
+<p>
+  → <strong>ArrayList</strong>가 기본. Deque가 필요하면 ArrayDeque.
+</p>
+
+<h3>Set, 중복 없음</h3>
+
+<ul>
+  <li>"어떤 원소가 이미 있는지 빠르게 알고 싶다."</li>
+  <li>"같은 값을 절대 두 번 넣지 않는다."</li>
+</ul>
+
+<p>
+  → 순서 무관이면 <strong>HashSet</strong>, 입력 순서 보존이면 <strong>LinkedHashSet</strong>, 정렬·범위 쿼리면 <strong>TreeSet</strong>.
+</p>
+
+<h3>Map, 키-값 매핑</h3>
+
+<ul>
+  <li>"어떤 키에 대응하는 값을 빠르게 찾고 싶다."</li>
+  <li>"키의 집합을 다룬다."</li>
+</ul>
+
+<p>
+  → 순서 무관이면 <strong>HashMap</strong>, 삽입 순서·LRU면 <strong>LinkedHashMap</strong>, 정렬·범위 쿼리면 <strong>TreeMap</strong>.
+</p>
+
+<h2>한눈에 보는 결정 트리</h2>
+
+<svg viewBox="0 0 720 460" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <rect x="280" y="20" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="360" y="45" text-anchor="middle" font-family="JetBrains Mono" font-size="12" fill="currentColor">자료구조 선택</text>
+
+  <rect x="60" y="100" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="140" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">순서·중복 허용 (List)</text>
+
+  <rect x="280" y="100" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="360" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">중복 X (Set)</text>
+
+  <rect x="500" y="100" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="580" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">키-값 (Map)</text>
+
+  <rect x="60" y="200" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="140" y="225" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">ArrayList</text>
+
+  <rect x="280" y="200" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="360" y="225" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">순서 필요?</text>
+
+  <rect x="500" y="200" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="580" y="225" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">정렬 필요?</text>
+
+  <rect x="200" y="300" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="280" y="318" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">HashSet</text>
+  <text x="280" y="332" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">(또는 정렬→TreeSet)</text>
+
+  <rect x="380" y="300" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="460" y="318" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">LinkedHashSet</text>
+  <text x="460" y="332" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">(입력 순서)</text>
+
+  <rect x="500" y="380" width="160" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="580" y="398" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">HashMap / TreeMap</text>
+  <text x="580" y="412" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">/ LinkedHashMap</text>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 360 60 L 140 100" marker-end="url(#csarr)"/>
+    <path d="M 360 60 L 360 100" marker-end="url(#csarr)"/>
+    <path d="M 360 60 L 580 100" marker-end="url(#csarr)"/>
+    <path d="M 140 140 L 140 200" marker-end="url(#csarr)"/>
+    <path d="M 360 140 L 360 200" marker-end="url(#csarr)"/>
+    <path d="M 580 140 L 580 200" marker-end="url(#csarr)"/>
+    <path d="M 320 240 L 280 300" marker-end="url(#csarr)"/>
+    <path d="M 400 240 L 460 300" marker-end="url(#csarr)"/>
+    <path d="M 580 240 L 580 380" marker-end="url(#csarr)"/>
+  </g>
+
+  <defs>
+    <marker id="csarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<h2>동시성이 필요할 때</h2>
+
+<p>
+  지금까지 본 컬렉션은 스레드 안전하지 않아요. 동시 접근이 필요하면 동시성 컬렉션을 써요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>일반</th><th>동시성</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>HashMap</td><td>ConcurrentHashMap</td></tr>
+    <tr><td>TreeMap</td><td>ConcurrentSkipListMap</td></tr>
+    <tr><td>ArrayList</td><td>CopyOnWriteArrayList (읽기 위주)</td></tr>
+    <tr><td>HashSet</td><td>ConcurrentHashMap.newKeySet()</td></tr>
+    <tr><td>TreeSet</td><td>ConcurrentSkipListSet</td></tr>
+  </tbody>
+</table>
+
+<p>
+  <code>Collections.synchronizedXxx</code>도 있지만 거의 안 써요. ConcurrentHashMap 계열이 동시성 시리즈에서 자세히 다룬 더 좋은 선택이에요.
+</p>
+
+<h2>변경 불가능 컬렉션 (Immutable)</h2>
+
+<p>
+  자바 9부터 <code>List.of</code>, <code>Map.of</code>, <code>Set.of</code> 같은 팩토리 메소드가 들어왔어요. 변경 불가능하고, null을 허용하지 않고, 메모리 효율이 좋아요.
+</p>
+
+<pre><code class="language-java">List&lt;String&gt; l = List.of("a", "b", "c");
+Map&lt;String, Integer&gt; m = Map.of("a", 1, "b", 2);
+Set&lt;Integer&gt; s = Set.of(1, 2, 3);
+
+// l.add("d");  // UnsupportedOperationException</code></pre>
+
+<p>
+  상수, 설정값, 함수 인자처럼 변하지 않는 컬렉션은 이걸로 써요. 가독성·안전성 모두 좋아져요.
+</p>
+
+<h2>크기를 미리 알 때</h2>
+
+<p>
+  컬렉션 크기를 알면 초기 용량을 지정해 grow/rehash 비용을 아껴요.
+</p>
+
+<pre><code class="language-java">// 1000개 들어갈 걸 알면
+List&lt;Integer&gt; list = new ArrayList&lt;&gt;(1000);
+Map&lt;String, Integer&gt; map = new HashMap&lt;&gt;(1024);
+
+// HashMap은 load factor 고려:
+// 실제 크기 = capacity * loadFactor (기본 0.75)
+// 1000개 안전하게 들어가려면 capacity = 1334 이상
+Map&lt;String, Integer&gt; m2 = new HashMap&lt;&gt;((int)(1000 / 0.75f) + 1);</code></pre>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"HashSet과 TreeSet의 차이?"</strong>: HashSet은 O(1)이지만 순서 없고, TreeSet은 O(log n)이지만 정렬돼요.</li>
+  <li><strong>"LinkedHashSet은 언제?"</strong>: 중복 제거 + 입력 순서 유지가 필요할 때요.</li>
+  <li><strong>"List에서 중복 제거?"</strong>: <code>new ArrayList&lt;&gt;(new LinkedHashSet&lt;&gt;(list))</code> 또는 stream의 <code>distinct()</code>요.</li>
+  <li><strong>"동시성 Set이 필요해요"</strong>: <code>ConcurrentHashMap.newKeySet()</code>이 가장 일반적이에요.</li>
+  <li><strong>"HashMap의 초기 용량을 어떻게 잡아요?"</strong>: 예상 원소 수를 load factor(0.75)로 나눠 올림 + 1이에요. 자바 19부터 <code>HashMap.newHashMap(n)</code>이 이 계산을 해 줘요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서는 ArrayList와 LinkedList를 비교하면서, Big-O가 같아도 캐시 효과로 실제 성능이 갈리는 걸 봤어요. 2편에서는 HashMap·LinkedHashMap·TreeMap을 두고 순서와 정렬이 선택을 가르는 자리를 짚었고요. 3편에서는 Set 구현과 List·Map·Set 사이의 선택, 동시성·불변 컬렉션, 초기 용량까지 정리했어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>순서가 필요한가, 정렬이 필요한가, 동시성이 필요한가</strong>를 묻고 답하면 자료구조가 정해져요. 헷갈리면 HashMap·HashSet·ArrayList가 기본 선택이에요. 그 외 구현은 명확한 이유가 있을 때만 꺼내요.
+</p>
