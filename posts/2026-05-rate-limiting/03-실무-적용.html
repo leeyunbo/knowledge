@@ -1,0 +1,290 @@
+---
+title: "Rate Limiting 실무 적용"
+subtitle: "분산 환경 일관성, 차등 적용, Bucket4j/Resilience4j 비교, API Gateway·서비스·LB 레벨의 다층 적용을 정리해요."
+dateText: "2026.05.18"
+episode: 3
+episodes: 3
+---
+
+<h2>어느 레이어에서 막을까</h2>
+
+<p>
+  Rate limit은 한 곳에서만 하지 않아요. 여러 레이어에 두는 게 안전해요. 안쪽이 뚫리지 않게 다층 방어를 만들어요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>레이어</th><th>주된 보호 대상</th><th>제한 단위</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>CDN / WAF</td><td>대규모 공격, DDoS</td><td>IP, 국가</td></tr>
+    <tr><td>API Gateway</td><td>API quota, 사용자 차등</td><td>API key, 사용자</td></tr>
+    <tr><td>서비스 (애플리케이션)</td><td>비즈니스 규칙</td><td>사용자, 엔드포인트</td></tr>
+    <tr><td>외부 API 호출 (out-bound)</td><td>외부 quota 준수</td><td>API key</td></tr>
+  </tbody>
+</table>
+
+<p>
+  안쪽으로 갈수록 더 세밀한 제어가 가능하고, 바깥쪽으로 갈수록 부하 차단 효과가 커요. 둘 다 필요해요.
+</p>
+
+<h2>분산 환경의 일관성</h2>
+
+<p>
+  서비스가 여러 인스턴스로 떠 있으면 카운터를 공유해야 해요. 1편의 Redis 패턴이 기본이지만, Redis 자체의 일관성·가용성 문제가 있어요.
+</p>
+
+<h3>옵션 1: Redis 단일 인스턴스</h3>
+
+<ul>
+  <li>가장 단순해요. 모든 카운터가 한 Redis에 모여요.</li>
+  <li>Redis가 죽으면 rate limit 자체가 동작 안 해요. 자유 통과시킬 거냐, 모두 거부할 거냐를 정해야 해요(보통 자유 통과 = fail-open).</li>
+  <li>Redis의 처리량(보통 100K ops/sec)이 한계예요. 큰 서비스엔 부족해요.</li>
+</ul>
+
+<h3>옵션 2: Redis Cluster / 샤딩</h3>
+
+<ul>
+  <li>키별로 다른 노드에 분산해요. 처리량이 늘어요.</li>
+  <li>샤딩 키를 사용자 ID로 두면 한 사용자의 카운터가 한 노드에 모여요.</li>
+</ul>
+
+<h3>옵션 3: 로컬 카운터 + 주기적 동기화</h3>
+
+<ul>
+  <li>각 인스턴스가 로컬 카운터를 두고, 짧은 주기로 Redis에 합산해요. 처리량이 매우 높아져요.</li>
+  <li>대신 약간 부정확해요. 짧은 burst가 새어 나갈 수 있어요. 큰 서비스의 분산 token bucket이 이 패턴이에요.</li>
+</ul>
+
+<h3>옵션 4: gossip 기반 분산 카운팅</h3>
+
+<ul>
+  <li>인스턴스 간에 직접 카운터를 동기화해요. 중앙 저장소가 없어요.</li>
+  <li>구현 복잡도가 매우 높아요. 대규모 시스템(Envoy global rate limit 등)에서만 채택돼요.</li>
+</ul>
+
+<p>
+  실무 추천. 일반적인 서비스는 옵션 1 또는 2가 충분해요. 처리량이 부족하면 옵션 3으로 확장해요.
+</p>
+
+<h2>차등 적용</h2>
+
+<p>
+  모든 사용자에 같은 한도를 두는 건 너무 단순해요. 실무는 거의 항상 차등을 둬요.
+</p>
+
+<h3>사용자 등급별</h3>
+
+<ul>
+  <li><strong>Anonymous</strong>는 IP 기반으로 분당 30번이에요.</li>
+  <li><strong>Free tier</strong>는 사용자 ID 기반으로 분당 100번이에요.</li>
+  <li><strong>Pro tier</strong>는 분당 1000번까지 받아요.</li>
+  <li><strong>Enterprise</strong>는 별도 협의한 한도를 적용해요.</li>
+</ul>
+
+<h3>엔드포인트별</h3>
+
+<ul>
+  <li>읽기 API는 분당 1000번까지 받아요.</li>
+  <li>쓰기 API는 분당 100번이에요. DB 부하가 크기 때문이에요.</li>
+  <li>리포트 생성 API는 분당 10번이에요. 무거운 작업이라 더 빡빡하게 잡아요.</li>
+</ul>
+
+<h3>API key + 엔드포인트 조합</h3>
+
+<p>
+  실무에서 가장 흔한 패턴이에요. 키는 <code>rate:apiKey:endpoint:window</code>로 만들고, 각 조합마다 별도 한도를 둬요. AWS Quotas, Stripe API limit이 이 방식이에요.
+</p>
+
+<h2>Bucket4j 적용</h2>
+
+<p>
+  자바 생태계의 표준 rate limiting 라이브러리예요. Token Bucket 구현이고, 분산 지원(Redis, Hazelcast, Ignite)이 잘 돼 있어요.
+</p>
+
+<pre><code class="language-java">// 분당 100번
+Bandwidth limit = Bandwidth.classic(100,
+    Refill.intervally(100, Duration.ofMinutes(1)));
+
+Bucket bucket = Bucket.builder()
+    .addLimit(limit)
+    .build();
+
+if (bucket.tryConsume(1)) {
+    // 허용
+} else {
+    // 거부 (429)
+}</code></pre>
+
+<h3>분산 (Redis)</h3>
+
+<pre><code class="language-java">JedisPool pool = new JedisPool("localhost", 6379);
+ProxyManager&lt;String&gt; proxyManager = JedisBasedProxyManager.builderFor(pool)
+    .withExpirationStrategy(ExpirationAfterWriteStrategy.basedOnTimeForRefillingBucketUpToMax(Duration.ofMinutes(2)))
+    .build();
+
+BucketConfiguration config = BucketConfiguration.builder()
+    .addLimit(Bandwidth.classic(100, Refill.intervally(100, Duration.ofMinutes(1))))
+    .build();
+
+Bucket bucket = proxyManager.builder().build("user:" + userId, config);</code></pre>
+
+<h2>Resilience4j RateLimiter</h2>
+
+<p>
+  Resilience4j도 RateLimiter 모듈이 있어요. Circuit Breaker, Retry, Timeout과 한 라이브러리에서 통합되는 게 장점이에요.
+</p>
+
+<pre><code class="language-yaml">resilience4j:
+  ratelimiter:
+    instances:
+      myApi:
+        limit-for-period: 100
+        limit-refresh-period: 60s
+        timeout-duration: 0s   # 즉시 거부</code></pre>
+
+<pre><code class="language-java">@RateLimiter(name = "myApi")
+public Result call() {
+    return externalApi.invoke();
+}</code></pre>
+
+<p>
+  단, Resilience4j의 RateLimiter는 단일 인스턴스 메모리 기반이에요. 분산 환경에선 Bucket4j가 더 적합해요. Resilience4j는 외부 API 호출의 out-bound rate limit에 좋아요.
+</p>
+
+<h2>API Gateway 레벨</h2>
+
+<p>
+  대규모 서비스는 application code 밖에서 rate limit을 둬요. 네트워크 레이어가 더 효율적이에요.
+</p>
+
+<h3>Spring Cloud Gateway</h3>
+
+<pre><code class="language-yaml">spring:
+  cloud:
+    gateway:
+      routes:
+        - id: api
+          uri: lb://api-service
+          predicates:
+            - Path=/api/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+                key-resolver: "#{@userKeyResolver}"</code></pre>
+
+<p>
+  Redis 기반 Token Bucket이 내장돼 있어요. <code>replenishRate</code>가 refill rate, <code>burstCapacity</code>가 bucket capacity예요.
+</p>
+
+<h3>Kong, Envoy, NGINX</h3>
+
+<ul>
+  <li><strong>Kong</strong>은 rate-limiting 플러그인이 풍부해요. local·cluster·redis 옵션을 다 지원해요.</li>
+  <li><strong>Envoy</strong>는 global rate limit service와 연동해요. 대규모 서비스의 표준으로 자리 잡았어요.</li>
+  <li><strong>NGINX</strong>는 <code>limit_req_zone</code>으로 IP 기반 leaky bucket을 간단히 구현해요. 가장 빠르고 단순해요.</li>
+</ul>
+
+<h2>외부 API 호출 (out-bound) rate limit</h2>
+
+<p>
+  우리 서비스가 외부 API의 quota를 지키려고 self-limit을 두는 경우예요. 외부에서 429를 받기 전에 자체적으로 throttle해요.
+</p>
+
+<pre><code class="language-java">// 외부 결제 API: 초당 5번
+RateLimiter limiter = RateLimiter.of("paymentApi",
+    RateLimiterConfig.custom()
+        .limitForPeriod(5)
+        .limitRefreshPeriod(Duration.ofSeconds(1))
+        .timeoutDuration(Duration.ofSeconds(2))  // 슬롯 대기 2초까지
+        .build());
+
+Supplier&lt;Payment&gt; call = RateLimiter.decorateSupplier(limiter,
+    () -&gt; paymentApi.charge(orderId, amount));
+
+Payment result = call.get();</code></pre>
+
+<p>
+  <code>timeoutDuration</code>이 핵심이에요. 슬롯이 없으면 즉시 실패 대신 잠시 기다려요. 평소엔 throttle만 되고, 외부 quota를 넘는 사고는 안 나요.
+</p>
+
+<h2>429 응답 처리 (클라이언트 측)</h2>
+
+<p>
+  Rate limit 시리즈와 Retry/Backoff 시리즈의 교차점이에요. 429를 받으면 어떻게 할까?
+</p>
+
+<ol>
+  <li><strong>Retry-After 헤더 확인</strong>: 서버가 명시한 시간만큼 기다려요.</li>
+  <li><strong>없으면 exponential + jitter backoff</strong>: 보통 1초·2초·4초로.</li>
+  <li><strong>최대 횟수 또는 총 시간 한도</strong>: 영원히 retry하지 않아요.</li>
+  <li><strong>사용자에게는 큐 처리 알림</strong>: 너무 오래 걸리면 "처리 중" 응답으로 결과를 비동기로.</li>
+</ol>
+
+<h2>실무 함정</h2>
+
+<h3>1. 분산 환경에서 카운터 race condition</h3>
+
+<p>
+  GET + 비교 + INCR을 따로 하면 race condition이 생겨요. 두 인스턴스가 동시에 GET=99를 받고, 둘 다 통과시키면 카운터가 101이 돼요. Redis는 INCR 하나로 원자적으로 처리해야 안전해요. 또는 Lua 스크립트로 묶어요.
+</p>
+
+<h3>2. 키 카디널리티 폭발</h3>
+
+<p>
+  사용자별 + 엔드포인트별 + 분 단위로 키를 만들면 키 수가 폭발할 수 있어요. 사용자 100만 × 엔드포인트 50 × 분당 = 분당 5천만 개 키. Redis 메모리가 부족해요. TTL을 짧게 잡고, 정말 필요한 차원만 분리해요.
+</p>
+
+<h3>3. Fail-open vs Fail-closed</h3>
+
+<p>
+  Redis가 죽으면 rate limit을 어떻게 할까? 두 선택지가 있어요.
+</p>
+
+<ul>
+  <li><strong>Fail-open</strong>: Redis 장애 시 모두 통과. 가용성 우선. 보통 권장.</li>
+  <li><strong>Fail-closed</strong>: Redis 장애 시 모두 거부. 보안 우선. 결제 같은 critical에 적합.</li>
+</ul>
+
+<h3>4. 시간 동기화</h3>
+
+<p>
+  여러 인스턴스의 시계가 어긋나면 윈도우 경계가 흔들려요. NTP로 동기화하거나, Redis의 TIME 명령으로 통일된 시각을 받아 써요.
+</p>
+
+<h3>5. IP 기반의 한계</h3>
+
+<p>
+  IP만으로 사용자를 구분하면 NAT 뒤 회사·학교가 한 사용자처럼 보여요. 한 명이 한도를 넘게 호출하면 다른 정상 사용자도 같이 차단돼요. API key나 사용자 ID 기반으로 갈수록 안전해요.
+</p>
+
+<h2>관측성</h2>
+
+<ul>
+  <li><strong>거부 비율</strong>: 전체 요청 중 429 비율. 너무 높으면 한도가 빡빡한 신호.</li>
+  <li><strong>거부 사용자 분포</strong>: 특정 사용자만 자주 차단되는지. 공격 신호일 수 있어요.</li>
+  <li><strong>외부 API 429 발생 비율</strong>: out-bound rate limit이 외부 quota를 잘 지키는지.</li>
+  <li><strong>Redis 부하</strong>: rate limiter가 Redis의 부하를 얼마나 차지하는지.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Rate limit 어디서 막아요?"</strong>: 여러 레이어에서 다층으로 막아요. CDN/WAF는 DDoS, API Gateway는 quota, 서비스는 비즈니스 규칙, out-bound는 외부 quota 준수예요.</li>
+  <li><strong>"분산 환경 구현?"</strong>: Redis + Lua 스크립트가 표준이에요. 처리량이 부족하면 로컬 카운터 + 주기적 동기화로 확장해요.</li>
+  <li><strong>"Bucket4j와 Resilience4j 차이?"</strong>: Bucket4j는 분산 token bucket 전용 라이브러리. Resilience4j는 단일 인스턴스 기반이지만 다른 resilience 패턴과 통합돼요.</li>
+  <li><strong>"429 받으면 어떻게?"</strong>: Retry-After 헤더 존중, exponential + jitter backoff, 최대 횟수 한도예요. 사용자 응답 흐름이면 너무 길게 retry하지 마세요.</li>
+  <li><strong>"Redis가 죽으면?"</strong>: Fail-open(전부 통과)이 일반적이에요. 결제처럼 critical은 fail-closed가 안전해요. 정책을 명시적으로 정해야 해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 Token Bucket과 Leaky Bucket을 봤어요. 버스트 허용이냐 평활이냐의 차이였어요. 2편에서 Fixed Window의 경계 폭주, Sliding Window Log의 정확성과 메모리 비용, Sliding Window Counter의 절충을 정리했어요. 3편에서는 분산 환경 구현, 차등 적용, Bucket4j·Resilience4j·API Gateway, 그리고 클라이언트 측 429 처리까지 다뤘어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>알고리즘 선택은 보호 목적에 따라 달라요</strong>. API quota는 Token Bucket, 외부 호출 평활은 Leaky Bucket, 비용 효율적인 단순 보호는 Fixed Window, 정확도 우선은 Sliding Window가 자연스러워요. 다층 방어로 한 레이어가 뚫려도 다음에서 잡히도록 설계해요.
+</p>

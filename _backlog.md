@@ -101,7 +101,7 @@
 ### Resilience 패턴
 - [x] ★ Retry / Backoff 전략 (3편)
 - [x] ★ Timeout 설계 — Connect / Read / Total (2편)
-- [ ] ★ Rate Limiting 알고리즘 — Token / Leaky / Sliding (3편)
+- [x] ★ Rate Limiting 알고리즘 — Token / Leaky / Sliding (3편)
 - [ ] ★ Circuit Breaker 보강 (기존 시리즈 확장)
 
 ### 운영/인프라

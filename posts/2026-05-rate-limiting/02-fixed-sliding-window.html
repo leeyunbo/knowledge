@@ -1,0 +1,250 @@
+---
+title: "Fixed Window와 Sliding Window"
+subtitle: "Fixed의 경계 폭주, Sliding Log의 정확함, Sliding Counter의 절충. 셋이 트레이드오프를 만들어요."
+dateText: "2026.05.18"
+episode: 2
+episodes: 3
+---
+
+<h2>윈도우 기반 발상</h2>
+
+<p>
+  버킷이 아니라 시간 윈도우로 생각하는 발상이에요. "지난 1분 동안 N번 이하" 같은 제한을 직접적으로 표현해요. 사용자가 이해하기도 쉽고, 사람이 정한 quota("분당 60번")와 잘 맞아요.
+</p>
+
+<h2>Fixed Window</h2>
+
+<p>
+  시간을 고정 윈도우로 나누고, 윈도우마다 카운터를 둬요. 카운터가 한도에 도달하면 그 윈도우가 끝날 때까지 거부해요.
+</p>
+
+<h3>동작 원리</h3>
+
+<pre><code class="language-java">// 분당 100번
+String key = "rate:user:" + userId + ":" + currentMinute;
+long count = redis.incr(key);
+if (count == 1) {
+    redis.expire(key, 60);
+}
+return count &lt;= 100;</code></pre>
+
+<p>
+  단순해요. 매 분마다 새 키가 만들어지고, INCR이 카운터를 올려요. 60초 TTL로 자동 정리돼요.
+</p>
+
+<h3>장점</h3>
+
+<ul>
+  <li>구현이 매우 단순해요. INCR 한 번이면 끝나요.</li>
+  <li>메모리 효율이 좋아요. 한 키에 카운터 하나만 두면 돼요.</li>
+  <li>이해하기 쉬워요. "이번 분에 N번"이 직관적이에요.</li>
+</ul>
+
+<h3>치명적 한계: 경계 폭주</h3>
+
+<p>
+  Fixed Window의 가장 큰 문제예요. 윈도우 경계에서 두 배 부하가 가능해요.
+</p>
+
+<p>
+  분당 100번이 한도라고 가정해요. 12:00:59에 100번 호출, 12:01:00에 또 100번 호출이 가능해요. 한 윈도우에서 100번, 다음 윈도우에서 100번이라 각자 한도를 만족해요. 그런데 실제로는 1초 안에 200번 호출이 발생한 거예요. 한도의 두 배예요.
+</p>
+
+<svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <line x1="40" y1="120" x2="680" y2="120" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="40" y1="115" x2="40" y2="125" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="360" y1="115" x2="360" y2="125" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="680" y1="115" x2="680" y2="125" stroke="currentColor" stroke-width="1.5"/>
+
+  <text x="40" y="145" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">12:00:00</text>
+  <text x="360" y="145" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">12:01:00</text>
+  <text x="680" y="145" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">12:02:00</text>
+
+  <text x="200" y="105" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">윈도우 A (100번)</text>
+  <text x="520" y="105" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">윈도우 B (100번)</text>
+
+  <rect x="330" y="70" width="60" height="40" fill="currentColor" opacity="0.3"/>
+  <text x="360" y="60" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">200번 / 2초</text>
+
+  <text x="360" y="180" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">경계 폭주 자리</text>
+</svg>
+
+<p>
+  실제 한도가 사실상 두 배가 되는 위험한 자리예요. 정상 사용은 잘 안 보여서 못 잡히지만 의도적 공격은 이걸 노릴 수 있어요.
+</p>
+
+<h2>Sliding Window Log</h2>
+
+<p>
+  모든 요청의 타임스탬프를 로그로 보관하고, "지난 N초 안에 몇 개"를 직접 계산해요. 가장 정확한 방법이에요.
+</p>
+
+<h3>동작 원리</h3>
+
+<pre><code class="language-java">// 지난 60초 안에 100번 이하
+long now = System.currentTimeMillis();
+String key = "rate:user:" + userId;
+
+// 60초 이전 기록 제거
+redis.zremrangeByScore(key, 0, now - 60_000);
+
+// 현재 카운트
+long count = redis.zcard(key);
+
+if (count &lt; 100) {
+    redis.zadd(key, now, now + ":" + UUID.randomUUID());
+    redis.expire(key, 60);
+    return true;
+}
+return false;</code></pre>
+
+<p>
+  Redis의 Sorted Set으로 구현해요. score를 타임스탬프로 두고, 오래된 항목을 제거한 뒤 카운트를 확인해요.
+</p>
+
+<h3>장점</h3>
+
+<ul>
+  <li>완전히 정확해요. 어느 시점에 봐도 "지난 60초"가 정확히 60초예요.</li>
+  <li>경계 폭주가 없어요.</li>
+</ul>
+
+<h3>한계</h3>
+
+<ul>
+  <li>모든 요청 타임스탬프를 저장해요. 사용자당 100 요청이면 100개의 entry가 필요해요.</li>
+  <li>메모리 사용이 사용자 수 × 한도에 비례해요. 대규모 시스템에선 부담이 커요.</li>
+  <li>매 요청마다 ZREMRANGEBYSCORE + ZCARD + ZADD가 필요해요. CPU 비용도 있어요.</li>
+</ul>
+
+<h2>Sliding Window Counter</h2>
+
+<p>
+  Fixed의 단순함과 Sliding Log의 정확함을 절충한 방식이에요. 이전 윈도우의 카운터를 비례 가중치로 더해요.
+</p>
+
+<h3>동작 원리</h3>
+
+<p>
+  현재 윈도우의 카운터 + 이전 윈도우의 카운터 × (이전 윈도우의 남은 비율). 예를 들어 분당 100번 한도에 12:00:30이면:
+</p>
+
+<ul>
+  <li>현재 윈도우(12:00:00~12:01:00)에서 30초가 지났어요. 30/60 = 50% 진행이에요.</li>
+  <li>이전 윈도우(11:59:00~12:00:00)의 카운트에 50% 가중치를 곱해서 더해요.</li>
+  <li>합한 값이 한도 미만이면 허용.</li>
+</ul>
+
+<pre><code class="language-java">long now = System.currentTimeMillis();
+long currentWindow = now / 60_000;
+long previousWindow = currentWindow - 1;
+double percentInCurrent = (now % 60_000) / 60_000.0;
+
+long currentCount = redis.get("rate:" + userId + ":" + currentWindow);
+long previousCount = redis.get("rate:" + userId + ":" + previousWindow);
+
+double estimate = currentCount + previousCount * (1 - percentInCurrent);
+
+if (estimate &lt; 100) {
+    redis.incr("rate:" + userId + ":" + currentWindow);
+    return true;
+}
+return false;</code></pre>
+
+<h3>장점</h3>
+
+<ul>
+  <li>메모리 효율이 Fixed와 같아요. 사용자당 두 개 카운터만 보면 돼요.</li>
+  <li>경계 폭주 문제가 거의 없어져요. 이전 윈도우의 부하가 부드럽게 반영돼요.</li>
+</ul>
+
+<h3>한계</h3>
+
+<ul>
+  <li>이전 윈도우의 분포가 균등하다고 가정해요. 실제로 이전 윈도우 마지막 1초에 100번 몰렸으면 정확도가 떨어져요.</li>
+  <li>그래도 실무에서 거의 무시할 수 있는 수준의 오차예요. 정확도와 효율의 좋은 균형이에요.</li>
+</ul>
+
+<h2>네 알고리즘 비교</h2>
+
+<table>
+  <thead>
+    <tr><th>알고리즘</th><th>정확도</th><th>메모리</th><th>버스트</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Token Bucket</td><td>중간 (burst 허용)</td><td>적음</td><td>capacity까지 허용</td></tr>
+    <tr><td>Leaky Bucket</td><td>중간 (지연 발생)</td><td>큐 크기</td><td>거의 평활</td></tr>
+    <tr><td>Fixed Window</td><td>낮음 (경계 폭주)</td><td>매우 적음</td><td>경계에서 2배 가능</td></tr>
+    <tr><td>Sliding Log</td><td>매우 높음</td><td>요청 수에 비례</td><td>정확히 제한</td></tr>
+    <tr><td>Sliding Counter</td><td>높음</td><td>적음</td><td>거의 정확</td></tr>
+  </tbody>
+</table>
+
+<h2>실무 선택 가이드</h2>
+
+<h3>일반 API rate limit</h3>
+
+<p>
+  Token Bucket 또는 Sliding Window Counter가 일반적이에요. 둘 다 메모리 효율과 정확도의 좋은 균형이에요. Token Bucket이 더 흔해요. Stripe·GitHub·AWS가 다 token bucket이에요.
+</p>
+
+<h3>금전·결제 같은 critical</h3>
+
+<p>
+  Sliding Window Log가 적합해요. 메모리 비용을 감수해서라도 절대 한도를 넘지 않게 보장해요.
+</p>
+
+<h3>외부 quota 평활화</h3>
+
+<p>
+  외부 API가 "초당 정확히 5번까지"라고 명시하면 Leaky Bucket이 안전해요. burst를 허용했다가 외부에서 429를 받는 사고를 피할 수 있어요.
+</p>
+
+<h3>저비용 단순 보호</h3>
+
+<p>
+  공격 차단처럼 정확도가 낮아도 되는 자리는 Fixed Window가 가장 싸요. 경계 폭주가 있어도 무방한 자리에 써요.
+</p>
+
+<h2>거부 응답: 429와 Retry-After</h2>
+
+<p>
+  Rate limit에 걸린 요청은 표준적으로 <code>429 Too Many Requests</code>로 응답해요. 클라이언트에게 "언제 다시 시도해 달라"를 알리는 <code>Retry-After</code> 헤더를 같이 보내요.
+</p>
+
+<pre><code class="language-http">HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1715856360</code></pre>
+
+<p>
+  Retry/Backoff 시리즈에서 본 그 헤더예요. 잘 만든 클라이언트는 Retry-After를 존중해서 backoff를 적용해요. 서버는 정확한 reset 시각을 알려 줘야 해요.
+</p>
+
+<h3>X-RateLimit-* 헤더</h3>
+
+<p>
+  비표준이지만 사실상 업계 표준이에요. 클라이언트가 자기 상태를 추적할 수 있게 정상 응답에도 같이 보내요.
+</p>
+
+<ul>
+  <li><strong>X-RateLimit-Limit</strong>은 한도를 의미해요 (예: 100).</li>
+  <li><strong>X-RateLimit-Remaining</strong>은 남은 횟수예요.</li>
+  <li><strong>X-RateLimit-Reset</strong>은 다음 리셋 시각이에요 (epoch sec 또는 ISO 8601).</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Fixed Window의 문제?"</strong>: 윈도우 경계에서 두 배 부하가 가능해요. 1초 차이로 윈도우가 바뀌면 직전 100번 + 직후 100번이 1초 안에 들어올 수 있어요.</li>
+  <li><strong>"Sliding Window Log와 Counter 차이?"</strong>: Log는 모든 타임스탬프를 저장해 정확하지만 메모리가 비싸요. Counter는 이전 윈도우 카운트를 비례로 가중해 효율적이지만 살짝 부정확해요.</li>
+  <li><strong>"어느 게 가장 흔히 쓰여요?"</strong>: Token Bucket이나 Sliding Window Counter예요. 메모리와 정확도의 균형이 좋아요.</li>
+  <li><strong>"429에는 뭘 보내요?"</strong>: Retry-After 헤더로 다시 시도할 시점을 알려요. X-RateLimit-* 헤더로 한도·남은 횟수·리셋 시각도 같이 보내면 클라이언트가 자기 페이스를 잡아요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편은 실무 적용이에요. 분산 환경의 일관성, 사용자/IP/엔드포인트별 차등 적용, Bucket4j·Resilience4j·API Gateway 레벨 적용까지 정리해요.
+</p>
