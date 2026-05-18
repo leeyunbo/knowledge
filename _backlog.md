@@ -99,7 +99,7 @@
 - [x] ★ "Exactly-once"의 환상 (3편)
 
 ### Resilience 패턴
-- [ ] ★ Retry / Backoff 전략 (3편)
+- [x] ★ Retry / Backoff 전략 (3편)
 - [ ] ★ Timeout 설계 — Connect / Read / Total (2편)
 - [ ] ★ Rate Limiting 알고리즘 — Token / Leaky / Sliding (3편)
 - [ ] ★ Circuit Breaker 보강 (기존 시리즈 확장)

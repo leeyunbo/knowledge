@@ -1,0 +1,178 @@
+---
+title: "언제 재시도해야 하나"
+subtitle: "재시도가 안전한 조건은 멱등성과 일시적 실패예요. 둘 중 하나라도 빠지면 재시도가 사고를 키워요."
+dateText: "2026.05.18"
+episode: 1
+episodes: 3
+---
+
+<h2>재시도는 양날의 검</h2>
+
+<p>
+  외부 시스템을 호출하면 네트워크 타임아웃, 일시적 5xx, DNS 지연 같은 일이 자주 일어나요. 그때마다 사용자에게 에러를 던지는 건 아까워요. 한 번 더 시도하면 대부분 성공하니까요. 그래서 재시도는 거의 모든 시스템의 기본 패턴이에요.
+</p>
+
+<p>
+  그런데 재시도가 잘못 적용되면 작은 장애를 큰 장애로 키워요. 죽어 가는 서버에 같은 요청이 더 많이 몰리고, 중복 결제 같은 사고가 터져요. 재시도를 켜기 전에 두 가지 조건을 먼저 따져야 해요.
+</p>
+
+<h2>안전 조건 1: 멱등성</h2>
+
+<p>
+  재시도의 가장 기본적인 전제예요. 같은 요청을 두 번 보내도 결과가 한 번 보낸 것과 같아야 안전해요. 멱등하지 않은 요청을 재시도하면 중복 처리·중복 결제 같은 사고가 나요.
+</p>
+
+<h3>자연 멱등 vs 멱등화 필요</h3>
+
+<table>
+  <thead>
+    <tr><th>요청 유형</th><th>멱등성</th><th>재시도 안전</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>GET / HEAD</td><td>자연 멱등</td><td>안전</td></tr>
+    <tr><td>PUT / DELETE</td><td>자연 멱등</td><td>안전</td></tr>
+    <tr><td>POST</td><td>자연 비멱등</td><td>위험 (Idempotency-Key로 멱등화 필요)</td></tr>
+    <tr><td>PATCH (절대값)</td><td>멱등</td><td>안전</td></tr>
+    <tr><td>PATCH (증감)</td><td>비멱등</td><td>위험</td></tr>
+  </tbody>
+</table>
+
+<p>
+  멱등성 설계 패턴 시리즈에서 자세히 다뤘던 자리예요. POST 같은 비멱등 호출을 재시도해야 한다면 idempotency key를 같이 보내야 안전해요. 그렇지 않으면 재시도가 곧 중복 처리예요.
+</p>
+
+<h2>안전 조건 2: 일시적 실패만 재시도</h2>
+
+<p>
+  모든 실패에 재시도하면 안 돼요. 영구적 실패(클라이언트 잘못, 인증 실패, 리소스 없음)는 재시도해도 같은 결과를 받아요. 무의미한 부하만 더해요.
+</p>
+
+<h3>재시도해야 할 실패</h3>
+
+<ul>
+  <li><strong>네트워크 타임아웃</strong>: 연결·읽기 타임아웃이 일시적일 가능성이 높아요.</li>
+  <li><strong>5xx 서버 에러</strong>: 503 Service Unavailable, 504 Gateway Timeout 등. 일시적 과부하·재시작 자리예요.</li>
+  <li><strong>429 Too Many Requests</strong>: Rate limit이에요. Retry-After 헤더의 값만큼 기다린 뒤 재시도해요.</li>
+  <li><strong>커넥션 거부</strong>: 서버가 막 재시작했을 수 있어요. 잠시 후 시도해요.</li>
+</ul>
+
+<h3>재시도하면 안 될 실패</h3>
+
+<ul>
+  <li><strong>4xx 클라이언트 에러</strong>: 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found 등. 요청 자체가 잘못된 거라 재시도해도 같은 결과예요.</li>
+  <li><strong>422 Unprocessable Entity</strong>: 검증 실패예요. 재시도해도 의미가 없어요.</li>
+  <li><strong>비즈니스 거부</strong>: "잔액 부족" 같은 도메인 에러는 재시도하지 않아요.</li>
+</ul>
+
+<h3>경계 자리</h3>
+
+<ul>
+  <li><strong>409 Conflict</strong>: 자원 상태 충돌. 보통 재시도해도 의미 없지만, 낙관적 락의 version 충돌이라면 갱신 후 재시도가 맞아요.</li>
+  <li><strong>408 Request Timeout</strong>: 클라이언트 요청을 서버가 못 받았어요. 재시도해도 보통 안전해요.</li>
+</ul>
+
+<h2>재시도 안 하면 안 되는 자리</h2>
+
+<p>
+  반대로 재시도를 꼭 해야 안전한 자리도 있어요.
+</p>
+
+<h3>네트워크 분할 후</h3>
+
+<p>
+  메시지 큐를 통한 발행, 분산 트랜잭션의 보상 단계, 외부 API 호출이 네트워크 분할 동안 실패했어요. 분할 복구 후 재시도하지 않으면 결과적으로 일관성이 깨져요. 재시도는 선택이 아니라 필수예요.
+</p>
+
+<h3>메시지 큐 consumer</h3>
+
+<p>
+  메시지를 처리하다 실패하면 자동으로 재시도해야 해요. 처음에는 잠깐 후 재시도, 계속 실패하면 dead letter queue로 보내요. 멱등성 설계 시리즈에서 본 dedup table 패턴이 이때 필요해요.
+</p>
+
+<h2>재시도 안티패턴</h2>
+
+<h3>1. 비멱등 호출 무조건 재시도</h3>
+
+<pre><code class="language-java">// 위험한 코드
+public Payment charge(Order order) {
+    for (int i = 0; i &lt; 3; i++) {
+        try {
+            return paymentApi.charge(order.getId(), order.getAmount());
+        } catch (TimeoutException e) {
+            // 결제는 됐는데 응답만 못 받은 거면?
+        }
+    }
+    throw new PaymentFailedException();
+}</code></pre>
+
+<p>
+  결제 API가 타임아웃이라고 결제가 실패한 게 아니에요. 결제는 됐는데 응답이 못 온 자리일 수도 있어요. idempotency key 없이 재시도하면 중복 결제로 직결돼요.
+</p>
+
+<h3>2. 모든 예외 재시도</h3>
+
+<pre><code class="language-java">// 위험한 코드
+@Retryable(value = Exception.class, maxAttempts = 5)
+public User getUser(long id) {
+    return userRepository.findById(id).orElseThrow();
+}</code></pre>
+
+<p>
+  <code>NotFoundException</code> 같은 비즈니스 예외까지 재시도해요. 사용자가 없는데 5번 더 찾아보는 셈이에요. DB 부하만 늘어요. 재시도 대상 예외를 명시해야 해요.
+</p>
+
+<h3>3. 무한 재시도</h3>
+
+<pre><code class="language-java">// 위험한 코드
+while (true) {
+    try {
+        return externalApi.call();
+    } catch (Exception e) {
+        Thread.sleep(1000);
+    }
+}</code></pre>
+
+<p>
+  영구적 장애가 나면 영원히 재시도해요. 큐가 쌓이고 스레드가 다 묶여요. 반드시 최대 횟수나 최대 시간을 둬야 해요.
+</p>
+
+<h3>4. 즉시 재시도</h3>
+
+<pre><code class="language-java">// 부분적으로 위험한 코드
+for (int i = 0; i &lt; 5; i++) {
+    try {
+        return api.call();
+    } catch (Exception e) {
+        // 바로 다시
+    }
+}</code></pre>
+
+<p>
+  쉬는 시간 없이 재시도하면 죽어 가는 서버를 더 빨리 죽여요. 다음 편의 backoff가 이걸 해결해요.
+</p>
+
+<h2>재시도 정책 설계 체크리스트</h2>
+
+<ul>
+  <li><strong>멱등성 확인</strong>: 비멱등이면 idempotency key가 필수예요.</li>
+  <li><strong>재시도 대상 예외 명시</strong>: 5xx·Timeout 등 일시적 실패만.</li>
+  <li><strong>제외 예외 명시</strong>: 4xx·비즈니스 예외는 재시도 안 함.</li>
+  <li><strong>최대 횟수 또는 총 시간</strong>: 보통 3~5회 또는 30초 이내.</li>
+  <li><strong>Backoff 전략</strong>: 즉시 재시도 금지. 다음 편에서 자세히.</li>
+  <li><strong>로깅·관측</strong>: 재시도 횟수·이유를 추적해 패턴을 파악.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"모든 요청을 재시도해도 되나요?"</strong>: 아니요. 멱등하지 않은 요청은 idempotency key 없이 재시도하면 위험해요. 4xx 클라이언트 에러도 재시도하면 안 돼요.</li>
+  <li><strong>"어떤 에러를 재시도?"</strong>: 5xx, 네트워크 타임아웃, 429(Retry-After 존중)예요. 4xx와 비즈니스 에러는 제외해요.</li>
+  <li><strong>"결제 API 호출이 타임아웃이면?"</strong>: 결제가 됐는지 모르는 상태예요. 재시도하려면 idempotency key를 같이 보내요. 그게 없으면 조회 API로 상태를 확인하는 게 안전해요.</li>
+  <li><strong>"무한 재시도가 위험한 이유?"</strong>: 영구적 장애일 때 무한 부하를 만들고 스레드를 다 잡아요. 반드시 최대 횟수나 총 시간을 둬야 해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  재시도 사이에 얼마나 쉬어야 하는지가 다음 편이에요. Fixed delay, Exponential backoff, Jitter 같은 전략과 AWS가 권장하는 "decorrelated jitter"까지 정리해요.
+</p>

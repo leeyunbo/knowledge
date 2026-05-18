@@ -183,14 +183,15 @@ const seriesTitles = {
   "2026-05-idempotency-patterns": "멱등성 설계 패턴",
   "2026-05-collection-비교": "Collection 비교",
   "2026-05-classloader": "ClassLoader 동작",
-  "2026-05-exactly-once": "Exactly-once의 환상"
+  "2026-05-exactly-once": "Exactly-once의 환상",
+  "2026-05-retry-backoff": "Retry / Backoff 전략"
 };
 
 const cardOnly = {
   spring: { title: "Spring", cardDesc: "코어 internals, 트랜잭션, 부트 동작", page: "spring.html", done: 3, total: 12 },
   db: { title: "DB", cardDesc: "인덱스, 트랜잭션, 락, 모델링", page: "db.html", done: 4, total: 13 },
   network: { title: "네트워크", cardDesc: "TCP, HTTP, TLS, CORS, DNS", page: "network.html", done: 11, total: 12 },
-  distributed: { title: "분산 시스템 설계", cardDesc: "Resilience, 분산, 캐싱, 메시징, 아키텍처", page: "distributed.html", done: 8, total: 29 },
+  distributed: { title: "분산 시스템 설계", cardDesc: "Resilience, 분산, 캐싱, 메시징, 아키텍처", page: "distributed.html", done: 9, total: 29 },
   security: { title: "보안", cardDesc: "인증/인가, 웹 보안", page: "security.html", done: 1, total: 5 }
 };
 
