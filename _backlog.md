@@ -107,7 +107,7 @@
 ### 운영/인프라
 - [x] ★ Load Balancer — L4 vs L7 (2편)
 - [x] ★ Reverse Proxy / API Gateway (3편)
-- [ ] ★ Graceful Shutdown 설계 (2편)
+- [x] ★ Graceful Shutdown 설계 (2편)
 
 ### 설계/아키텍처
 - [x] ★ 멱등성 설계 패턴 (3편)

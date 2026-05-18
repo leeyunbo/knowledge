@@ -1,0 +1,304 @@
+---
+title: "Graceful Shutdown 실무 구현"
+subtitle: "Spring Boot 설정, K8s preStop, JVM hook, Kafka 컨슈머 종료까지 살펴봐요. 한 자리라도 빠지면 새요."
+dateText: "2026.05.18"
+episode: 2
+episodes: 2
+---
+
+<h2>Spring Boot의 graceful shutdown</h2>
+
+<p>
+  Spring Boot 2.3+부터 graceful shutdown을 표준으로 지원해요. 설정 한 줄로 켜져요.
+</p>
+
+<pre><code class="language-yaml">server:
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 25s</code></pre>
+
+<h3>동작</h3>
+
+<ol>
+  <li>SIGTERM을 받아요.</li>
+  <li>새 요청을 거부해요. (서버 소켓의 accept를 멈춰요.)</li>
+  <li>진행 중인 요청은 timeout 안에서 완료까지 기다려요.</li>
+  <li>Timeout이 지나면 강제로 끊고 종료해요.</li>
+</ol>
+
+<p>
+  Tomcat·Jetty·Undertow·Reactor Netty 모두 지원해요. <code>timeout-per-shutdown-phase</code>는 보통 K8s의 <code>terminationGracePeriodSeconds</code>보다 짧게 잡아요. K8s가 30초라면 Spring은 25초로 잡아요.
+</p>
+
+<h3>HTTP 응답 503</h3>
+
+<p>
+  Graceful shutdown 진행 중에 들어온 새 요청은 503 Service Unavailable로 응답돼요. K8s에서는 Endpoints가 제거된 후라 이 응답을 받는 사용자는 거의 없어요. 다만 외부 클라이언트가 직접 호출하는 자리라면 retry로 보완해야 해요.
+</p>
+
+<h2>K8s 설정</h2>
+
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      terminationGracePeriodSeconds: 60   # 기본 30초 → 60초로
+      containers:
+      - name: api
+        image: my-api:v1
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 10"]
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          periodSeconds: 5</code></pre>
+
+<h3>preStop의 역할</h3>
+
+<p>
+  K8s가 SIGTERM을 보내기 전에 preStop hook이 실행돼요. 10초 sleep을 넣으면 그 사이 Endpoints 전파가 완료돼서 LB가 더 이상 트래픽을 안 보내요. 그 후 SIGTERM이 오고, Spring의 graceful shutdown이 시작돼요.
+</p>
+
+<h3>전체 타임라인</h3>
+
+<svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <line x1="40" y1="100" x2="680" y2="100" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="40" y1="95" x2="40" y2="105" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="160" y1="95" x2="160" y2="105" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="540" y1="95" x2="540" y2="105" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="680" y1="95" x2="680" y2="105" stroke="currentColor" stroke-width="1.5"/>
+
+  <text x="40" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">T=0</text>
+  <text x="160" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">T=10s</text>
+  <text x="540" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">T=55s</text>
+  <text x="680" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">T=60s</text>
+
+  <text x="40" y="80" text-anchor="start" font-family="JetBrains Mono" font-size="9" fill="currentColor">preStop 시작</text>
+  <text x="160" y="80" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">SIGTERM</text>
+  <text x="540" y="80" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">Spring 종료</text>
+  <text x="680" y="80" text-anchor="end" font-family="JetBrains Mono" font-size="9" fill="currentColor">SIGKILL</text>
+
+  <text x="100" y="155" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">sleep 10s</text>
+  <text x="350" y="155" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">Spring graceful (max 45s)</text>
+
+  <text x="350" y="190" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">terminationGracePeriod 60s 안에서</text>
+</svg>
+
+<h2>JVM Shutdown Hook</h2>
+
+<p>
+  Spring Boot의 자동 처리만으로 안 되는 자리도 있어요. JVM의 shutdown hook으로 정리 코드를 직접 등록해요.
+</p>
+
+<pre><code class="language-java">@PreDestroy
+public void cleanup() {
+    log.info("Closing resources...");
+    kafkaConsumer.close();
+    redisClient.shutdown();
+    customScheduler.shutdown();
+}</code></pre>
+
+<p>
+  Spring Bean의 <code>@PreDestroy</code>는 ApplicationContext가 종료될 때 호출돼요. graceful shutdown 흐름에 자연스럽게 포함돼요. 외부 자원을 닫는 자리는 거의 항상 여기에 두는 게 안전해요.
+</p>
+
+<h3>실행 순서</h3>
+
+<ol>
+  <li>SIGTERM을 받아요.</li>
+  <li>Spring graceful shutdown이 시작돼요. 새 요청을 차단하고 in-flight를 기다려요.</li>
+  <li>모든 요청 처리 완료 후 ApplicationContext가 종료돼요.</li>
+  <li>@PreDestroy 메소드들이 역순으로 실행돼요.</li>
+  <li>JVM이 종료돼요.</li>
+</ol>
+
+<h2>Kafka 컨슈머 종료</h2>
+
+<p>
+  컨슈머가 메시지를 처리 중에 죽으면 메시지가 다시 처리되거나(at-least-once) 유실돼요(at-most-once). graceful shutdown에서 현재 메시지를 끝까지 처리하고 offset commit한 뒤 종료해야 해요.
+</p>
+
+<pre><code class="language-java">@Component
+public class OrderConsumer {
+    private final KafkaConsumer&lt;String, String&gt; consumer;
+    private volatile boolean running = true;
+
+    @PostConstruct
+    public void start() {
+        new Thread(this::poll).start();
+    }
+
+    public void poll() {
+        while (running) {
+            ConsumerRecords&lt;String, String&gt; records = consumer.poll(Duration.ofMillis(500));
+            for (var record : records) {
+                processOrder(record);
+            }
+            consumer.commitSync();
+        }
+        consumer.close();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        running = false;
+        // poll 루프가 빠져나갈 시간을 줘요
+        Thread.sleep(2000);
+    }
+}</code></pre>
+
+<p>
+  Spring Kafka의 <code>@KafkaListener</code>는 이 처리를 자동으로 해 줘요. <code>KafkaListenerEndpointRegistry</code>가 ApplicationContext 종료 시 컨슈머를 안전하게 멈춰요. 직접 컨슈머를 다룬다면 위 패턴이 필요해요.
+</p>
+
+<h2>DB 커넥션 풀 닫기</h2>
+
+<p>
+  HikariCP는 ApplicationContext 종료 시 자동으로 닫혀요. 별도 처리가 필요하지 않아요. 다만 in-flight 트랜잭션을 끝낼 시간을 줘야 해요. Spring graceful shutdown이 이걸 처리해 줘요.
+</p>
+
+<pre><code class="language-yaml">spring:
+  datasource:
+    hikari:
+      shutdown-timeout: 5s   # in-flight 트랜잭션 대기</code></pre>
+
+<p>
+  주의 자리. 분산 락(Redis lock 등)이 트랜잭션 안에서 잡혔다면 종료 시 명시적으로 풀어야 해요. 안 그러면 다른 인스턴스가 잠시 그 락 때문에 멈춰요.
+</p>
+
+<h2>Async Task와 Scheduler</h2>
+
+<p>
+  <code>@Async</code> 작업과 <code>@Scheduled</code> 작업도 graceful하게 종료해야 해요. ThreadPoolTaskExecutor의 <code>waitForTasksToCompleteOnShutdown</code>을 켜요.
+</p>
+
+<pre><code class="language-java">@Bean
+public ThreadPoolTaskExecutor taskExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(10);
+    executor.setMaxPoolSize(20);
+    executor.setWaitForTasksToCompleteOnShutdown(true);
+    executor.setAwaitTerminationSeconds(20);
+    return executor;
+}</code></pre>
+
+<p>
+  <code>awaitTerminationSeconds</code>는 graceful shutdown timeout보다 짧아야 해요. 안 그러면 Spring이 끝나기 전에 안 끝난 작업이 강제 종료돼요.
+</p>
+
+<h2>외부 호출 in-flight</h2>
+
+<p>
+  Graceful shutdown 동안 진행 중인 외부 API 호출은 어떻게 처리할까요? 두 옵션이 있어요.
+</p>
+
+<ul>
+  <li><strong>완료까지 기다리기</strong>: 호출이 끝날 때까지 종료를 미뤄요. graceful shutdown timeout이 늘어나요.</li>
+  <li><strong>강제 끊기</strong>: 호출을 timeout으로 끊고 종료해요. 외부 시스템은 처리됐을 수도 있어요. 비멱등 호출이면 위험해요.</li>
+</ul>
+
+<p>
+  결제 같은 비멱등 호출은 첫 옵션이 안전해요. 멱등 호출이라면 둘 다 가능해요. Idempotency Key를 같이 보낸다면 끊은 후에도 안전하게 재시도할 수 있어요.
+</p>
+
+<h2>WebSocket·SSE 연결</h2>
+
+<p>
+  Long-lived connection은 graceful shutdown이 특히 까다로워요. 모든 연결이 끊기길 기다리면 종료가 영원히 안 끝나요. 보통 다음 패턴이에요.
+</p>
+
+<ol>
+  <li>새 WebSocket 연결을 거부해요.</li>
+  <li>기존 연결에 "shutting down" 메시지를 보내고, 클라이언트가 재연결하도록 유도.</li>
+  <li>정해진 시간(예: 10초) 후 강제로 모든 연결을 끊어요.</li>
+</ol>
+
+<p>
+  클라이언트는 재연결할 때 다른 인스턴스로 라우팅돼요. 사용자 경험은 거의 끊김 없이 유지돼요.
+</p>
+
+<h2>Graceful Shutdown 검증</h2>
+
+<p>
+  설정만으로 끝나지 않아요. 실제로 동작하는지 검증해야 해요. 다음 시나리오로 테스트해요.
+</p>
+
+<ul>
+  <li>부하 테스트 중에 Pod를 종료시켜 봐요. 503 응답이 사용자에게 도달하는지, connection reset이 발생하는지 확인해요.</li>
+  <li>Kafka 컨슈머가 처리 중인 메시지가 commit되는지 확인해요. 종료 후 같은 메시지가 다시 오지 않는지도 확인해요.</li>
+  <li>DB 트랜잭션이 정상 commit되는지, 미완료 트랜잭션이 rollback되는지 확인해요.</li>
+  <li>JVM 종료 시간이 K8s grace period 안에 들어오는지 측정해요. 자주 timeout되면 grace period를 늘려야 해요.</li>
+</ul>
+
+<h2>관측성</h2>
+
+<p>
+  Graceful shutdown은 정상 동작 시엔 보이지 않아요. 문제 발생 시 빠르게 잡으려면 메트릭이 필요해요.
+</p>
+
+<ul>
+  <li><strong>종료 소요 시간</strong>: SIGTERM부터 JVM 종료까지 측정해요. grace period에 가까워지면 알람을 띄워요.</li>
+  <li><strong>503 응답 비율</strong>: graceful shutdown 중 새 요청을 거부한 비율이에요.</li>
+  <li><strong>강제 종료 횟수</strong>: SIGKILL로 끝난 Pod 수예요. 0이어야 해요.</li>
+  <li><strong>In-flight 요청 분포</strong>: 종료 시점에 처리 중인 요청 수의 분포를 봐요.</li>
+</ul>
+
+<h2>실무 함정</h2>
+
+<h3>1. terminationGracePeriod가 짧음</h3>
+
+<p>
+  K8s 기본 30초는 짧은 자리에 짧을 수 있어요. 무거운 in-flight 요청이 있으면 늘려야 해요. Spring timeout = K8s grace period - 5초 정도가 안전해요.
+</p>
+
+<h3>2. preStop 누락</h3>
+
+<p>
+  preStop 없으면 SIGTERM과 Endpoints 제거가 거의 동시에 일어나서 LB가 잠시 죽은 Pod로 트래픽을 보낼 수 있어요. 5~10초 sleep을 두는 게 안전해요.
+</p>
+
+<h3>3. Static 변수에 잡힌 자원</h3>
+
+<p>
+  Spring Bean이 아닌 static 변수로 만든 자원은 @PreDestroy가 안 호출돼요. ShutdownHook으로 직접 등록하거나 Bean으로 옮겨야 해요.
+</p>
+
+<h3>4. 분산 락 누수</h3>
+
+<p>
+  Redis 분산 락이 잡혀 있는데 정상 해제 없이 종료되면 TTL이 만료될 때까지 다른 인스턴스가 못 잡아요. graceful shutdown 흐름에서 lock release를 명시해야 해요.
+</p>
+
+<h3>5. Logback async appender의 메시지 손실</h3>
+
+<p>
+  비동기 로그 appender는 큐에 쌓인 로그를 다 비우기 전에 종료되면 마지막 로그가 사라져요. <code>shutdownHook</code> 설정이나 명시적 flush가 필요해요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Graceful shutdown 어떻게 켜요?"</strong>: Spring Boot면 <code>server.shutdown: graceful</code>이에요. K8s preStop hook의 sleep과 함께 terminationGracePeriodSeconds도 같이 잡아요.</li>
+  <li><strong>"preStop은 왜 필요?"</strong>: SIGTERM과 Endpoints 제거가 동시에 일어나서 LB가 잠시 죽은 Pod로 트래픽을 보낼 수 있어요. preStop sleep으로 Endpoints 전파를 기다린 뒤 SIGTERM이 오게 해요.</li>
+  <li><strong>"@PreDestroy와 shutdown hook 차이?"</strong>: @PreDestroy는 Spring Bean의 정리. shutdown hook은 JVM 전체 종료 시. 보통 @PreDestroy로 충분하고 Spring 밖 자원에만 shutdown hook을 써요.</li>
+  <li><strong>"Kafka 컨슈머의 graceful 종료?"</strong>: 현재 메시지를 끝까지 처리하고 offset commit한 뒤 종료해요. Spring Kafka의 @KafkaListener는 자동, 직접 컨슈머는 running 플래그 + close 패턴이에요.</li>
+  <li><strong>"검증은?"</strong>: 부하 테스트 중에 Pod를 강제 종료시켜 connection reset이 발생하는지 확인해요. 종료 소요 시간, 503 비율, SIGKILL 횟수를 모니터링해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 graceful shutdown이 푸는 문제, SIGTERM과 SIGKILL의 차이, K8s Pod 종료 흐름, 그리고 표준 종료 순서를 봤어요. 2편에서는 Spring Boot 설정, K8s preStop·terminationGracePeriod, @PreDestroy, Kafka 컨슈머·DB 풀·async executor 종료, 그리고 검증·관측성까지 정리했어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>모든 자원이 정해진 시간 안에 깨끗이 정리</strong>돼야 해요. 한 자리만 빠져도 사용자 에러나 메시지 유실이 일어나요. 설정 한 줄로 끝나지 않고 전체 흐름을 설계해야 진짜 graceful shutdown이 완성돼요.
+</p>
