@@ -1,0 +1,259 @@
+---
+title: "API Gateway가 더하는 것"
+subtitle: "Reverse Proxy에 인증·rate limit·transformation·BFF를 더한 형태예요. 마이크로서비스의 단일 입구가 되는 layer예요."
+dateText: "2026.05.18"
+episode: 2
+episodes: 3
+---
+
+<h2>Reverse Proxy와 무엇이 다른가</h2>
+
+<p>
+  API Gateway는 사실 Reverse Proxy의 확장이에요. 모든 API Gateway는 reverse proxy 기능을 포함해요. 거기에 API 운영에 특화된 기능을 더 얹은 거예요. 경계가 흐릿하지만 보통 다음 기능 중 다수를 갖추면 "Gateway"라고 불러요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>기능</th><th>Reverse Proxy</th><th>API Gateway</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>라우팅·부하 분산</td><td>O</td><td>O</td></tr>
+    <tr><td>SSL termination</td><td>O</td><td>O</td></tr>
+    <tr><td>캐싱·압축</td><td>O</td><td>O</td></tr>
+    <tr><td>API key·OAuth 인증</td><td>제한적</td><td>핵심 기능</td></tr>
+    <tr><td>Rate limit / quota</td><td>기본만</td><td>풍부한 정책</td></tr>
+    <tr><td>요청·응답 변환</td><td>제한적</td><td>핵심 기능</td></tr>
+    <tr><td>API 버저닝 / 카나리</td><td>없음</td><td>O</td></tr>
+    <tr><td>관측성 (로깅·트레이스)</td><td>기본</td><td>API 단위 메트릭</td></tr>
+    <tr><td>개발자 포털 / API 문서</td><td>없음</td><td>일부 제품 지원</td></tr>
+  </tbody>
+</table>
+
+<h2>핵심 기능 1: 인증·인가</h2>
+
+<p>
+  마이크로서비스 환경에서 각 서비스가 인증을 따로 구현하면 코드 중복과 정책 불일치가 일어나요. Gateway가 단일 진입점에서 검증하면 백엔드는 비즈니스 로직에만 집중해요.
+</p>
+
+<h3>흔한 패턴</h3>
+
+<ul>
+  <li><strong>API Key</strong>: 헤더의 키를 화이트리스트와 비교. 단순하지만 회전·폐기가 어려워요.</li>
+  <li><strong>JWT 검증</strong>: 토큰의 서명과 만료를 확인해요. 사용자 정보를 백엔드에 헤더로 전달해요.</li>
+  <li><strong>OAuth 2.0 / OIDC</strong>: Gateway가 IdP와 연동해 토큰을 받아 검증해요. 사용자 정보를 백엔드에 전달해요.</li>
+  <li><strong>mTLS</strong>: 서비스 간 통신에서 양방향 인증을 해요. 내부 메시 환경에서 써요.</li>
+</ul>
+
+<pre><code class="language-yaml"># Kong JWT 플러그인 예시
+plugins:
+- name: jwt
+  config:
+    secret_is_base64: false
+    key_claim_name: iss
+    claims_to_verify:
+    - exp</code></pre>
+
+<h2>핵심 기능 2: Rate Limit과 Quota</h2>
+
+<p>
+  Rate Limiting 시리즈에서 본 그 자리예요. Gateway는 사용자별·API key별·엔드포인트별로 차등 정책을 적용해요. 무엇보다 한 곳에서 관리되니 정책 일관성이 보장돼요.
+</p>
+
+<pre><code class="language-yaml"># Kong rate-limiting
+plugins:
+- name: rate-limiting
+  config:
+    minute: 100
+    hour: 10000
+    policy: redis
+    redis_host: redis.example.com</code></pre>
+
+<p>
+  특히 SaaS API 운영에선 quota가 필수예요. Free tier는 분당 100번, Pro tier는 1000번 같은 차등을 Gateway에서 처리해요. 백엔드는 quota 검사 부담이 없어요.
+</p>
+
+<h2>핵심 기능 3: Request·Response Transformation</h2>
+
+<p>
+  외부 API 스펙과 내부 서비스 스펙이 다를 수 있어요. Gateway가 중간에서 변환해요.
+</p>
+
+<h3>흔한 변환 자리</h3>
+
+<ul>
+  <li>외부엔 REST, 내부는 gRPC인 환경. Gateway가 중간에서 변환해요.</li>
+  <li>구버전 API 응답 형식을 그대로 유지하면서 새 백엔드를 쓰는 자리예요.</li>
+  <li>외부에 보여줄 필요 없는 내부 필드를 응답에서 제거해요.</li>
+  <li>헤더 변환·재작성을 해요. <code>Authorization</code>을 검증한 뒤 <code>X-User-Id</code>로 백엔드에 전달해요.</li>
+</ul>
+
+<pre><code class="language-yaml"># Kong request-transformer
+plugins:
+- name: request-transformer
+  config:
+    add:
+      headers:
+      - X-Internal-Service:gateway
+    remove:
+      headers:
+      - Authorization</code></pre>
+
+<h2>핵심 기능 4: API 버저닝·카나리</h2>
+
+<p>
+  외부에는 <code>/api/v1/orders</code>가 안정적으로 유지돼야 해요. 내부에선 새 버전을 점진적으로 배포하고 싶어요. Gateway에서 트래픽을 비율로 나눠요.
+</p>
+
+<pre><code class="language-yaml"># Spring Cloud Gateway 가중치 라우팅
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: orders-v1
+        uri: lb://orders-service-v1
+        predicates:
+        - Path=/api/orders/**
+        - Weight=group1, 80
+      - id: orders-v2
+        uri: lb://orders-service-v2
+        predicates:
+        - Path=/api/orders/**
+        - Weight=group1, 20</code></pre>
+
+<p>
+  카나리 배포·A/B 테스트·블루그린이 모두 Gateway 한 자리에서 제어돼요. 점진적으로 100%로 올려 가는 방식이 안전해요.
+</p>
+
+<h2>BFF 패턴 (Backend for Frontend)</h2>
+
+<p>
+  Gateway의 변종 패턴이에요. 클라이언트 종류(웹, 모바일 앱, 외부 파트너)에 따라 다른 응답 형식과 다른 데이터 조합이 필요할 때 써요.
+</p>
+
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <rect x="20" y="50" width="100" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="70" y="75" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Web App</text>
+
+  <rect x="20" y="120" width="100" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="70" y="145" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Mobile App</text>
+
+  <rect x="20" y="190" width="100" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="70" y="215" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Partner</text>
+
+  <rect x="180" y="50" width="120" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="240" y="75" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Web BFF</text>
+
+  <rect x="180" y="120" width="120" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="240" y="145" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Mobile BFF</text>
+
+  <rect x="180" y="190" width="120" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="240" y="215" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Partner BFF</text>
+
+  <rect x="380" y="50" width="120" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="440" y="75" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">User Service</text>
+
+  <rect x="380" y="120" width="120" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="440" y="145" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Order Service</text>
+
+  <rect x="380" y="190" width="120" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="440" y="215" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Payment Service</text>
+
+  <g stroke="currentColor" stroke-width="1" fill="none">
+    <path d="M 120 70 L 180 70" marker-end="url(#bffarr)"/>
+    <path d="M 120 140 L 180 140" marker-end="url(#bffarr)"/>
+    <path d="M 120 210 L 180 210" marker-end="url(#bffarr)"/>
+
+    <path d="M 300 70 L 380 70" marker-end="url(#bffarr)"/>
+    <path d="M 300 70 L 380 140" marker-end="url(#bffarr)"/>
+    <path d="M 300 140 L 380 70" marker-end="url(#bffarr)"/>
+    <path d="M 300 140 L 380 140" marker-end="url(#bffarr)"/>
+    <path d="M 300 140 L 380 210" marker-end="url(#bffarr)"/>
+    <path d="M 300 210 L 380 210" marker-end="url(#bffarr)"/>
+  </g>
+
+  <text x="580" y="100" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">각 BFF가</text>
+  <text x="580" y="114" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">필요한 데이터를</text>
+  <text x="580" y="128" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">조합해 응답</text>
+
+  <defs>
+    <marker id="bffarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<h3>왜 필요한가</h3>
+
+<ul>
+  <li>모바일은 데이터 사용량 제약이 있어 응답을 작게 받고 싶어요. 웹은 화면이 크니 더 많은 정보가 필요해요.</li>
+  <li>한 화면을 그리는데 5개 마이크로서비스에 호출해야 하는 자리. 클라이언트가 5번 호출하면 모바일 네트워크에선 느려요. BFF가 한 번에 모아 줘요.</li>
+  <li>외부 파트너에겐 일부 필드를 숨겨야 해요. BFF가 필터링해요.</li>
+</ul>
+
+<h3>주의 자리</h3>
+
+<p>
+  BFF가 늘어나면 코드 중복이 늘어요. 공통 로직(인증, 로깅)은 라이브러리로 빼고, 각 BFF는 클라이언트별 변환에만 집중해야 해요. BFF가 너무 두꺼워지면 마이크로서비스 분리 효과가 사라져요.
+</p>
+
+<h2>관측성 (Observability)</h2>
+
+<p>
+  Gateway는 모든 요청이 지나가는 자리라 관측성에 최적이에요. API 단위로 다음 지표를 수집해요.
+</p>
+
+<ul>
+  <li>API별 호출 수 (RPS).</li>
+  <li>API별 응답 시간 분포 (P50, P95, P99).</li>
+  <li>API별 에러율 (4xx, 5xx 비율).</li>
+  <li>사용자·API key별 사용량.</li>
+  <li>각 API의 quota 사용 비율.</li>
+</ul>
+
+<p>
+  분산 트레이싱(OpenTelemetry, Zipkin)도 Gateway에서 trace ID를 생성하는 게 일반적이에요. 같은 trace ID가 모든 백엔드에 전파돼 한 요청의 전체 흐름을 추적할 수 있어요.
+</p>
+
+<h2>Gateway 안티패턴: 비즈니스 로직 끼워 넣기</h2>
+
+<p>
+  Gateway가 워낙 강력해서 비즈니스 로직까지 거기에 두는 유혹이 있어요. "주문 생성 시 사용자 등급 확인"을 gateway에서 하는 식이에요. 위험해요.
+</p>
+
+<ul>
+  <li>Gateway가 한 곳의 변경에 자주 영향받아요. 배포 부담이 커져요.</li>
+  <li>비즈니스 규칙이 코드 두 곳(백엔드와 gateway)에 흩어져 디버깅이 어려워져요.</li>
+  <li>Gateway 자체가 가용성의 단일 장애점이 돼요.</li>
+</ul>
+
+<p>
+  Gateway에는 횡단 관심사(cross-cutting concerns)만 두세요. 인증, rate limit, 로깅, 라우팅, 변환이에요. 도메인 로직은 백엔드에 있어야 해요.
+</p>
+
+<h2>Gateway 자체의 가용성</h2>
+
+<p>
+  Gateway가 죽으면 모든 API가 죽어요. 단일 장애점이 되지 않게 다음을 신경 써요.
+</p>
+
+<ul>
+  <li>여러 인스턴스로 수평 확장해요. 보통 Active-Active로 구성해요.</li>
+  <li>앞단에 Load Balancer를 둬서 gateway 자체를 분산해요.</li>
+  <li>설정 변경 시 무중단 reload를 지원해야 해요. nginx의 <code>nginx -s reload</code>, Envoy의 hot restart가 그 예예요.</li>
+  <li>관측성 알람을 강하게 걸어요. Gateway가 5xx를 내면 즉시 알람이 가야 해요.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Reverse Proxy와 API Gateway 차이?"</strong>: Gateway는 Reverse Proxy + API 운영 기능(인증·rate limit·변환·버저닝)이에요. 경계는 흐릿하고 점진적으로 더해 가는 거예요.</li>
+  <li><strong>"BFF가 뭐예요?"</strong>: 클라이언트 종류별로 별도 Gateway를 두는 패턴이에요. 웹·모바일·파트너가 각각 다른 BFF를 쓰고, BFF가 각 클라이언트에 맞춰 데이터를 조합해 줘요.</li>
+  <li><strong>"Gateway에 비즈니스 로직을 넣어도 돼요?"</strong>: 안 돼요. 횡단 관심사(인증·rate limit·로깅·변환)만 두고, 도메인 로직은 백엔드에 둬야 해요. 안 그러면 배포 부담과 디버깅 어려움이 커져요.</li>
+  <li><strong>"Gateway가 죽으면?"</strong>: 모든 API가 죽어요. 여러 인스턴스로 수평 확장, 앞단 LB, 무중단 reload, 강한 알람으로 가용성을 보장해야 해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편은 실무 적용이에요. nginx·Kong·Envoy·Spring Cloud Gateway·AWS API Gateway 비교, 배포 패턴, 선택 기준까지 정리해요.
+</p>

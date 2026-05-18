@@ -1,0 +1,262 @@
+---
+title: "Reverse Proxy의 역할"
+subtitle: "Forward proxy와 반대로 동작하는 중간자예요. SSL termination, 캐싱, 로깅, 라우팅을 한 자리에 모아요."
+dateText: "2026.05.18"
+episode: 1
+episodes: 3
+---
+
+<h2>Forward Proxy vs Reverse Proxy</h2>
+
+<p>
+  같은 "프록시"라는 단어를 써서 헷갈리지만, 두 가지는 정반대 자리예요. 누구의 대리인이냐가 다르다고 생각하면 쉬워요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>구분</th><th>Forward Proxy</th><th>Reverse Proxy</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>위치</td><td>클라이언트 쪽</td><td>서버 쪽</td></tr>
+    <tr><td>대리하는 쪽</td><td>클라이언트</td><td>서버</td></tr>
+    <tr><td>주된 자리</td><td>회사 인터넷 차단·캐싱, VPN</td><td>로드 밸런싱, SSL termination, 캐싱</td></tr>
+    <tr><td>대표 예</td><td>Squid, 회사 프록시</td><td>nginx, HAProxy, Envoy</td></tr>
+  </tbody>
+</table>
+
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <text x="180" y="30" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">Forward Proxy</text>
+
+  <rect x="40" y="50" width="80" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="80" y="75" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Client</text>
+
+  <rect x="160" y="50" width="80" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="200" y="75" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Proxy</text>
+
+  <rect x="280" y="50" width="80" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="320" y="75" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Internet</text>
+
+  <g stroke="currentColor" stroke-width="1.2" fill="none">
+    <path d="M 120 70 L 160 70" marker-end="url(#rparr)"/>
+    <path d="M 240 70 L 280 70" marker-end="url(#rparr)"/>
+  </g>
+
+  <text x="180" y="110" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">"클라이언트가 어디로 갈지 대신 결정"</text>
+
+  <text x="540" y="160" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">Reverse Proxy</text>
+
+  <rect x="40" y="180" width="80" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="80" y="205" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Client</text>
+
+  <rect x="180" y="180" width="100" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="230" y="205" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">Reverse Proxy</text>
+
+  <rect x="320" y="160" width="80" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="360" y="185" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">서버 A</text>
+
+  <rect x="320" y="220" width="80" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="360" y="245" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">서버 B</text>
+
+  <g stroke="currentColor" stroke-width="1.2" fill="none">
+    <path d="M 120 200 L 180 200" marker-end="url(#rparr)"/>
+    <path d="M 280 195 L 320 180" marker-end="url(#rparr)"/>
+    <path d="M 280 205 L 320 240" marker-end="url(#rparr)"/>
+  </g>
+
+  <text x="500" y="220" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">"서버가 어디서 처리할지 클라이언트 대신 결정"</text>
+
+  <defs>
+    <marker id="rparr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<h2>Reverse Proxy가 풀어 주는 문제</h2>
+
+<p>
+  Reverse Proxy 없이 서버를 직접 노출하면 여러 문제가 생겨요. Reverse Proxy는 그 사이를 막아 주는 layer가 돼요.
+</p>
+
+<h3>1. 단일 진입점</h3>
+
+<p>
+  내부에 서비스가 여러 개여도 외부에서는 하나의 IP·도메인만 봐요. 내부 구조가 바뀌어도 외부 클라이언트는 영향을 안 받아요.
+</p>
+
+<h3>2. 보안</h3>
+
+<p>
+  실제 서버의 IP가 노출되지 않아요. 공격자가 내부 서버를 직접 못 때려요. WAF·rate limit·인증을 한 자리에서 검사하니 보안 정책이 일관돼요.
+</p>
+
+<h3>3. 부하 분산</h3>
+
+<p>
+  여러 백엔드 서버로 요청을 나눠요. Load Balancer 시리즈에서 자세히 본 그 자리예요. 한 서버가 죽어도 다른 서버로 우회해요.
+</p>
+
+<h3>4. SSL Termination</h3>
+
+<p>
+  HTTPS를 풀어서 내부 망에서는 HTTP로 통신해요. 내부 서버는 인증서 관리에서 자유로워요.
+</p>
+
+<h3>5. 캐싱</h3>
+
+<p>
+  자주 요청되는 응답을 메모리·디스크에 보관해요. 백엔드까지 안 가도 응답해서 성능이 올라가요. nginx의 <code>proxy_cache</code>가 대표예요.
+</p>
+
+<h3>6. 압축·정적 파일 서빙</h3>
+
+<p>
+  gzip·brotli 압축을 reverse proxy가 처리하면 백엔드 부담이 줄어요. 정적 파일(이미지, JS, CSS)은 nginx가 직접 서빙하면 백엔드를 거치지 않고 빠르게 응답해요.
+</p>
+
+<h2>가장 단순한 nginx 설정</h2>
+
+<pre><code class="language-nginx">server {
+    listen 443 ssl;
+    server_name api.example.com;
+
+    ssl_certificate     /etc/ssl/cert.pem;
+    ssl_certificate_key /etc/ssl/key.pem;
+
+    location / {
+        proxy_pass http://backend:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre>
+
+<p>
+  HTTPS를 받아 풀고, 내부 백엔드(<code>backend:8080</code>)에 HTTP로 전달해요. 클라이언트 정보를 헤더로 백엔드에 전달해요. 30줄 미만으로 기본 reverse proxy가 완성돼요.
+</p>
+
+<h2>X-Forwarded-* 헤더의 의미</h2>
+
+<p>
+  Reverse Proxy를 거치면 백엔드 입장에서 모든 요청이 reverse proxy IP로 보여요. 진짜 클라이언트 정보는 헤더로 전달해야 해요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>헤더</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>X-Forwarded-For</td><td>원본 클라이언트 IP (체인이면 쉼표 분리)</td></tr>
+    <tr><td>X-Forwarded-Proto</td><td>원본 프로토콜 (http / https)</td></tr>
+    <tr><td>X-Forwarded-Host</td><td>원본 Host 헤더</td></tr>
+    <tr><td>X-Real-IP</td><td>nginx 특화. 직전 hop의 IP</td></tr>
+    <tr><td>Forwarded</td><td>RFC 7239 표준. 위 헤더의 통합본</td></tr>
+  </tbody>
+</table>
+
+<h3>X-Forwarded-For 신뢰 자리</h3>
+
+<p>
+  클라이언트가 직접 보낸 X-Forwarded-For는 신뢰하면 안 돼요. 누구나 가짜 IP를 헤더에 넣을 수 있어요. Reverse Proxy가 받은 직후 자기가 덮어쓰는 것만 믿을 수 있어요.
+</p>
+
+<pre><code class="language-nginx"># 잘못된 설정: 클라이언트 헤더를 그대로 전달
+proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+
+# 올바른 설정: proxy가 알아서 체인을 만듦
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;</code></pre>
+
+<h2>캐싱의 효과</h2>
+
+<p>
+  Reverse Proxy 캐싱은 단순한 변경이지만 성능에 큰 영향을 줘요. 백엔드 응답 시간이 200ms인 API를 nginx가 1초 캐시하면, 같은 요청이 1초 안에 10번 와도 백엔드는 1번만 호출돼요.
+</p>
+
+<pre><code class="language-nginx">proxy_cache_path /var/cache/nginx levels=1:2
+    keys_zone=api_cache:10m max_size=1g inactive=60m;
+
+location /api/products {
+    proxy_cache api_cache;
+    proxy_cache_valid 200 1m;
+    proxy_cache_key "$request_method$request_uri";
+    proxy_pass http://backend;
+}</code></pre>
+
+<h3>캐시 무효화</h3>
+
+<p>
+  캐시의 가장 어려운 자리예요. 데이터가 변경됐는데 캐시가 오래된 응답을 주면 사용자가 잘못된 정보를 봐요. <code>Cache-Control</code> 헤더를 백엔드가 잘 설정해야 하고, 변경 시 명시적 무효화(<code>proxy_cache_purge</code>) 또는 짧은 TTL을 두어 자연 만료를 노려요.
+</p>
+
+<h2>SSL Termination의 옵션</h2>
+
+<p>
+  Load Balancer 시리즈 1편에서도 다룬 자리지만 다시 정리해요.
+</p>
+
+<ul>
+  <li><strong>Passthrough</strong>: Reverse Proxy가 TLS를 안 풀고 그대로 백엔드로 보내요. L4처럼 동작하고 L7 기능은 안 돼요.</li>
+  <li><strong>Termination</strong>: Reverse Proxy가 풀어서 내부는 HTTP로 통신해요. 가장 흔한 패턴이고 내부망을 신뢰한다는 전제예요.</li>
+  <li><strong>Re-encryption</strong>: Reverse Proxy가 풀고 다시 HTTPS로 백엔드에 전달해요. 내부도 암호화되지만 비용은 두 배예요.</li>
+  <li><strong>mTLS</strong>: 백엔드와 양방향 인증서를 써요. 서비스 메시 환경에서 일반적이에요.</li>
+</ul>
+
+<p>
+  대부분 Termination이 일반적이에요. 결제·의료 같은 critical은 Re-encryption이나 mTLS를 써요.
+</p>
+
+<h2>실무에서 자주 만나는 함정</h2>
+
+<h3>1. 호스트 헤더 누락</h3>
+
+<p>
+  <code>proxy_pass</code> 만 하고 <code>proxy_set_header Host</code>를 안 하면, 백엔드가 받는 Host가 nginx의 upstream 이름이 돼요. 백엔드가 Host 기반 라우팅을 하면 깨져요. 거의 항상 같이 두는 게 안전해요.
+</p>
+
+<h3>2. WebSocket이 끊김</h3>
+
+<p>
+  WebSocket은 HTTP upgrade로 시작하지만 그 후엔 일반 TCP처럼 양방향이에요. Reverse Proxy가 이 protocol upgrade를 알지 못하면 끊겨요.
+</p>
+
+<pre><code class="language-nginx">location /ws {
+    proxy_pass http://backend;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400;   # 긴 연결 유지
+}</code></pre>
+
+<h3>3. HTTP/2와 백엔드 사이</h3>
+
+<p>
+  외부엔 HTTP/2지만 백엔드와는 HTTP/1.1로 통신하는 게 일반적이에요. 백엔드도 HTTP/2를 원하면 <code>proxy_http_version</code>이나 nginx의 <code>grpc_pass</code> 같은 별도 설정이 필요해요.
+</p>
+
+<h3>4. Upload size limit</h3>
+
+<p>
+  nginx의 기본 <code>client_max_body_size</code>는 1MB예요. 큰 파일 업로드가 413 Request Entity Too Large로 실패하면 이 설정이에요. 명시적으로 키워야 해요.
+</p>
+
+<h3>5. Slow client buffer</h3>
+
+<p>
+  nginx는 기본적으로 클라이언트 응답을 메모리·디스크에 버퍼링해요. <code>proxy_buffering off</code>로 끄지 않으면 백엔드는 응답을 빠르게 끝내지만 사용자에게 전달은 느릴 수 있어요. 스트리밍 응답에선 보통 끄는 게 맞아요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Forward와 Reverse Proxy 차이?"</strong>: Forward는 클라이언트 쪽에서 클라이언트를 대리하고, Reverse는 서버 쪽에서 서버를 대리해요. 회사 인터넷 프록시는 forward, nginx의 reverse proxy 설정은 reverse예요.</li>
+  <li><strong>"Reverse Proxy의 주요 역할?"</strong>: 단일 진입점, 보안, 부하 분산, SSL termination, 캐싱, 압축·정적 서빙이에요. 보통 한 nginx가 여러 역할을 같이 해요.</li>
+  <li><strong>"X-Forwarded-For는 어떻게 신뢰?"</strong>: 클라이언트가 직접 보낸 값은 못 믿어요. 신뢰할 수 있는 가장 안쪽 proxy가 추가한 값까지만 믿어요. nginx면 <code>$proxy_add_x_forwarded_for</code>를 써요.</li>
+  <li><strong>"Reverse Proxy 캐싱의 효과?"</strong>: 같은 응답을 메모리에 보관해 백엔드까지 안 가도 응답해요. 트래픽이 많은 자리에서 응답 시간과 백엔드 부담을 크게 줄여요. 무효화 정책이 중요해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편은 API Gateway예요. Reverse Proxy의 확장형으로 인증·rate limit·transformation·BFF 패턴까지 흡수한 형태예요. 단순한 reverse proxy와 무엇이 다른지, 언제 gateway가 필요한지 정리해요.
+</p>
