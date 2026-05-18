@@ -1,0 +1,234 @@
+---
+title: "Connect, Read, Total Timeout"
+subtitle: "타임아웃은 한 종류가 아니에요. 연결 단계, 읽기 단계, 호출 전체에 각각 다른 타임아웃이 필요해요."
+dateText: "2026.05.18"
+episode: 1
+episodes: 2
+---
+
+<h2>왜 Timeout이 중요한가</h2>
+
+<p>
+  외부 호출에 타임아웃이 없으면 한 자리의 장애가 시스템 전체를 잡아 먹어요. 외부 서버가 응답하지 않으면 우리 서버의 스레드도 함께 멈춰요. 스레드풀이 다 묶이면 정상 요청도 처리하지 못해요. 사용자 입장에선 "사이트 전체가 죽었다"고 느껴요.
+</p>
+
+<p>
+  타임아웃은 "여기까지만 기다리자"는 약속이에요. 모든 외부 호출에 타임아웃이 있어야 시스템이 자기 페이스를 유지해요. 그런데 "타임아웃 30초"라고만 설정하는 건 위험해요. 타임아웃엔 종류가 있고, 각자 다른 자리를 보호해요.
+</p>
+
+<h2>3가지 Timeout</h2>
+
+<table>
+  <thead>
+    <tr><th>종류</th><th>의미</th><th>보호하는 자리</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Connect Timeout</td><td>TCP 연결 수립까지 대기 시간</td><td>네트워크 분할, 서버 다운</td></tr>
+    <tr><td>Read Timeout</td><td>응답 데이터 수신 대기 시간</td><td>서버가 느려진 자리</td></tr>
+    <tr><td>Total Timeout</td><td>요청 전체 종료까지 시간</td><td>retry 포함한 호출 전체</td></tr>
+  </tbody>
+</table>
+
+<h2>Connect Timeout</h2>
+
+<p>
+  TCP 3-way handshake가 끝날 때까지 기다리는 시간이에요. SYN 보내고 SYN-ACK가 돌아올 때까지요. 보통 짧게 잡아요.
+</p>
+
+<h3>의미</h3>
+
+<ul>
+  <li>서버가 살아 있고 포트가 열려 있으면 거의 즉시 끝나요. 같은 IDC 안이면 1~2ms, 인터넷이라도 100ms 미만이 일반적이에요.</li>
+  <li>서버가 죽었거나 방화벽이 막혀 있으면 SYN 패킷이 응답 없이 사라져요. OS의 SYN 재시도가 끝날 때까지(보통 75초 이상) 대기해요. 타임아웃이 없으면 이게 그대로 노출돼요.</li>
+  <li>네트워크 분할이면 어떤 자리는 빠르게 RST를 받고, 어떤 자리는 무한 대기예요.</li>
+</ul>
+
+<h3>적정 값</h3>
+
+<p>
+  보통 1~3초가 일반적이에요. 같은 데이터센터 호출이라면 1초도 충분해요. 외부 인터넷 호출이라면 3~5초가 안전해요. Connect timeout이 길 이유는 거의 없어요.
+</p>
+
+<pre><code class="language-java">// Apache HttpClient
+RequestConfig config = RequestConfig.custom()
+    .setConnectTimeout(3_000)  // 3초
+    .build();
+
+// OkHttp
+OkHttpClient client = new OkHttpClient.Builder()
+    .connectTimeout(3, TimeUnit.SECONDS)
+    .build();</code></pre>
+
+<h2>Read Timeout (Socket Timeout)</h2>
+
+<p>
+  연결은 됐는데 응답 데이터가 안 오는 시간이에요. 정확하게 말하면 "두 데이터 패킷 사이의 최대 대기 시간"이에요. 전체 응답 시간이 아니라요.
+</p>
+
+<h3>의미</h3>
+
+<ul>
+  <li>서버가 요청을 받았지만 응답이 느려요. DB 쿼리, 무한 루프, GC pause 등이 원인일 수 있어요.</li>
+  <li>큰 응답을 받는 중간에 끊겼다면, 다음 패킷이 올 때까지 대기 시간이 read timeout이에요. 전체 다운로드 시간이 아니에요.</li>
+  <li>HTTP/2의 멀티플렉싱이나 chunked transfer면 패킷 간 간격이 길 수 있어서 주의가 필요해요.</li>
+</ul>
+
+<h3>적정 값</h3>
+
+<p>
+  외부 API의 P99 응답 시간 + 마진이에요. P99가 500ms면 read timeout은 1초나 2초쯤. 너무 짧으면 정상 요청을 잘라요. 너무 길면 장애 시 우리 시스템도 같이 느려져요.
+</p>
+
+<pre><code class="language-java">// Apache HttpClient
+RequestConfig config = RequestConfig.custom()
+    .setSocketTimeout(2_000)  // 2초
+    .build();
+
+// OkHttp
+OkHttpClient client = new OkHttpClient.Builder()
+    .readTimeout(2, TimeUnit.SECONDS)
+    .build();</code></pre>
+
+<h2>Total Timeout (Call Timeout / Deadline)</h2>
+
+<p>
+  요청을 시작해서 끝낼 때까지 전체 시간이에요. retry를 포함해서 총 얼마까지 기다릴지를 정해요. 가장 중요한 타임아웃이에요.
+</p>
+
+<h3>왜 중요한가</h3>
+
+<p>
+  Connect 3초 + Read 5초로 잡았다고 안전하지 않아요. retry가 3번이면 총 (3+5)×3 = 24초까지 갈 수 있어요. 사용자가 보는 화면은 거기에 더해 우리 서버 처리 시간까지 합쳐져요. 30초가 훌쩍 넘어요.
+</p>
+
+<p>
+  Total timeout은 이 모든 걸 합쳐서 "여기서 그만"이라고 끊어요. 보통 사용자 응답 흐름이라면 30초 안에 끝나야 해요.
+</p>
+
+<pre><code class="language-java">// OkHttp는 callTimeout으로 total을 지원
+OkHttpClient client = new OkHttpClient.Builder()
+    .connectTimeout(3, TimeUnit.SECONDS)
+    .readTimeout(2, TimeUnit.SECONDS)
+    .callTimeout(10, TimeUnit.SECONDS)  // total
+    .build();
+
+// Resilience4j TimeLimiter
+TimeLimiter limiter = TimeLimiter.of(
+    TimeLimiterConfig.custom()
+        .timeoutDuration(Duration.ofSeconds(10))
+        .build());</code></pre>
+
+<h2>호출 체인의 Timeout Propagation</h2>
+
+<p>
+  여러 서비스를 거치는 호출 체인에서 timeout은 누적되면 안 돼요. 안쪽 서비스가 모두 5초 timeout이고 3개 체인이면 외부에서 15초를 봐야 해요. 사용자가 5초만 기다리도록 약속한 자리에서 위험해요.
+</p>
+
+<h3>Deadline Propagation</h3>
+
+<p>
+  호출 시점에 "여기까지 끝내야 한다"는 deadline을 헤더로 전파해요. 각 서비스가 남은 시간만큼만 기다려요.
+</p>
+
+<pre><code class="language-http">GET /orders/123
+X-Request-Deadline: 1715856300000   # epoch ms</code></pre>
+
+<p>
+  안쪽 서비스는 이 deadline에서 현재 시간을 빼서 자기 timeout으로 써요. gRPC는 이 패턴을 표준으로 지원해요(<code>grpc-timeout</code> 헤더). HTTP에선 표준이 없어서 회사마다 커스텀 헤더를 써요.
+</p>
+
+<h2>레이어 별 권장 타임아웃</h2>
+
+<p>
+  타임아웃을 정할 때 안쪽 레이어가 바깥 레이어보다 짧아야 해요. 안쪽이 더 길면 바깥이 먼저 끊겨서 안쪽이 헛수고를 해요.
+</p>
+
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <rect x="20" y="100" width="120" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="80" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">Browser</text>
+  <text x="80" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">~30초</text>
+
+  <rect x="180" y="100" width="120" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="240" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">API Gateway</text>
+  <text x="240" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">25초</text>
+
+  <rect x="340" y="100" width="120" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="400" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">서비스 A</text>
+  <text x="400" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">20초</text>
+
+  <rect x="500" y="100" width="120" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="560" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">서비스 B</text>
+  <text x="560" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">10초</text>
+
+  <rect x="640" y="100" width="80" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="680" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">DB</text>
+  <text x="680" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">5초</text>
+
+  <g stroke="currentColor" stroke-width="1.2" fill="none">
+    <path d="M 140 130 L 180 130" marker-end="url(#toarr)"/>
+    <path d="M 300 130 L 340 130" marker-end="url(#toarr)"/>
+    <path d="M 460 130 L 500 130" marker-end="url(#toarr)"/>
+    <path d="M 620 130 L 640 130" marker-end="url(#toarr)"/>
+  </g>
+
+  <text x="370" y="200" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="currentColor">바깥으로 갈수록 timeout이 커야 해요</text>
+
+  <defs>
+    <marker id="toarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<p>
+  안쪽 서비스가 빨리 끊고 빨리 fallback하면 바깥은 그만큼 다른 작업을 더 할 수 있어요. 자원 효율이 올라가요.
+</p>
+
+<h2>흔한 실수: 무한 대기</h2>
+
+<h3>1. 타임아웃을 안 설정한 경우</h3>
+
+<pre><code class="language-java">// 위험한 코드
+URL url = new URL("https://api.example.com/data");
+URLConnection conn = url.openConnection();
+InputStream in = conn.getInputStream();  // timeout 없음 → 무한 대기 가능</code></pre>
+
+<p>
+  자바 기본 URLConnection은 타임아웃 기본값이 무한이에요. 명시하지 않으면 영원히 기다려요. 거의 모든 HTTP 클라이언트 라이브러리가 마찬가지예요.
+</p>
+
+<h3>2. JDBC의 timeout 누락</h3>
+
+<pre><code class="language-java">// 위험한 코드
+PreparedStatement ps = conn.prepareStatement("SELECT ...");
+ResultSet rs = ps.executeQuery();  // queryTimeout 안 잡음</code></pre>
+
+<p>
+  DB가 락 경합이나 무거운 쿼리로 멈추면 영원히 대기해요. <code>statement.setQueryTimeout(seconds)</code>를 명시하거나, HikariCP의 <code>connectionTimeout</code>, JPA의 <code>javax.persistence.query.timeout</code>을 설정해야 해요.
+</p>
+
+<h3>3. Async/Reactive에서 timeout 누락</h3>
+
+<pre><code class="language-java">// CompletableFuture
+api.callAsync().thenAccept(this::handle);  // 무한 대기 가능
+
+// 안전
+api.callAsync()
+   .orTimeout(5, TimeUnit.SECONDS)
+   .thenAccept(this::handle)
+   .exceptionally(this::handleError);</code></pre>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Connect와 Read timeout 차이?"</strong>: Connect는 TCP 연결까지, Read는 데이터 수신 사이 간격이에요. Connect는 짧게(1~3초), Read는 P99 응답 시간 + 마진으로 잡아요.</li>
+  <li><strong>"Total timeout이 왜 필요?"</strong>: Connect + Read만으로는 retry나 reconnect를 합한 총 시간이 통제되지 않아요. Total로 끝까지 책임지는 timeout을 둬야 해요.</li>
+  <li><strong>"호출 체인의 timeout 순서?"</strong>: 안쪽이 짧고, 바깥이 길어야 해요. 안쪽이 더 길면 바깥이 먼저 끊겨서 안쪽이 헛수고를 해요.</li>
+  <li><strong>"JDBC도 timeout이 있어요?"</strong>: setQueryTimeout으로 쿼리 단위 timeout을 잡아요. HikariCP의 connectionTimeout은 커넥션 획득 대기 시간이에요. 둘 다 명시해야 해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편에서는 적정 timeout 값을 정하는 방법과 실무 함정을 살펴봐요. P99 기반 산정, retry와의 조합, timeout과 circuit breaker·deadline propagation의 합성까지 정리해요.
+</p>

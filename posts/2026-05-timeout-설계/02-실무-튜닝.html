@@ -1,0 +1,239 @@
+---
+title: "Timeout 실무 튜닝과 함정"
+subtitle: "적정 값은 P99 + 마진으로 산정해요. Retry·Circuit Breaker와 합성하는 방법, 자주 만나는 함정을 정리해요."
+dateText: "2026.05.18"
+episode: 2
+episodes: 2
+---
+
+<h2>적정 Timeout 값 산정</h2>
+
+<p>
+  Timeout 값을 어떻게 정할지가 가장 자주 묻는 자리예요. 정답은 단순해요. <strong>외부 API의 P99 응답 시간 + 마진</strong>이에요. 추측이 아니라 모니터링 데이터를 봐야 해요.
+</p>
+
+<h3>P50, P95, P99의 차이</h3>
+
+<table>
+  <thead>
+    <tr><th>지표</th><th>의미</th><th>timeout 산정 적합도</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>P50 (Median)</td><td>요청의 절반이 이 시간 안에 끝나요</td><td>너무 낮음. 절반을 잘라요</td></tr>
+    <tr><td>P95</td><td>요청의 95%가 이 시간 안에 끝나요</td><td>일반 사용에 적합</td></tr>
+    <tr><td>P99</td><td>요청의 99%가 이 시간 안에 끝나요</td><td>안전한 기준</td></tr>
+    <tr><td>P99.9</td><td>요청의 99.9%가 이 시간 안에 끝나요</td><td>매우 보수적, critical에만</td></tr>
+  </tbody>
+</table>
+
+<p>
+  보통 P99에 50~100% 마진을 더해요. P99가 500ms면 timeout을 750ms~1초로 잡아요. P99 자체를 timeout으로 두면 평소에도 1%가 잘려서 사고율이 높아져요.
+</p>
+
+<h3>측정과 갱신</h3>
+
+<p>
+  외부 API의 응답 분포는 시간에 따라 변해요. Black Friday나 대규모 이벤트 때 갑자기 느려질 수 있어요. 한 번 정한 timeout을 계속 쓰면 점점 잘리는 비율이 늘어요. 분기마다 또는 주요 변경 후마다 다시 측정해서 조정해요.
+</p>
+
+<h2>Retry와 Timeout의 합성</h2>
+
+<p>
+  Retry/Backoff 시리즈에서 이미 봤지만 다시 정리해요. 두 가지 timeout이 필요해요.
+</p>
+
+<ul>
+  <li><strong>단일 호출 timeout</strong>: 한 번의 시도가 최대 얼마까지 걸릴지예요. 예를 들어 2초로 잡아요.</li>
+  <li><strong>총 timeout (deadline)</strong>: 모든 retry를 포함해서 최대 얼마까지 걸릴지예요. 예를 들어 10초로 잡아요.</li>
+</ul>
+
+<h3>잘못된 조합</h3>
+
+<pre><code class="language-java">// 위험한 코드
+RetryConfig retry = RetryConfig.custom()
+    .maxAttempts(5)
+    .waitDuration(Duration.ofSeconds(2))
+    .build();
+// timeout 설정 없음. 한 호출이 무한이면 전체 무한</code></pre>
+
+<p>
+  Retry만 있고 timeout이 없으면 한 호출이 영원히 안 끝나서 retry 자체가 의미 없어요. 반드시 timeout과 함께 두세요.
+</p>
+
+<h3>올바른 조합</h3>
+
+<pre><code class="language-java">// 단일 호출 2초 timeout, retry 5번까지, 전체 10초 deadline
+TimeLimiter limiter = TimeLimiter.of(
+    TimeLimiterConfig.custom()
+        .timeoutDuration(Duration.ofSeconds(2))
+        .build());
+
+Retry retry = Retry.of("api",
+    RetryConfig.custom()
+        .maxAttempts(5)
+        .waitDuration(Duration.ofSeconds(1))
+        .build());
+
+// 전체 deadline은 별도 Future로
+Supplier&lt;Result&gt; chain = Decorators.ofSupplier(...)
+    .withRetry(retry)
+    .withTimeLimiter(limiter)
+    .decorate();
+
+CompletableFuture&lt;Result&gt; future = CompletableFuture
+    .supplyAsync(chain)
+    .orTimeout(10, TimeUnit.SECONDS);</code></pre>
+
+<h2>Timeout과 Circuit Breaker</h2>
+
+<p>
+  Circuit Breaker는 반복 실패를 감지해서 호출 자체를 차단해요. Timeout은 한 호출이 너무 오래 걸리는 걸 차단해요. 둘 다 있어야 외부 장애 시 시스템을 보호해요.
+</p>
+
+<h3>적용 순서</h3>
+
+<ol>
+  <li>Circuit Breaker가 open이면 즉시 fallback. 호출 자체가 안 일어나요.</li>
+  <li>Circuit Breaker가 closed면 호출. Timeout이 적용돼요.</li>
+  <li>Timeout으로 실패가 누적되면 Circuit Breaker가 open으로 전환돼요.</li>
+</ol>
+
+<p>
+  두 패턴이 양방향으로 협력해요. Timeout 실패가 circuit breaker의 신호가 되고, circuit breaker가 open되면 더 이상 timeout 비용을 안 내요.
+</p>
+
+<h2>Deadline Propagation 패턴</h2>
+
+<p>
+  1편에서 본 호출 체인 timeout 누적 문제의 해결책이에요. 호출 시작 시 "여기까지 끝내야 한다"를 명시하고, 각 서비스가 남은 시간만큼만 기다려요.
+</p>
+
+<h3>gRPC의 표준 패턴</h3>
+
+<pre><code class="language-java">// gRPC 호출에 deadline 지정
+ManagedChannel channel = ...;
+MyServiceGrpc.MyServiceBlockingStub stub = MyServiceGrpc.newBlockingStub(channel)
+    .withDeadlineAfter(5, TimeUnit.SECONDS);
+
+Response r = stub.getOrder(...);</code></pre>
+
+<p>
+  서비스 A가 B를 호출하면 gRPC가 자동으로 deadline을 헤더로 전파해요. B는 자기 deadline에서 코드 실행 시간을 빼서 C 호출의 deadline을 정해요. 체인 끝까지 일관된 시간 예산이 흘러요.
+</p>
+
+<h3>HTTP에서의 구현</h3>
+
+<p>
+  HTTP에는 표준 deadline 헤더가 없어요. 회사마다 커스텀 헤더를 정의해요.
+</p>
+
+<pre><code class="language-http">GET /api/orders/123
+X-Deadline-Ms: 1715856300000</code></pre>
+
+<pre><code class="language-java">// 받는 쪽
+long deadline = Long.parseLong(request.getHeader("X-Deadline-Ms"));
+long remaining = deadline - System.currentTimeMillis();
+if (remaining &lt;= 0) {
+    throw new TimeoutException("Deadline already passed");
+}
+
+// 남은 시간만큼만 호출
+OkHttpClient client = new OkHttpClient.Builder()
+    .callTimeout(remaining, TimeUnit.MILLISECONDS)
+    .build();</code></pre>
+
+<h2>실무 함정</h2>
+
+<h3>1. 타임아웃이 너무 빡빡함</h3>
+
+<p>
+  P99이 500ms인데 timeout을 500ms로 잡으면 평소에도 1%가 잘려요. 트래픽이 일시적으로 늘면 그 비율이 5%, 10%로 폭증해요. P99 + 50% 정도가 안전선이에요.
+</p>
+
+<h3>2. 타임아웃이 너무 느슨함</h3>
+
+<p>
+  반대로 30초 timeout을 두면 외부 장애 시 우리 스레드가 30초씩 묶여요. 스레드풀이 200개라면 200개 모두 30초 묶인 사이 다른 요청은 큐에서 대기해요. 부분 장애가 전체 장애로 번져요.
+</p>
+
+<h3>3. DB timeout 누락</h3>
+
+<p>
+  외부 API에는 timeout을 두면서 DB 호출엔 안 두는 자리가 흔해요. 무거운 쿼리, 락 경합, DB GC pause로 쿼리가 멈출 수 있어요. HikariCP의 <code>connectionTimeout</code>(커넥션 획득 대기), Statement의 <code>queryTimeout</code>, JPA의 <code>javax.persistence.query.timeout</code>을 다 잡아야 안전해요.
+</p>
+
+<pre><code class="language-yaml">spring:
+  datasource:
+    hikari:
+      connection-timeout: 3000     # 커넥션 획득 3초
+      validation-timeout: 1000
+  jpa:
+    properties:
+      jakarta.persistence.query.timeout: 5000   # 쿼리 5초</code></pre>
+
+<h3>4. 비동기 호출의 timeout 누락</h3>
+
+<p>
+  <code>CompletableFuture.supplyAsync</code>는 기본 timeout이 없어요. 안쪽 호출이 영원이면 future가 영원히 미완료 상태예요. <code>orTimeout</code>이나 <code>completeOnTimeout</code>으로 명시해야 해요. Reactor의 <code>timeout(Duration)</code>도 같은 역할이에요.
+</p>
+
+<h3>5. Connection pool의 wait timeout</h3>
+
+<p>
+  HTTP connection pool이 가득 차면 새 요청은 풀 슬롯이 비기를 기다려요. 이 wait도 timeout이 필요해요. Apache HttpClient의 <code>setConnectionRequestTimeout</code>이 그거예요. Connect timeout과 별개예요.
+</p>
+
+<pre><code class="language-java">RequestConfig config = RequestConfig.custom()
+    .setConnectionRequestTimeout(1_000)  // 풀 슬롯 대기 1초
+    .setConnectTimeout(3_000)            // TCP 연결 3초
+    .setSocketTimeout(5_000)             // read 5초
+    .build();</code></pre>
+
+<h3>6. Timeout 후 자원 정리</h3>
+
+<p>
+  Timeout으로 호출을 끊었는데 외부 서버에서는 그 요청을 계속 처리 중이에요. 결제 같은 경우 결제는 됐는데 우리는 timeout으로 실패 처리할 수 있어요. 비멱등 호출은 idempotency key + 조회 API로 상태를 확인하는 보완이 필요해요.
+</p>
+
+<h2>관측성</h2>
+
+<p>
+  Timeout은 가장 자주 봐야 할 지표예요. 갑자기 timeout 발생률이 늘면 외부 의존이 흔들리는 신호예요.
+</p>
+
+<ul>
+  <li><strong>Timeout 발생 비율</strong>: 전체 호출 대비 timeout 비율. SLO에 포함해야 해요.</li>
+  <li><strong>응답 시간 분포</strong>: P50, P95, P99 추적. timeout 임계값 재조정의 기준이에요.</li>
+  <li><strong>Connection pool wait</strong>: 풀 부족이 timeout으로 보일 수 있어요. 별도 추적이 필요해요.</li>
+  <li><strong>외부 서비스별 timeout</strong>: 어느 외부가 흔들리는지 빨리 파악하려면 서비스별 분리가 필요해요.</li>
+</ul>
+
+<h2>SLA·SLO와 timeout</h2>
+
+<p>
+  Timeout은 SLA(서비스 수준 협약)와 직접 연결돼요. 외부 API의 SLA가 "P99 1초"라면 우리 timeout은 그 위에서 잡아야 해요. SLA보다 짧은 timeout은 정상 호출까지 잘라요.
+</p>
+
+<p>
+  반대로 우리가 사용자에게 SLO "P99 2초"를 약속했다면, 내부 호출의 총 deadline은 2초 안에 끝나야 해요. 그 안에서 retry 횟수와 단일 timeout을 역산해야 해요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Timeout 값은 어떻게 정해요?"</strong>: 외부 API의 P99 응답 시간에 50~100% 마진을 더해요. P50을 쓰면 너무 짧고, 30초 같은 큰 값을 쓰면 너무 느슨해요.</li>
+  <li><strong>"Retry랑 timeout을 어떻게 합쳐요?"</strong>: 단일 호출 timeout과 전체 deadline 두 개를 두세요. 단일은 P99 + 마진, 전체는 사용자 응답 시간 안에서 역산해요.</li>
+  <li><strong>"DB도 timeout이 있어요?"</strong>: HikariCP의 connectionTimeout, Statement의 queryTimeout, JPA의 query.timeout이 있어요. 다 명시해야 안전해요.</li>
+  <li><strong>"Deadline propagation은?"</strong>: 호출 시 deadline을 헤더로 전파해서 각 서비스가 남은 시간만큼만 기다리게 하는 패턴이에요. gRPC가 표준으로 지원해요.</li>
+  <li><strong>"Timeout 발생 후 외부에서는?"</strong>: 우리는 끊었지만 외부 서버는 처리 중일 수 있어요. 비멱등 호출은 idempotency key와 조회 API로 상태 확인 보완이 필요해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 Connect·Read·Total 세 가지 timeout과 호출 체인의 timeout propagation을 봤어요. 2편에서는 P99 기반 적정 값 산정, retry·circuit breaker·deadline propagation과의 합성, 그리고 DB·async·connection pool에 흔히 빠지는 timeout 누락을 정리했어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>모든 외부 호출에 timeout이 있어야 하고</strong>, 그 값은 추측이 아니라 P99 모니터링 데이터에서 나와야 해요. Timeout이 빠진 한 자리가 시스템 전체를 잡아 먹어요.
+</p>
