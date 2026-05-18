@@ -1,0 +1,187 @@
+---
+title: "Kafka의 Exactly-once 들여다보기"
+subtitle: "Idempotent Producer가 막는 것, Transactional API가 더해 주는 것, 그리고 둘이 함께 만드는 보장의 경계예요."
+dateText: "2026.05.17"
+episode: 2
+episodes: 3
+---
+
+<h2>Kafka가 말하는 exactly-once</h2>
+
+<p>
+  Kafka의 exactly-once는 두 가지 기능의 합이에요. <strong>Idempotent Producer</strong>와 <strong>Transactional API</strong>예요. 둘이 무엇을 막고 못 막는지가 정확히 이해의 핵심이에요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>기능</th><th>막는 자리</th><th>못 막는 자리</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Idempotent Producer</td><td>같은 partition 안 중복 쓰기</td><td>여러 partition·외부 시스템</td></tr>
+    <tr><td>Transactional API</td><td>여러 partition·offset commit을 atomic하게</td><td>외부 시스템과의 원자성</td></tr>
+  </tbody>
+</table>
+
+<h2>Idempotent Producer</h2>
+
+<p>
+  <code>enable.idempotence=true</code>로 켜요. Producer가 broker에 메시지를 보낼 때 메타데이터를 함께 보내요. PID(Producer ID), Epoch, Sequence number예요.
+</p>
+
+<h3>동작 원리</h3>
+
+<ol>
+  <li>Producer가 처음 broker에 연결할 때 PID를 받아요. Producer 인스턴스를 식별해요.</li>
+  <li>Producer는 메시지마다 sequence number를 1씩 올려서 붙여요. 같은 partition으로 보내는 순서대로요.</li>
+  <li>Broker가 (PID, partition, sequence) 조합을 기억해요. 같은 조합이 또 오면 두 번째는 무시해요.</li>
+</ol>
+
+<pre><code class="language-properties">enable.idempotence=true
+acks=all
+max.in.flight.requests.per.connection=5
+retries=Integer.MAX_VALUE</code></pre>
+
+<p>
+  자바 클라이언트는 enable.idempotence=true면 나머지 설정도 자동으로 호환되게 맞춰 줘요. acks=all, retries=MAX, max.in.flight=5 이하가 필수 조건이에요.
+</p>
+
+<h3>막는 것</h3>
+
+<p>
+  Producer가 ack를 못 받아 같은 메시지를 재시도할 때 broker가 중복으로 저장하지 않아요. 1편의 producer-broker 사이 중복 문제를 정확히 해결해요.
+</p>
+
+<h3>못 막는 것</h3>
+
+<ul>
+  <li><strong>여러 partition에 걸친 메시지</strong>: 한 트랜잭션으로 여러 partition에 쓰는 자리는 따로 transactional API가 필요해요.</li>
+  <li><strong>Producer 재시작</strong>: Producer가 죽고 새로 떴을 때 PID가 바뀌어요. Broker는 새 PID로 인식해서 이전 PID의 미완료 메시지와 중복이 생길 수 있어요. (실무에서는 transactional.id로 해결.)</li>
+  <li><strong>컨슈머 측 중복</strong>: 컨슈머가 메시지 처리 후 offset commit 사이에 죽으면 같은 메시지를 다시 받아요.</li>
+</ul>
+
+<h2>Transactional API</h2>
+
+<p>
+  여러 partition에 걸친 쓰기와 컨슈머의 offset commit을 하나의 트랜잭션으로 묶는 기능이에요. <code>transactional.id</code>를 설정하면 사용할 수 있어요.
+</p>
+
+<pre><code class="language-java">Properties props = new Properties();
+props.put("transactional.id", "my-producer-1");
+props.put("enable.idempotence", "true");
+props.put("acks", "all");
+
+KafkaProducer&lt;String, String&gt; producer = new KafkaProducer&lt;&gt;(props);
+producer.initTransactions();
+
+try {
+    producer.beginTransaction();
+    producer.send(new ProducerRecord&lt;&gt;("orders", "order-1"));
+    producer.send(new ProducerRecord&lt;&gt;("audit",  "ord-1 created"));
+    producer.commitTransaction();
+} catch (KafkaException e) {
+    producer.abortTransaction();
+}</code></pre>
+
+<h3>이게 보장하는 것</h3>
+
+<p>
+  같은 트랜잭션 안에서 보낸 메시지들은 모두 함께 보이거나 모두 안 보여요. 컨슈머가 읽을 때 부분적으로 보이는 자리가 없어요. <strong>read_committed</strong> 모드의 컨슈머만 commit된 메시지를 읽어요.
+</p>
+
+<pre><code class="language-properties">isolation.level=read_committed</code></pre>
+
+<p>
+  default(read_uncommitted) 모드면 트랜잭션 안의 모든 메시지를 보지만 commit/abort 여부와 무관하게 다 읽어요. 결과적으로 abort된 메시지도 처리할 수 있어요. exactly-once를 원하면 컨슈머가 read_committed여야 해요.
+</p>
+
+<h3>Consume-Process-Produce 패턴</h3>
+
+<p>
+  Kafka Streams가 대표적으로 쓰는 패턴이에요. "메시지를 읽어서 가공해 다른 topic으로 쓰고, 동시에 offset을 commit"하는 자리를 atomic하게 만들어요.
+</p>
+
+<pre><code class="language-java">producer.beginTransaction();
+for (ConsumerRecord&lt;String, String&gt; record : records) {
+    String result = process(record.value());
+    producer.send(new ProducerRecord&lt;&gt;("output", result));
+}
+
+// offset commit도 같은 트랜잭션에
+producer.sendOffsetsToTransaction(offsets, consumerGroupId);
+producer.commitTransaction();</code></pre>
+
+<p>
+  메시지 쓰기와 offset commit이 함께 성공하거나 함께 실패해요. 컨슈머가 죽었다 살아나면 commit되지 않은 offset부터 다시 읽어서 다시 처리해요. 이때 같은 메시지를 다시 받지만, 같은 결과를 같은 트랜잭션으로 쓰면서 abort되면 결과가 보이지 않아요.
+</p>
+
+<h2>Transactional.id의 역할</h2>
+
+<p>
+  Producer를 식별하는 영구 ID예요. Producer가 죽고 다시 떠도 같은 transactional.id를 쓰면 broker가 같은 논리적 producer로 인식해요.
+</p>
+
+<h3>좀비 펜싱 (Zombie Fencing)</h3>
+
+<p>
+  Producer A가 트랜잭션을 시작하고 네트워크 분할로 사라졌다고 가정해요. 같은 transactional.id로 Producer B가 새로 떠요. Broker는 B에 더 높은 epoch을 줘요. A가 다시 살아나서 메시지를 보내면 broker가 거부해요. A는 "좀비"라서 펜싱됐어요.
+</p>
+
+<p>
+  이게 분산 환경에서 producer 재시작 시 중복을 막아 줘요. transactional.id 없이 idempotent producer만 쓰면 재시작 후 PID가 바뀌어 중복이 새요. transactional.id가 있으면 같은 논리 producer로 관리돼서 안전해요.
+</p>
+
+<h2>두 기능이 함께 만드는 보장</h2>
+
+<ul>
+  <li><strong>Idempotent Producer</strong>: 같은 partition 안의 retry 중복을 제거해요.</li>
+  <li><strong>Transactional API</strong>: 여러 partition 메시지와 offset commit을 원자적으로 묶어요.</li>
+  <li><strong>read_committed 컨슈머</strong>: abort된 메시지를 보지 않아요.</li>
+</ul>
+
+<p>
+  이 셋이 합쳐지면 Kafka 영역 안에서 effectively-once가 성립해요. 마케팅 자료의 "exactly-once"가 가리키는 자리예요.
+</p>
+
+<h2>그래도 새는 자리</h2>
+
+<h3>외부 시스템 (DB, API)</h3>
+
+<p>
+  컨슈머가 Kafka에서 메시지를 읽어 외부 DB에 쓰는 자리는 Kafka의 보장 밖이에요. DB 쓰기와 Kafka offset commit이 atomic하지 않아요. 다음 편의 핵심 주제예요.
+</p>
+
+<h3>네트워크 분할의 긴 시간</h3>
+
+<p>
+  Producer가 broker와 너무 오래 끊기면 transactional.id의 epoch이 새 producer로 넘어가서 좀비 펜싱이 일어나요. 끊겼던 producer는 자기 트랜잭션을 abort할 수 없어요. broker가 timeout으로 abort해 줘요. 이 사이에 데이터 상태가 일시적으로 애매해요.
+</p>
+
+<h3>설정 실수</h3>
+
+<ul>
+  <li><code>acks=1</code>로 두면 leader가 받으면 ack를 돌려주지만, replica로 복제되기 전에 leader가 죽으면 메시지가 유실돼요. exactly-once의 전제(=유실 없음)가 깨져요.</li>
+  <li><code>min.insync.replicas</code>를 너무 낮게 잡으면 ISR이 줄어들 때도 쓰기가 성공해서 유실 위험이 커져요. 보통 2 이상으로 잡아요.</li>
+  <li>컨슈머가 read_uncommitted면 abort된 메시지도 봐서 중복 처리가 발생해요.</li>
+</ul>
+
+<h2>성능 비용</h2>
+
+<p>
+  Exactly-once는 공짜가 아니에요. 트랜잭션 시작·commit·abort 라운드트립이 추가돼요. Kafka Streams 벤치마크에서 처리량이 10~20% 감소한다고 보고돼요. 모든 토픽에 exactly-once를 켤 필요는 없어요. 결제·잔액·재고 같은 critical 자리에만 켜는 게 일반적이에요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Kafka의 idempotent producer는 뭐를 막아요?"</strong>: producer-broker 사이의 retry 중복이에요. PID+sequence로 같은 메시지가 두 번 저장되지 않게 해요.</li>
+  <li><strong>"transactional API는 뭐가 다른가요?"</strong>: 여러 partition에 걸친 atomic 쓰기와 offset commit을 같은 트랜잭션으로 묶어 줘요. Consume-Process-Produce 패턴이 대표예요.</li>
+  <li><strong>"transactional.id가 왜 중요해요?"</strong>: Producer 재시작 후에도 같은 논리 producer로 식별되게 해요. 좀비 펜싱으로 죽었다 살아난 옛 producer를 막아요.</li>
+  <li><strong>"read_committed와 read_uncommitted?"</strong>: 트랜잭션 격리 수준이에요. exactly-once를 원하면 컨슈머가 read_committed여야 abort된 메시지를 안 봐요.</li>
+  <li><strong>"Kafka exactly-once로 충분해요?"</strong>: Kafka 영역 안에서만. 컨슈머가 외부 DB·API에 쓰는 자리는 별도 멱등 처리가 필요해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  마지막 편은 컨슈머 측 멱등 처리와 외부 시스템 연동의 패턴이에요. Transactional Outbox, Dedup table, idempotent receiver 같은 자리를 정리해서, Kafka의 exactly-once를 외부까지 확장하는 방법을 봐요.
+</p>

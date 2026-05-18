@@ -1,0 +1,159 @@
+---
+title: "Exactly-once는 왜 환상인가"
+subtitle: "분산 시스템의 두 장군 문제, 그리고 end-to-end exactly-once가 이론적으로 불가능한 이유를 정리해요."
+dateText: "2026.05.17"
+episode: 1
+episodes: 3
+---
+
+<h2>"메시지 한 번만 처리"는 단순한 요구처럼 들려요</h2>
+
+<p>
+  결제 메시지는 한 번만 처리돼야 해요. 두 번 처리되면 중복 결제, 안 처리되면 결제 누락이에요. 너무 자명한 요구라서 메시지 큐 회사들이 다 "Exactly-once를 지원합니다"라고 마케팅해요. Kafka도 KSQL도 그래요.
+</p>
+
+<p>
+  그런데 분산 시스템 이론가들은 단호해요. 진정한 exactly-once는 불가능해요. Kafka의 exactly-once도 어떤 조건 하에서만 성립하고, 그 조건 밖으로 나가면 깨져요. 이 시리즈는 이 "환상"의 정체와, 실무에서 도달 가능한 가장 가까운 보장이 무엇인지를 다뤄요.
+</p>
+
+<h2>세 가지 전달 보장</h2>
+
+<table>
+  <thead>
+    <tr><th>보장</th><th>의미</th><th>주된 자리</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>At-most-once</td><td>한 번 또는 0번 (중복 X, 유실 가능)</td><td>로그, 메트릭</td></tr>
+    <tr><td>At-least-once</td><td>최소 한 번 (유실 X, 중복 가능)</td><td>일반 메시징 (기본값)</td></tr>
+    <tr><td>Exactly-once</td><td>정확히 한 번</td><td>결제, 잔액 변경</td></tr>
+  </tbody>
+</table>
+
+<p>
+  At-most-once는 송신자가 답을 기다리지 않고 발사 후 잊어버리는 모드예요. At-least-once는 송신자가 ack를 받을 때까지 재시도하는 모드고요. 대부분의 메시지 큐가 기본으로 보장하는 게 at-least-once예요.
+</p>
+
+<p>
+  Exactly-once는 두 보장의 좋은 점만 합친 거예요. 유실도 없고 중복도 없어요. 자연스럽고 깔끔해 보여요. 그런데 이게 분산 시스템의 근본적 한계와 부딪쳐요.
+</p>
+
+<h2>두 장군 문제 (Two Generals' Problem)</h2>
+
+<p>
+  exactly-once 논의의 출발점이에요. 두 장군이 양쪽 언덕에 진을 쳤어요. 동시에 적을 공격해야 이기는데, 의사소통은 적진을 가로지르는 전령으로만 가능해요. 전령은 잡힐 수 있어요.
+</p>
+
+<p>
+  장군 A가 "내일 오전 6시 공격" 메시지를 보내요. 메시지가 도착했는지 확인하려면 장군 B의 답신이 와야 해요. B의 답신이 도착했는지 확인하려면 A의 확인 답신이 와야 해요. 무한 반복이에요.
+</p>
+
+<p>
+  결론. 신뢰할 수 없는 채널에서 "메시지가 정확히 한 번 전달됐다"를 100% 보장하는 프로토콜은 존재하지 않아요. 1975년에 증명된 정리예요.
+</p>
+
+<h2>왜 메시지 큐에 그대로 적용되나요</h2>
+
+<p>
+  Producer가 broker에 메시지를 보내요. broker가 받고 ack를 돌려보내요. 그런데 ack가 네트워크에서 손실되면 어떻게 될까요?
+</p>
+
+<ol>
+  <li>Producer는 ack를 못 받았으니 메시지가 실패한 줄 알아요.</li>
+  <li>Producer가 재시도해요. 같은 메시지를 다시 보내요.</li>
+  <li>이번엔 ack가 도착해요.</li>
+  <li>결과: broker에는 메시지가 두 번 저장돼요. 중복이에요.</li>
+</ol>
+
+<p>
+  반대로 ack를 못 받았다고 재시도하지 않으면? 진짜 실패한 자리에서 메시지가 유실돼요. 중복과 유실 중 하나는 반드시 일어나요. 둘 다 막을 수는 없어요.
+</p>
+
+<h2>Exactly-once의 두 의미</h2>
+
+<p>
+  사람마다 "exactly-once"가 다른 뜻이에요. 헷갈리는 이유 중 하나예요.
+</p>
+
+<h3>1. Exactly-once Delivery</h3>
+
+<p>
+  메시지가 정확히 한 번 "전달"돼요. 이건 두 장군 문제로 불가능하다고 증명된 거예요. 어떤 큐도 진정한 의미의 exactly-once delivery는 제공하지 못해요.
+</p>
+
+<h3>2. Exactly-once Processing (Effectively-once)</h3>
+
+<p>
+  메시지는 여러 번 도착할 수 있어요. 하지만 그 결과로 일어나는 "처리"가 정확히 한 번이에요. 중복 메시지는 컨슈머가 무시하거나 idempotent로 흡수해요. 결과적으로 한 번 처리된 거예요.
+</p>
+
+<p>
+  실무에서 말하는 "exactly-once"는 거의 다 이 두 번째 의미예요. Kafka가 자랑하는 exactly-once도 이쪽이에요. Effectively-once라고도 불러요. "효과적으로 한 번"이라는 뜻이에요.
+</p>
+
+<h2>왜 "환상"이라고 하나요</h2>
+
+<p>
+  Effectively-once는 가능해요. 그런데 마케팅 문구의 "exactly-once"가 사용자에게는 더 강한 보장으로 들려요. 이 차이가 환상을 만들어요.
+</p>
+
+<h3>환상이 깨지는 자리</h3>
+
+<ul>
+  <li><strong>외부 시스템과의 연동</strong>: Kafka의 exactly-once는 Kafka topic 내부에서만 성립해요. 컨슈머가 외부 DB에 쓰는 순간 보장이 깨져요.</li>
+  <li><strong>네트워크 분할</strong>: producer가 broker와 끊긴 동안 보낸 메시지의 상태는 알 수 없어요. 재연결 후 어떻게 처리할지가 케이스 별로 달라요.</li>
+  <li><strong>컨슈머 측 멱등성</strong>: producer-broker 사이는 보장돼도, broker-consumer 사이는 컨슈머가 책임져야 해요. 컨슈머가 비멱등이면 같은 메시지가 두 번 처리될 수 있어요.</li>
+</ul>
+
+<h2>실무에서 도달하는 보장</h2>
+
+<p>
+  결국 실무에서는 두 축의 조합이에요.
+</p>
+
+<ol>
+  <li><strong>At-least-once 전달</strong>: 메시지 큐의 기본. 중복은 받아들이고 유실은 막아요.</li>
+  <li><strong>Idempotent 처리</strong>: 컨슈머가 중복 메시지를 흡수해서 같은 결과를 만들어요.</li>
+</ol>
+
+<p>
+  이 둘이 결합하면 effectively-once에 도달해요. 진정한 exactly-once는 아니지만, 결과적으로 거의 같아요. 분산 트랜잭션 시리즈와 멱등성 설계 패턴 시리즈에서 이 접근을 자세히 봤어요.
+</p>
+
+<h2>대표적 오해</h2>
+
+<h3>"acks=all이면 exactly-once인가요?"</h3>
+
+<p>
+  No. <code>acks=all</code>은 모든 replica가 메시지를 받을 때까지 기다린다는 거예요. 유실을 줄이지만 중복은 막지 못해요. ack가 손실되면 producer가 재시도해서 메시지가 두 번 들어와요.
+</p>
+
+<h3>"Kafka exactly-once를 켰는데 중복이 떠요"</h3>
+
+<p>
+  Kafka의 exactly-once는 producer → broker → consumer 안의 Kafka 영역에서만 성립해요. 컨슈머가 외부 시스템(DB, API)에 쓸 때는 별도 처리가 필요해요. 다음 편에서 자세히 봐요.
+</p>
+
+<h3>"Idempotent producer를 켜면 끝이에요?"</h3>
+
+<p>
+  Idempotent producer는 producer-broker 사이의 중복만 막아요. 다음 두 자리는 그대로 노출돼요.
+</p>
+
+<ul>
+  <li>여러 partition에 걸친 atomic 쓰기: transactional API가 따로 필요해요.</li>
+  <li>컨슈머 측 중복 처리: 컨슈머가 책임져야 해요.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"메시지 큐의 전달 보장 세 가지?"</strong>: at-most-once (유실 가능), at-least-once (중복 가능), exactly-once (이론적 이상)예요.</li>
+  <li><strong>"진짜 exactly-once가 가능한가요?"</strong>: 신뢰할 수 없는 네트워크에서는 두 장군 문제로 불가능해요. 실무에서는 at-least-once + idempotent로 effectively-once를 구현해요.</li>
+  <li><strong>"Kafka의 exactly-once는 뭐예요?"</strong>: producer의 idempotent와 transactional API를 합한 거예요. Kafka 영역 안에서만 성립하고, 외부 시스템과 연동하면 컨슈머 측 멱등이 따로 필요해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  Kafka의 exactly-once 기능을 자세히 봐요. Idempotent producer가 무엇을 보장하고 못 하는지, transactional API의 동작 원리, 그리고 두 기능이 함께 만드는 보장의 한계까지 정리해요.
+</p>

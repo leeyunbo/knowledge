@@ -1,0 +1,263 @@
+---
+title: "Effectively-once 실무 패턴"
+subtitle: "외부 DB와 API까지 포함한 시스템에서 effectively-once를 만드는 패턴. Outbox, Dedup Table, Idempotent Receiver를 정리해요."
+dateText: "2026.05.17"
+episode: 3
+episodes: 3
+---
+
+<h2>Kafka 밖의 세계</h2>
+
+<p>
+  2편에서 본 Kafka의 exactly-once는 Kafka topic 안의 메시지 흐름에만 성립해요. 컨슈머가 외부 DB에 쓰거나 외부 API를 호출하는 자리는 그 보장 밖이에요. 실무 시스템은 대부분 외부 시스템과 얽혀 있어서, 진짜 어려운 부분은 이 외부 자리예요.
+</p>
+
+<p>
+  마지막 편은 외부 시스템까지 포함해 effectively-once를 만드는 세 가지 핵심 패턴이에요. 멱등성 설계 시리즈와 분산 트랜잭션 시리즈에서 일부 다뤘던 내용이 여기서 합쳐져요.
+</p>
+
+<h2>문제의 본질: 이중 쓰기</h2>
+
+<p>
+  컨슈머가 메시지를 처리하면서 두 가지를 동시에 해요.
+</p>
+
+<ol>
+  <li>외부 DB에 결과를 써요. (잔액 차감, 주문 상태 변경 등)</li>
+  <li>Kafka에 offset commit을 해요. (처리 완료 표시)</li>
+</ol>
+
+<p>
+  이 둘이 atomic하지 않으면 사이에 죽을 때 문제가 생겨요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>시나리오</th><th>결과</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>DB 쓰기 성공, offset commit 실패</td><td>재시작 후 메시지 다시 받음 → 같은 처리 2번 (중복)</td></tr>
+    <tr><td>DB 쓰기 실패, offset commit 성공</td><td>재시작 후 메시지 못 받음 → 처리 누락 (유실)</td></tr>
+  </tbody>
+</table>
+
+<p>
+  두 자원이 별개의 트랜잭션 시스템(Kafka, RDB)이라 자연스럽게 atomic이 되지 않아요. 이를 해결하는 세 패턴을 봐요.
+</p>
+
+<h2>패턴 1: Transactional Outbox</h2>
+
+<p>
+  Producer 쪽 패턴이에요. "DB 변경과 Kafka 메시지 발행을 atomic하게" 만드는 자리에 써요. 분산 트랜잭션 시리즈에서 자세히 다뤘던 그 패턴이에요.
+</p>
+
+<h3>구조</h3>
+
+<ol>
+  <li>비즈니스 트랜잭션 안에서 DB에 두 가지를 함께 써요. 본 도메인 테이블과 <code>outbox</code> 테이블이에요.</li>
+  <li>별도의 relay 프로세스가 outbox에서 미발행 메시지를 읽어 Kafka로 보내요.</li>
+  <li>Kafka에 ack를 받으면 outbox에 발행 완료 표시를 해요.</li>
+</ol>
+
+<pre><code class="language-sql">BEGIN;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+INSERT INTO outbox (event_type, payload, status)
+VALUES ('balance.changed', '{"id":1,"amount":-100}', 'pending');
+COMMIT;</code></pre>
+
+<p>
+  이렇게 두면 비즈니스 변경과 이벤트 기록이 같은 DB 트랜잭션 안에서 함께 commit돼요. 둘 다 성공하거나 둘 다 실패해요. Outbox만 발행되고 비즈니스 변경이 안 되는 사고가 사라져요.
+</p>
+
+<h3>중복은 어떻게</h3>
+
+<p>
+  Relay가 메시지를 발행하고 outbox에 표시하기 전에 죽으면 같은 메시지가 다시 발행돼요. 그래서 컨슈머는 여전히 멱등해야 해요. 다음 패턴이 그걸 해결해요.
+</p>
+
+<h2>패턴 2: Dedup Table (멱등 receiver)</h2>
+
+<p>
+  컨슈머 쪽 패턴이에요. 메시지 ID를 기록해서 같은 메시지가 두 번 와도 한 번만 처리되게 해요. 멱등성 설계 시리즈에서 본 키 기반 패턴의 핵심이에요.
+</p>
+
+<h3>구조</h3>
+
+<pre><code class="language-sql">CREATE TABLE processed_messages (
+    message_id VARCHAR(64) PRIMARY KEY,
+    processed_at TIMESTAMP DEFAULT NOW()
+);</code></pre>
+
+<pre><code class="language-java">@KafkaListener(topics = "orders")
+@Transactional
+public void consume(OrderEvent event) {
+    String messageId = event.getMessageId();
+
+    // 같은 트랜잭션 안에서 dedup 체크와 처리
+    int inserted = jdbc.update(
+        "INSERT INTO processed_messages (message_id) VALUES (?) " +
+        "ON CONFLICT DO NOTHING", messageId);
+
+    if (inserted == 0) {
+        return;  // 이미 처리한 메시지
+    }
+
+    processOrder(event);  // 비즈니스 로직
+}</code></pre>
+
+<p>
+  중요한 자리. dedup INSERT와 비즈니스 로직이 같은 DB 트랜잭션에 있어야 해요. 둘이 함께 commit되거나 함께 rollback돼요. INSERT만 성공하고 로직이 실패하는 자리가 사라져요.
+</p>
+
+<h3>장점</h3>
+
+<ul>
+  <li>외부 DB 한 곳에서 멱등성이 완성돼요. Kafka와 별개로 동작해요.</li>
+  <li>at-least-once 메시지 큐 어디서나 똑같이 써요. Kafka 외 RabbitMQ, SQS도 같은 패턴이에요.</li>
+</ul>
+
+<h3>주의 자리</h3>
+
+<ul>
+  <li>processed_messages 테이블이 무한정 커지면 성능 문제예요. TTL이나 파티션 드롭으로 옛 레코드를 청소해요.</li>
+  <li>message_id가 producer 쪽에서 안정적으로 부여돼야 해요. 같은 메시지를 producer가 두 번 보내도 같은 id여야 해요.</li>
+</ul>
+
+<h2>패턴 3: Idempotent Sink</h2>
+
+<p>
+  비즈니스 로직 자체를 멱등하게 짜는 패턴이에요. dedup table 없이도 같은 메시지를 두 번 처리해도 결과가 같아요.
+</p>
+
+<h3>상태 머신 활용</h3>
+
+<pre><code class="language-sql">UPDATE orders
+SET status = 'paid', paid_at = NOW()
+WHERE id = ?
+  AND status = 'created';</code></pre>
+
+<p>
+  같은 메시지가 두 번 와도 두 번째는 0 rows예요. status가 이미 'paid'라 조건이 안 맞아요. 자연스럽게 멱등이에요. 멱등성 설계 시리즈 3편에서 본 패턴이에요.
+</p>
+
+<h3>Upsert 패턴</h3>
+
+<pre><code class="language-sql">INSERT INTO daily_count (date, count)
+VALUES (CURRENT_DATE, 1)
+ON CONFLICT (date) DO UPDATE
+SET count = daily_count.count + EXCLUDED.count;</code></pre>
+
+<p>
+  이건 멱등이 아니에요. 호출할 때마다 count가 증가해요. Upsert를 쓴다고 다 멱등해지지 않는다는 걸 보여 주는 예시예요. 증분 연산은 여전히 dedup table이나 message_id 기반 추적이 필요해요.
+</p>
+
+<h2>세 패턴의 조합</h2>
+
+<p>
+  실무 시스템은 보통 세 패턴을 다 써요. 어느 한 자리만 해서는 안전하지 않아요.
+</p>
+
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" style="display:block; width:100%; max-width:680px; margin:1.5rem auto;">
+  <rect x="20" y="100" width="140" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="90" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">서비스 A</text>
+  <text x="90" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">+ Outbox</text>
+
+  <rect x="220" y="100" width="140" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="290" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">Relay → Kafka</text>
+  <text x="290" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">idempotent prod</text>
+
+  <rect x="420" y="100" width="140" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="490" y="125" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">서비스 B 컨슈머</text>
+  <text x="490" y="142" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">dedup + idempotent</text>
+
+  <rect x="600" y="100" width="100" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="650" y="135" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="currentColor">DB B</text>
+
+  <g stroke="currentColor" stroke-width="1.2" fill="none">
+    <path d="M 160 130 L 220 130" marker-end="url(#eoarr)"/>
+    <path d="M 360 130 L 420 130" marker-end="url(#eoarr)"/>
+    <path d="M 560 130 L 600 130" marker-end="url(#eoarr)"/>
+  </g>
+
+  <text x="90" y="200" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">DB+Outbox</text>
+  <text x="90" y="214" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">한 트랜잭션</text>
+
+  <text x="290" y="200" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">at-least-once</text>
+  <text x="290" y="214" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">PID+seq</text>
+
+  <text x="490" y="200" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">dedup INSERT</text>
+  <text x="490" y="214" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="currentColor">+ 상태 머신</text>
+
+  <defs>
+    <marker id="eoarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<p>
+  각 단계가 자기 자리에서 중복을 막아요. 한 자리가 새도 다음 자리가 잡아 줘요. Defense in depth예요.
+</p>
+
+<h2>Kafka Streams의 정답</h2>
+
+<p>
+  Kafka 내부에서 끝나는 워크플로우(예: 메시지 → 변환 → 다른 topic)는 Kafka Streams의 <code>processing.guarantee=exactly_once_v2</code>를 쓰면 깔끔해요. Streams가 내부적으로 transactional API를 써서 atomic하게 처리해 줘요.
+</p>
+
+<pre><code class="language-properties">processing.guarantee=exactly_once_v2</code></pre>
+
+<p>
+  단, 이것도 Kafka 영역 안에서만 보장돼요. Sink connector로 외부 DB에 쓰는 자리는 여전히 dedup이 필요해요.
+</p>
+
+<h2>실무 체크리스트</h2>
+
+<ul>
+  <li><strong>Producer는 idempotent + transactional.id</strong>: 재시작 후에도 안전해요.</li>
+  <li><strong>여러 partition이나 outbox와 함께라면 transactional API</strong>: 발행을 atomic하게 묶어 줘요.</li>
+  <li><strong>컨슈머는 read_committed</strong>: abort된 메시지를 안 봐요.</li>
+  <li><strong>외부 쓰기 컨슈머는 dedup table 또는 상태 머신 SQL</strong>: 외부 시스템을 멱등화해요.</li>
+  <li><strong>message_id 안정성</strong>: producer가 같은 사건에 같은 id를 부여하는지 확인해요.</li>
+  <li><strong>모니터링</strong>: dedup hit율, abort 비율, lag 같은 지표를 봐요.</li>
+</ul>
+
+<h2>실수 패턴</h2>
+
+<h3>"Kafka exactly-once 켰으니 컨슈머는 안 해도 돼"</h3>
+
+<p>
+  컨슈머가 외부 DB에 쓰는 순간 보장이 깨져요. dedup이 반드시 필요해요.
+</p>
+
+<h3>"INSERT ... ON CONFLICT면 멱등이지"</h3>
+
+<p>
+  단순 키 충돌 회피만 멱등이에요. count += 1 같은 증분은 여전히 비멱등이에요. 처리 ID를 dedup table로 추적해야 진짜 멱등이에요.
+</p>
+
+<h3>"Transactional outbox를 썼는데 중복이 나요"</h3>
+
+<p>
+  Outbox는 producer 쪽 atomic만 보장해요. Relay가 죽었다 살아나면 같은 메시지를 다시 보내요. 컨슈머가 dedup해야 진짜로 한 번만 처리돼요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Kafka exactly-once만으로 충분한가요?"</strong>: Kafka 안에서만. 외부 시스템과 연동하면 컨슈머 측 dedup이나 idempotent 로직이 필요해요.</li>
+  <li><strong>"Transactional Outbox가 뭐예요?"</strong>: DB 변경과 이벤트 발행을 같은 트랜잭션에 묶기 위해 outbox 테이블에 이벤트를 적고, 별도 relay가 발행하는 패턴이에요.</li>
+  <li><strong>"Dedup table은 어떻게 작동?"</strong>: message_id를 PK로 두고, INSERT ON CONFLICT DO NOTHING으로 같은 메시지의 두 번째 처리를 막아요. 비즈니스 로직과 같은 트랜잭션이어야 안전해요.</li>
+  <li><strong>"상태 머신은 멱등에 어떻게 도움?"</strong>: WHERE status = 'created' 조건으로 두 번째 호출이 0 rows로 떨어져요. 자연스럽게 멱등이에요.</li>
+  <li><strong>"Kafka Streams의 exactly_once_v2는?"</strong>: 내부 transactional API로 read-process-write를 atomic하게 만들어요. Kafka 안에서 완결되는 워크플로우에 깔끔해요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 두 장군 문제와 exactly-once delivery·processing의 차이를 봤어요. 2편에서 Kafka의 idempotent producer와 transactional API가 무엇을 보장하고 못 하는지를 정리했어요. 3편에서는 외부 시스템까지 포함한 effectively-once 패턴인 Outbox, Dedup Table, Idempotent Sink를 묶어 봤어요.
+</p>
+
+<p>
+  핵심은 단순해요. <strong>진정한 exactly-once는 환상</strong>이고, 실무는 <strong>at-least-once + 멱등성</strong>으로 effectively-once를 만들어요. Kafka의 exactly-once 기능은 도움을 주지만 완성은 아니에요. 외부 시스템과 만나는 자리는 항상 컨슈머 측 멱등성이 필요해요.
+</p>

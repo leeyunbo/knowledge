@@ -96,7 +96,7 @@
 
 ### 메시징
 - [x] ★ Kafka 보장 모델 (4편)
-- [ ] ★ "Exactly-once"의 환상 (3편)
+- [x] ★ "Exactly-once"의 환상 (3편)
 
 ### Resilience 패턴
 - [ ] ★ Retry / Backoff 전략 (3편)
