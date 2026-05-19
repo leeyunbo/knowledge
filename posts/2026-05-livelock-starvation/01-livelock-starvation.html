@@ -1,0 +1,113 @@
+---
+title: "Livelock과 Starvation"
+subtitle: "데드락이 아닌 막힘. 영원히 양보하다 끝나거나, 우선순위에 밀려 굶는 스레드 이야기예요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>데드락이 아닌 막힘</h2>
+
+<p>
+  Deadlock은 모든 스레드가 멈춰서 못 움직이는 거예요. 그런데 멈추지 않는데도 일이 안 진행되는 자리가 있어요. Livelock과 Starvation이에요. 이름은 비슷하지만 원인과 해결책이 달라요.
+</p>
+
+<h2>Livelock, 영원한 양보</h2>
+
+<p>
+  두 스레드가 서로 양보하느라 진짜 일을 못 해요. 좁은 복도에서 두 사람이 서로 비켜 주려고 좌우로 움직이다가 결국 못 지나가는 상황을 떠올리면 돼요.
+</p>
+
+<pre><code class="language-java">// Livelock 예시 (의도적 단순화)
+class Spoon {
+    private Diner owner;
+
+    void setOwner(Diner d) { this.owner = d; }
+}
+
+class Diner {
+    boolean isHungry = true;
+    String name;
+
+    void eat(Diner spouse, Spoon spoon) {
+        while (isHungry) {
+            if (spoon.owner != this) {
+                Thread.sleep(1);
+                continue;
+            }
+            if (spouse.isHungry) {
+                spoon.setOwner(spouse);  // 양보
+                continue;
+            }
+            // 먹기...
+        }
+    }
+}</code></pre>
+
+<p>
+  두 다이너가 서로에게 스푼을 양보해요. 둘 다 hungry라 둘 다 양보만 해요. CPU는 계속 돌지만 진전이 없어요.
+</p>
+
+<h3>해결책</h3>
+
+<ul>
+  <li><strong>무작위 backoff</strong>: 양보 후 다시 시도하기 전 무작위 시간만큼 쉬어요. 두 스레드가 다른 타이밍에 다시 시도하니 한쪽이 먼저 잡아요. (Retry/Backoff 시리즈의 jitter와 같은 발상.)</li>
+  <li><strong>우선순위 도입</strong>: ID가 작은 쪽이 먼저 가는 식의 단순 우선순위.</li>
+  <li><strong>책임 분리</strong>: 양보 대신 큐를 두고 먼저 도착한 순서대로 처리.</li>
+</ul>
+
+<h2>Starvation, 굶는 스레드</h2>
+
+<p>
+  특정 스레드가 우선순위 경쟁에서 계속 밀려서 자원을 받지 못해요. 시스템은 정상 동작하는데 그 스레드만 일을 못 해요.
+</p>
+
+<h3>흔한 자리</h3>
+
+<ul>
+  <li><strong>비공정 락</strong>: <code>synchronized</code>나 기본 <code>ReentrantLock</code>은 unfair. 운 나쁜 스레드가 계속 밀릴 수 있어요.</li>
+  <li><strong>PriorityBlockingQueue</strong>: 낮은 우선순위 항목이 영원히 처리되지 않을 수 있어요.</li>
+  <li><strong>스레드 우선순위 차이</strong>: <code>Thread.setPriority</code>가 OS 스케줄러에 영향을 주면 낮은 우선순위 스레드가 굶어요.</li>
+  <li><strong>리더 선출 후 잡 분배 불균등</strong>: 분산 시스템에서 리더가 특정 노드에 작업을 계속 몰아주는 자리.</li>
+</ul>
+
+<h3>해결책</h3>
+
+<ul>
+  <li><strong>공정성 옵션</strong>: <code>new ReentrantLock(true)</code>나 <code>ArrayBlockingQueue(n, true)</code>로 FIFO를 강제.</li>
+  <li><strong>Aging</strong>: 오래 대기한 항목의 우선순위를 점점 올려요. PriorityBlockingQueue의 starvation 방어.</li>
+  <li><strong>모니터링</strong>: 평균 대기 시간과 P99·P999를 같이 봐서 outlier를 잡아요.</li>
+</ul>
+
+<h2>Livelock vs Starvation vs Deadlock</h2>
+
+<table>
+  <thead>
+    <tr><th>현상</th><th>스레드 상태</th><th>CPU 사용</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Deadlock</td><td>완전 멈춤 (서로 기다림)</td><td>거의 0</td></tr>
+    <tr><td>Livelock</td><td>활발히 움직이는데 진전 없음</td><td>높음</td></tr>
+    <tr><td>Starvation</td><td>일부 스레드만 진전 없음</td><td>다른 스레드는 정상</td></tr>
+  </tbody>
+</table>
+
+<p>
+  CPU 사용량과 영향 범위로 구분해요. Deadlock은 멈춤, Livelock은 헛도는 활동, Starvation은 특정 스레드의 굶주림이에요.
+</p>
+
+<h2>진단</h2>
+
+<ul>
+  <li><strong>Thread dump</strong>: BLOCKED·WAITING이 많으면 Deadlock 의심. RUNNABLE이 많은데 진전이 없으면 Livelock 의심.</li>
+  <li><strong>대기 시간 분포</strong>: P50은 정상인데 P99·P999가 폭증이면 starvation 가능성.</li>
+  <li><strong>락 경합 측정</strong>: <code>jstack</code>이나 JFR로 락 hold time을 봐요.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Deadlock과 Livelock 차이?"</strong>: Deadlock은 멈춤, Livelock은 헛돌아요. Livelock은 CPU를 계속 쓰지만 일이 진전되지 않는 거예요.</li>
+  <li><strong>"Starvation 방어?"</strong>: 공정성 옵션, aging, 모니터링이에요. ReentrantLock(true)나 ArrayBlockingQueue의 fair=true로 FIFO를 강제할 수 있어요.</li>
+  <li><strong>"Livelock 해결?"</strong>: 무작위 backoff로 타이밍을 깨거나, 단순 우선순위로 한쪽이 먼저 가게 해요.</li>
+</ul>

@@ -39,22 +39,22 @@
 - [x] ★ 11. 풀 사이징 이론 — CPU vs I/O bound, Little's Law (2편)
 
 #### Group D — 큐와 생산자/소비자 (주황)
-- [ ] 12. `BlockingQueue` 패밀리 — Array/Linked/Synchronous/Priority/Delay (2편)
-- [ ] 13. 생산자/소비자 패턴 — put/take/offer/poll, graceful shutdown (2편)
+- [x] 12. `BlockingQueue` 패밀리 — Array/Linked/Synchronous/Priority/Delay (2편)
+- [x] 13. 생산자/소비자 패턴 — put/take/offer/poll, graceful shutdown (2편)
 
 #### Group E — 동기화 도구 (핑크)
-- [ ] 14. `CountDownLatch` — N개 끝날 때까지 대기 (1편)
-- [ ] 15. `CyclicBarrier` — N명 모일 때까지 (재사용) (1편)
-- [ ] 16. `Semaphore` — 동시 N개만 통과 (Rate limit 토대) (1편)
-- [ ] 17. `Phaser` — Latch+Barrier 합성, 동적 참여자 (1편)
-- [ ] 18. `Exchanger` — 두 스레드 1:1 데이터 교환 (1편)
+- [x] 14. `CountDownLatch` — N개 끝날 때까지 대기 (1편)
+- [x] 15. `CyclicBarrier` — N명 모일 때까지 (재사용) (1편)
+- [x] 16. `Semaphore` — 동시 N개만 통과 (Rate limit 토대) (1편)
+- [x] 17. `Phaser` — Latch+Barrier 합성, 동적 참여자 (1편)
+- [x] 18. `Exchanger` — 두 스레드 1:1 데이터 교환 (1편)
 
 #### Group F — 함정 (회색)
 - [x] ★ 19. Deadlock — 4조건, 예방/회피/탐지 (3편)
-- [ ] 20. Livelock / Starvation — 굶는 스레드 (1편)
+- [x] 20. Livelock / Starvation — 굶는 스레드 (1편)
 - [x] ★ 21. `ThreadLocal` 함정 — 메모리 누수, 스레드풀과 상극 (2편)
-- [ ] 22. `InterruptedException` 처리법 — 삼키지 말고 복원 (1편)
-- [ ] 23. Double-Checked Locking — `volatile` 없으면 깨지는 이유 (1편)
+- [x] 22. `InterruptedException` 처리법 — 삼키지 말고 복원 (1편)
+- [x] 23. Double-Checked Locking — `volatile` 없으면 깨지는 이유 (1편)
 
 ### DB
 - [x] ★ 트랜잭션 격리 수준 deep dive (5편)

@@ -1,0 +1,144 @@
+---
+title: "Double-Checked Locking, volatile 없이는 깨져요"
+subtitle: "유명한 싱글톤 패턴의 함정. 메모리 모델을 이해하지 못하면 반쪽 초기화가 새요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>왜 DCL이 등장했나</h2>
+
+<p>
+  싱글톤을 lazy하게 만들고 싶어요. 처음 호출될 때만 인스턴스를 만들고, 그 후엔 캐시처럼 돌려주는 패턴이에요. 단순하게 짜면 매번 동기화 비용이 들어요.
+</p>
+
+<pre><code class="language-java">// 단순하지만 느림
+public static synchronized Foo getInstance() {
+    if (instance == null) {
+        instance = new Foo();
+    }
+    return instance;
+}</code></pre>
+
+<p>
+  Double-Checked Locking은 "두 번 검사하면 동기화 비용을 줄일 수 있다"는 발상에서 나왔어요. 락 없이 한 번 확인하고, 진짜 만들어야 할 때만 락을 잡아요.
+</p>
+
+<pre><code class="language-java">// DCL: 잘못된 버전
+public static Foo getInstance() {
+    if (instance == null) {                  // 첫 검사 (no lock)
+        synchronized (Foo.class) {
+            if (instance == null) {          // 두 번째 검사 (with lock)
+                instance = new Foo();
+            }
+        }
+    }
+    return instance;
+}</code></pre>
+
+<h2>이 코드가 깨지는 이유</h2>
+
+<p>
+  <code>new Foo()</code>는 세 단계로 일어나요.
+</p>
+
+<ol>
+  <li>메모리 할당.</li>
+  <li>생성자 실행 (필드 초기화).</li>
+  <li>변수에 참조 대입.</li>
+</ol>
+
+<p>
+  JVM은 성능을 위해 2와 3의 순서를 바꿀 수 있어요. 그 결과 다른 스레드가 1만 끝난 상태(아직 생성자가 안 끝남)에서 <code>instance</code>를 보면 null이 아니라 부분 초기화된 객체를 봐요.
+</p>
+
+<p>
+  첫 검사가 락 없이 일어나니 이걸 막을 방법이 없어요. 사용자는 절반만 초기화된 객체를 받아 NullPointerException이나 더 이상한 버그를 만나요.
+</p>
+
+<h2>해결: volatile</h2>
+
+<pre><code class="language-java">private static volatile Foo instance;
+
+public static Foo getInstance() {
+    if (instance == null) {
+        synchronized (Foo.class) {
+            if (instance == null) {
+                instance = new Foo();
+            }
+        }
+    }
+    return instance;
+}</code></pre>
+
+<p>
+  <code>volatile</code>이 핵심이에요. volatile 변수는 write 직전에 다른 모든 변경이 완료돼야 한다는 happens-before 관계를 보장해요. 자바 5(JSR-133)부터 이 보장이 명시됐어요.
+</p>
+
+<p>
+  결과적으로 다른 스레드가 instance를 null이 아닌 값으로 보는 순간엔 생성자도 이미 끝나 있어요. 반쪽 초기화가 사라져요.
+</p>
+
+<h2>왜 자바 5 이전엔 안 됐나</h2>
+
+<p>
+  자바 5 이전의 메모리 모델은 volatile의 의미가 약했어요. JSR-133에서 happens-before와 volatile semantics를 명확히 정의하면서 DCL이 안전해졌어요. "DCL은 깨진다"는 옛 글들은 자바 5 이전 기준이에요.
+</p>
+
+<h2>더 좋은 대안들</h2>
+
+<h3>1. Holder Class</h3>
+
+<pre><code class="language-java">public class Foo {
+    private static class Holder {
+        static final Foo INSTANCE = new Foo();
+    }
+
+    public static Foo getInstance() {
+        return Holder.INSTANCE;
+    }
+}</code></pre>
+
+<p>
+  Holder 클래스는 처음 참조될 때 JVM이 한 번만 초기화해요. JVM의 클래스 로딩이 이미 thread-safe이라 별도 락이 필요 없어요. DCL보다 깨끗하고 가장 권장되는 패턴이에요.
+</p>
+
+<h3>2. Enum Singleton</h3>
+
+<pre><code class="language-java">public enum Foo {
+    INSTANCE;
+
+    public void doSomething() { ... }
+}</code></pre>
+
+<p>
+  Joshua Bloch가 권장하는 가장 안전한 싱글톤이에요. JVM이 enum의 유일성을 보장하고, serialization·reflection 공격에도 안전해요.
+</p>
+
+<h3>3. eager 초기화</h3>
+
+<pre><code class="language-java">private static final Foo INSTANCE = new Foo();</code></pre>
+
+<p>
+  lazy가 필요 없다면 가장 단순한 방법이에요. 클래스 로딩 시 만들어져요.
+</p>
+
+<h2>DCL 자체는 왜 알아야 하나</h2>
+
+<p>
+  세 가지 이유예요.
+</p>
+
+<ol>
+  <li><strong>면접 단골</strong>: "DCL 깨지는 이유?"가 동시성 면접의 클래식이에요.</li>
+  <li><strong>레거시 코드</strong>: 옛 코드베이스에 DCL이 자주 나와요. volatile 누락 여부를 확인해야 해요.</li>
+  <li><strong>메모리 모델 이해</strong>: DCL을 이해하면 volatile, happens-before, JMM 전체가 명확해져요.</li>
+</ol>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"DCL 왜 깨졌어요?"</strong>: 생성자 실행과 참조 대입이 reordering될 수 있어서요. 다른 스레드가 반쪽 초기화된 객체를 봐요. volatile로 해결돼요.</li>
+  <li><strong>"DCL과 volatile 관계?"</strong>: volatile이 reordering을 막아 happens-before를 보장해요. 자바 5부터 JSR-133이 이 의미를 명확히 했어요.</li>
+  <li><strong>"DCL 대신 뭘 써요?"</strong>: Holder Class나 Enum Singleton이 더 깔끔해요. lazy가 필요 없으면 final static 한 줄이면 끝이에요.</li>
+</ul>

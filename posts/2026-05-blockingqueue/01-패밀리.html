@@ -1,0 +1,131 @@
+---
+title: "BlockingQueue 패밀리"
+subtitle: "Array, Linked, Synchronous, Priority, Delay. 다섯 구현이 각자 다른 자리를 풀어요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 2
+---
+
+<h2>BlockingQueue가 푸는 문제</h2>
+
+<p>
+  생산자와 소비자가 서로 다른 속도로 일해요. 큐가 비었으면 소비자가 기다리고, 큐가 가득 차면 생산자가 기다려요. 이 자연스러운 흐름을 표준 인터페이스로 제공하는 게 <code>BlockingQueue</code>예요. 자바 동시성에서 가장 자주 쓰는 큐 추상이고, ThreadPoolExecutor·메시지 처리·이벤트 버스가 모두 위에 얹혀 있어요.
+</p>
+
+<h2>5가지 구현</h2>
+
+<table>
+  <thead>
+    <tr><th>구현</th><th>크기</th><th>특성</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ArrayBlockingQueue</td><td>고정 (bounded)</td><td>배열 기반. 단일 락. 공정성 옵션</td></tr>
+    <tr><td>LinkedBlockingQueue</td><td>옵션 (기본 무제한)</td><td>연결 리스트. put/take 별 두 락</td></tr>
+    <tr><td>SynchronousQueue</td><td>0 (직접 전달)</td><td>저장 안 함. 생산자-소비자가 직접 만남</td></tr>
+    <tr><td>PriorityBlockingQueue</td><td>무제한</td><td>우선순위 힙. Comparator 또는 Comparable</td></tr>
+    <tr><td>DelayQueue</td><td>무제한</td><td>지연 시간 지난 항목만 take 가능</td></tr>
+  </tbody>
+</table>
+
+<h2>ArrayBlockingQueue</h2>
+
+<p>
+  배열 기반 고정 크기 큐예요. 생성 시 capacity를 정해요. 락 하나로 put과 take를 모두 보호해서 구현이 단순해요. 공정성(fair) 옵션을 켜면 대기 스레드 순서대로 깨어나요.
+</p>
+
+<pre><code class="language-java">BlockingQueue&lt;Task&gt; queue = new ArrayBlockingQueue&lt;&gt;(100);
+queue.put(task);     // 가득 차면 블록
+Task t = queue.take(); // 비면 블록</code></pre>
+
+<p>
+  메모리 사용이 안정적이라 백프레셔가 필요한 자리에 잘 맞아요. 큐 크기가 폭증할 일이 없어요.
+</p>
+
+<h2>LinkedBlockingQueue</h2>
+
+<p>
+  연결 리스트 기반이에요. put과 take가 서로 다른 락을 써서 동시 처리량이 ArrayBlockingQueue보다 높아요. 다만 기본 크기가 <code>Integer.MAX_VALUE</code>라 사실상 무제한이에요. 명시적으로 capacity를 주지 않으면 OOM 위험이 있어요.
+</p>
+
+<pre><code class="language-java">BlockingQueue&lt;Task&gt; queue = new LinkedBlockingQueue&lt;&gt;(1000);  // 명시 권장</code></pre>
+
+<p>
+  <code>Executors.newFixedThreadPool</code>이 내부에서 이걸 무제한으로 써요. 메모리 누수의 흔한 원인이에요. ThreadPoolExecutor 7인자 시리즈에서 다뤘던 그 함정이에요.
+</p>
+
+<h2>SynchronousQueue</h2>
+
+<p>
+  내부에 항목을 저장하지 않아요. <code>put</code>은 누군가 <code>take</code>할 때까지 블록되고, 반대도 마찬가지예요. 생산자와 소비자가 직접 만나는 큐예요.
+</p>
+
+<p>
+  <code>Executors.newCachedThreadPool</code>이 이걸 써요. 스레드가 즉시 작업을 받아 처리하고, 없으면 새 스레드를 만들어요. 빠른 hand-off가 필요한 자리에 적합해요.
+</p>
+
+<h2>PriorityBlockingQueue</h2>
+
+<p>
+  힙 기반이라 항상 가장 우선순위 높은 항목이 먼저 take돼요. <code>Comparable</code>을 구현한 객체나 <code>Comparator</code>를 함께 줘야 해요.
+</p>
+
+<pre><code class="language-java">BlockingQueue&lt;Task&gt; queue = new PriorityBlockingQueue&lt;&gt;(11,
+    Comparator.comparingInt(Task::priority).reversed());</code></pre>
+
+<p>
+  무제한이라 메모리에 주의해야 해요. 우선순위가 낮은 항목이 영원히 take되지 않으면 starvation이 생겨요. 같은 우선순위 안에서는 순서가 보장되지 않아요. FIFO가 필요하면 <code>(priority, timestamp)</code>로 묶어 비교해요.
+</p>
+
+<h2>DelayQueue</h2>
+
+<p>
+  <code>Delayed</code> 인터페이스를 구현한 항목만 받아요. 만료 시간이 지난 항목만 take할 수 있어요. 만료 안 된 항목은 큐에 있어도 안 보여요.
+</p>
+
+<pre><code class="language-java">class ScheduledTask implements Delayed {
+    private final long executeAt;
+
+    public long getDelay(TimeUnit unit) {
+        return unit.convert(executeAt - System.currentTimeMillis(),
+            TimeUnit.MILLISECONDS);
+    }
+
+    public int compareTo(Delayed other) {
+        return Long.compare(
+            this.getDelay(TimeUnit.MILLISECONDS),
+            other.getDelay(TimeUnit.MILLISECONDS));
+    }
+}</code></pre>
+
+<p>
+  스케줄러·캐시 만료·재시도 대기 같은 자리에서 써요. <code>ScheduledThreadPoolExecutor</code>의 내부 큐가 DelayQueue 기반이에요.
+</p>
+
+<h2>선택 기준</h2>
+
+<table>
+  <thead>
+    <tr><th>요구</th><th>선택</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>일반 FIFO + 메모리 안정성</td><td>ArrayBlockingQueue</td></tr>
+    <tr><td>고처리량 FIFO + capacity 명시</td><td>LinkedBlockingQueue</td></tr>
+    <tr><td>직접 hand-off</td><td>SynchronousQueue</td></tr>
+    <tr><td>우선순위 처리</td><td>PriorityBlockingQueue</td></tr>
+    <tr><td>지연 실행 / 스케줄</td><td>DelayQueue</td></tr>
+  </tbody>
+</table>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Array와 Linked 차이?"</strong>: Array는 단일 락에 고정 크기예요. Linked는 put/take 분리 락에 기본 무제한이라 capacity를 꼭 명시해야 해요.</li>
+  <li><strong>"SynchronousQueue는 언제?"</strong>: hand-off가 즉시 일어나야 하는 자리예요. CachedThreadPool의 기본 큐예요.</li>
+  <li><strong>"PriorityBlockingQueue의 starvation?"</strong>: 우선순위 낮은 항목이 계속 밀리면 영원히 take되지 않아요. aging이나 (priority, timestamp) 보완이 필요해요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편은 생산자/소비자 패턴이에요. put/take/offer/poll의 차이, 백프레셔의 의미, graceful shutdown까지 정리해요.
+</p>

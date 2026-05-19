@@ -1,0 +1,124 @@
+---
+title: "생산자/소비자 패턴과 백프레셔"
+subtitle: "put/take/offer/poll 차이, 큐가 만드는 자연스러운 백프레셔, 한쪽이 느릴 때의 흐름을 정리해요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 2
+---
+
+<h2>가장 단순한 동시성 패턴</h2>
+
+<p>
+  생산자 스레드가 일을 만들고 소비자 스레드가 일을 처리해요. 그 사이에 BlockingQueue가 끼어요. 한쪽이 느려도 큐가 완충 역할을 해요. 자바 동시성에서 가장 자주 나오는 패턴이고, 이 패턴 위에 거의 모든 비동기 처리가 얹혀 있어요.
+</p>
+
+<pre><code class="language-java">BlockingQueue&lt;Task&gt; queue = new ArrayBlockingQueue&lt;&gt;(1000);
+
+// Producer
+new Thread(() -&gt; {
+    while (true) {
+        Task t = generate();
+        queue.put(t);
+    }
+}).start();
+
+// Consumer
+new Thread(() -&gt; {
+    while (true) {
+        Task t = queue.take();
+        process(t);
+    }
+}).start();</code></pre>
+
+<h2>네 가지 메소드의 의미</h2>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>큐 가득 / 빔</th><th>반환</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>add / remove</td><td>예외</td><td>IllegalStateException / NoSuchElementException</td></tr>
+    <tr><td>offer / poll</td><td>즉시 포기</td><td>false / null</td></tr>
+    <tr><td>offer(t, unit) / poll(t, unit)</td><td>대기 후 포기</td><td>false / null</td></tr>
+    <tr><td>put / take</td><td>무한 대기</td><td>인터럽트로만 깨어남</td></tr>
+  </tbody>
+</table>
+
+<h3>어떤 걸 골라야 하나요</h3>
+
+<ul>
+  <li><strong>throughput 우선, 손실 허용</strong>: offer / poll. 빠르지만 큐가 차면 항목이 떨어져요.</li>
+  <li><strong>안정성 우선, 무한 대기 허용</strong>: put / take. 손실은 없지만 graceful shutdown이 어려워져요.</li>
+  <li><strong>균형</strong>: offer(timeout) / poll(timeout). 가장 흔한 실무 선택이에요.</li>
+</ul>
+
+<h2>백프레셔(Backpressure)의 의미</h2>
+
+<p>
+  소비자가 느린데 생산자가 빠르면 무한 큐에선 메모리가 터지고, 유한 큐에선 자연스럽게 흐름이 막혀요. 이 자연스러운 흐름 제어가 백프레셔예요.
+</p>
+
+<p>
+  유한 capacity의 큐는 백프레셔의 가장 단순한 형태예요. 큐가 차면 생산자가 멈춰요. 생산자가 외부 API라면 429로 응답하고, 사용자라면 화면에 대기를 보여줘요. 시스템이 자기 페이스로 일해요.
+</p>
+
+<h2>큐가 가득 찼을 때 처리 옵션</h2>
+
+<ol>
+  <li><strong>차단</strong>: put으로 생산자가 멈춰요. 가장 단순.</li>
+  <li><strong>드롭</strong>: offer가 false면 항목 버리기. 로그·메트릭 같은 손실 허용 자리.</li>
+  <li><strong>역압 전파</strong>: 생산자에게 신호를 돌려보내 속도를 줄이게 해요. Reactive Streams가 그 패턴.</li>
+  <li><strong>우회</strong>: 다른 큐(DLQ)로 옮기거나 디스크에 적재.</li>
+</ol>
+
+<h2>생산자와 소비자가 여러 개일 때</h2>
+
+<p>
+  BlockingQueue는 multi-producer multi-consumer가 안전해요. 단지 처리량은 큐의 락 방식에 따라 달라요.
+</p>
+
+<ul>
+  <li><strong>ArrayBlockingQueue</strong>: 단일 락이라 동시 처리량이 낮아요.</li>
+  <li><strong>LinkedBlockingQueue</strong>: put/take 별로 두 락을 써서 동시 처리량이 좋아요.</li>
+  <li><strong>ConcurrentLinkedQueue</strong>: 락 없는 큐(BlockingQueue 아님)예요. 가장 빠르지만 take가 블록되지 않아요.</li>
+</ul>
+
+<h2>순서 보장</h2>
+
+<p>
+  단일 생산자 + 단일 소비자에선 FIFO가 자연스럽게 지켜져요. 멀티 생산자가 되면 어느 producer의 항목이 먼저 들어갈지는 스케줄링에 달려 있어요. 같은 producer 안에서는 순서가 보장되지만, producer 간 상대 순서는 보장되지 않아요.
+</p>
+
+<h2>흔한 실수</h2>
+
+<h3>1. 무제한 LinkedBlockingQueue</h3>
+
+<p>
+  capacity 누락 시 OOM 위험. <code>new LinkedBlockingQueue&lt;&gt;()</code>는 안 돼요. 명시적으로 capacity를 줘요.
+</p>
+
+<h3>2. take를 try-catch 없이</h3>
+
+<p>
+  take는 InterruptedException을 던져요. 잡고 어떻게 처리할지가 graceful shutdown의 핵심이에요. 다음 편에서 자세히 봐요.
+</p>
+
+<h3>3. 빠른 producer + 느린 consumer</h3>
+
+<p>
+  큐 capacity가 너무 크면 메모리만 차고, 너무 작으면 생산자가 자주 멈춰요. P99 latency와 큐 평균 점유율을 보면서 조정해요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"백프레셔가 뭐예요?"</strong>: 소비자가 느릴 때 생산자에게 자연스럽게 흐름을 줄여 달라는 신호예요. 유한 큐 + put이 가장 단순한 백프레셔예요.</li>
+  <li><strong>"put과 offer 차이?"</strong>: put은 무한 대기, offer는 즉시(또는 timeout) 시도예요. shutdown이 필요하면 offer(timeout)이 안전해요.</li>
+  <li><strong>"멀티 producer 순서?"</strong>: 같은 producer 안만 FIFO가 보장돼요. producer 간 상대 순서는 스케줄러에 달려 있어요.</li>
+</ul>
+
+<h2>다음 편</h2>
+
+<p>
+  다음 편은 graceful shutdown 패턴이에요. 스레드 멈추기, 큐 비우기, drain의 의미, poison pill 패턴까지 정리해요.
+</p>

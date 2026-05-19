@@ -1,0 +1,107 @@
+---
+title: "Exchanger, 두 스레드 1:1 데이터 교환"
+subtitle: "정확히 두 스레드가 만나서 데이터를 맞바꿔요. 자주 쓰진 않지만 알맞은 자리에선 깔끔해요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>푸는 문제</h2>
+
+<p>
+  두 스레드가 만나서 데이터를 1:1로 교환해야 하는 자리예요. A가 자기 결과를 들고 와서 B의 결과와 바꿔 가는 흐름. 자주 쓰는 도구는 아니지만, 두 스레드가 짝지어 일하는 자리에선 BlockingQueue 두 개보다 깔끔해요.
+</p>
+
+<h2>기본 사용</h2>
+
+<pre><code class="language-java">Exchanger&lt;Buffer&gt; exchanger = new Exchanger&lt;&gt;();
+
+// 스레드 A
+new Thread(() -&gt; {
+    Buffer myBuffer = fill();
+    Buffer emptyBuffer = exchanger.exchange(myBuffer);  // B의 것을 받음
+    reuse(emptyBuffer);
+}).start();
+
+// 스레드 B
+new Thread(() -&gt; {
+    Buffer emptyBuffer = new Buffer();
+    Buffer fullBuffer = exchanger.exchange(emptyBuffer);
+    process(fullBuffer);
+}).start();</code></pre>
+
+<p>
+  <code>exchange</code>는 양쪽 스레드가 모두 호출할 때까지 블록돼요. 둘 다 호출하면 데이터가 맞바뀌면서 반환돼요.
+</p>
+
+<h2>주요 메소드</h2>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>exchange(v)</td><td>상대 도착까지 대기. 도착하면 데이터 교환.</td></tr>
+    <tr><td>exchange(v, t, unit)</td><td>timeout 안에 교환. 안 되면 TimeoutException.</td></tr>
+  </tbody>
+</table>
+
+<h2>잘 맞는 자리</h2>
+
+<h3>1. Double Buffering</h3>
+
+<p>
+  가장 고전적인 자리예요. 한 스레드가 버퍼를 채우고, 다른 스레드가 비운 후 둘이 교환해요. 채우는 동안 다른 버퍼가 처리되고, 처리되는 동안 다른 버퍼가 채워져요. 파이프라인이 끊기지 않아요.
+</p>
+
+<h3>2. 데이터 변환 파이프라인</h3>
+
+<p>
+  producer가 raw 데이터를 만들고 consumer가 변환된 데이터를 받는 단순한 흐름이라면 BlockingQueue가 자연스러워요. 둘이 서로의 결과물을 동시에 주고받는 흐름이라면 Exchanger가 어울려요.
+</p>
+
+<h3>3. 짝 매칭</h3>
+
+<p>
+  거래 시스템에서 buyer와 seller를 매칭하는 자리. 단, 실무에선 두 스레드만 1:1로 만나는 일이 흔치 않아서 SynchronousQueue나 별도 매칭 엔진을 쓰는 경우가 더 많아요.
+</p>
+
+<h2>왜 자주 안 쓰일까</h2>
+
+<p>
+  Exchanger는 정확히 두 스레드가 짝을 이뤄야 해요. 멀티 producer + 멀티 consumer 환경에선 누가 누구와 짝지을지를 제어하기 어려워요. 실무는 보통 BlockingQueue로 풀어요. Exchanger는 짝이 명확히 정해진 좁은 자리에서만 깔끔해요.
+</p>
+
+<h2>SynchronousQueue와 비교</h2>
+
+<table>
+  <thead>
+    <tr><th>도구</th><th>방향</th><th>참여 스레드 수</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>SynchronousQueue</td><td>단방향 (put → take)</td><td>1:1 또는 N:M</td></tr>
+    <tr><td>Exchanger</td><td>양방향 (서로 교환)</td><td>정확히 1:1</td></tr>
+  </tbody>
+</table>
+
+<p>
+  단방향 hand-off는 SynchronousQueue, 양방향 교환은 Exchanger예요.
+</p>
+
+<h2>실무 사용 빈도</h2>
+
+<p>
+  솔직히 말하면 거의 안 써요. BlockingQueue·CompletableFuture가 대부분의 자리를 풀어 줘요. Exchanger는 알고리즘 책의 예제로는 자주 나오지만, production 코드에서는 보기 드물어요.
+</p>
+
+<p>
+  알아야 할 이유는 두 가지예요. (1) j.u.c 별자리의 한 노드라 면접에서 가끔 묻고, (2) 정말 알맞은 자리에선 다른 도구보다 깔끔해요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Exchanger는 뭐예요?"</strong>: 정확히 두 스레드가 만나 데이터를 1:1로 맞바꾸는 동기화 도구예요.</li>
+  <li><strong>"SynchronousQueue와 차이?"</strong>: SynchronousQueue는 단방향(생산자 → 소비자) hand-off, Exchanger는 양방향 교환이에요.</li>
+  <li><strong>"실무에서 많이 써요?"</strong>: 거의 안 써요. BlockingQueue가 대부분을 대신해요. Double Buffering 같은 좁은 자리에서만 깔끔해요.</li>
+</ul>

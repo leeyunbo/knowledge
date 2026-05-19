@@ -1,0 +1,136 @@
+---
+title: "BlockingQueue 선택과 함정"
+subtitle: "ThreadPoolExecutor와 연결, capacity 누락의 OOM, 공정성 옵션. 실무에서 자주 걸리는 자리예요."
+dateText: "2026.05.19"
+episode: 2
+episodes: 2
+---
+
+<h2>ThreadPoolExecutor와의 결합</h2>
+
+<p>
+  BlockingQueue는 거의 항상 스레드풀 뒤에서 쓰여요. <code>ThreadPoolExecutor</code>의 작업 큐가 BlockingQueue예요. 어떤 큐를 고르냐로 풀의 성격이 갈려요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>큐</th><th>풀 성격</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ArrayBlockingQueue(n)</td><td>고정 크기 큐. capacity 초과 시 RejectedHandler 또는 maximumPoolSize까지 스레드 증가</td></tr>
+    <tr><td>LinkedBlockingQueue() (무제한)</td><td>큐가 무한 증가. maximumPoolSize가 사실상 무시됨</td></tr>
+    <tr><td>SynchronousQueue()</td><td>hand-off만. 큐에 안 쌓이고 즉시 스레드 추가</td></tr>
+  </tbody>
+</table>
+
+<p>
+  ThreadPoolExecutor 7인자 시리즈에서 자세히 다뤘던 자리예요. 큐 선택 하나가 풀의 동작 전체를 바꿔요.
+</p>
+
+<h2>capacity 누락의 OOM</h2>
+
+<p>
+  가장 흔한 실수예요. <code>LinkedBlockingQueue&lt;&gt;()</code>를 capacity 없이 만들면 기본 <code>Integer.MAX_VALUE</code>예요. 트래픽이 폭증하면 큐가 무한 증가해 OOM이 와요.
+</p>
+
+<pre><code class="language-java">// 위험
+new ThreadPoolExecutor(10, 20, 60, SECONDS,
+    new LinkedBlockingQueue&lt;&gt;());
+
+// 안전
+new ThreadPoolExecutor(10, 20, 60, SECONDS,
+    new LinkedBlockingQueue&lt;&gt;(1000));</code></pre>
+
+<p>
+  capacity가 있어야 자연스러운 백프레셔가 동작해요. 큐가 가득 차면 maximumPoolSize까지 스레드를 늘리고, 그것도 부족하면 RejectedHandler가 발동해요.
+</p>
+
+<h2>공정성 옵션의 비용</h2>
+
+<p>
+  <code>ArrayBlockingQueue</code> 생성자의 두 번째 인자가 fair 옵션이에요. 기본은 false예요.
+</p>
+
+<pre><code class="language-java">new ArrayBlockingQueue&lt;&gt;(100, true);  // 공정성 ON</code></pre>
+
+<ul>
+  <li><strong>true</strong>: 대기 스레드가 들어온 순서대로 깨어나요. starvation 방지. 처리량 약간 감소.</li>
+  <li><strong>false</strong>: 임의 순서. 처리량 우선. 같은 스레드가 연속으로 일을 가져갈 수 있어요.</li>
+</ul>
+
+<p>
+  대부분 false가 충분해요. 특정 스레드가 굶는 게 명백히 문제일 때만 true를 켜요.
+</p>
+
+<h2>put / take / offer / poll</h2>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>동작</th><th>실패 시</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>add / remove</td><td>즉시</td><td>예외 throw</td></tr>
+    <tr><td>offer / poll</td><td>즉시</td><td>false / null 반환</td></tr>
+    <tr><td>offer(timeout) / poll(timeout)</td><td>대기</td><td>timeout 후 false / null</td></tr>
+    <tr><td>put / take</td><td>무한 대기</td><td>인터럽트 가능</td></tr>
+  </tbody>
+</table>
+
+<p>
+  실무에선 보통 <code>offer(timeout)</code>과 <code>poll(timeout)</code>이에요. 무한 대기는 graceful shutdown을 어렵게 만들고, 즉시 실패는 정보 손실이 너무 잦아요.
+</p>
+
+<h2>큐 모니터링</h2>
+
+<p>
+  큐 크기는 가장 중요한 지표예요. 큐가 자주 차면 처리량이 부족한 신호예요. 큐가 늘 비어 있으면 스레드가 너무 많은 신호예요.
+</p>
+
+<ul>
+  <li><code>queue.size()</code>: 현재 항목 수. <code>remainingCapacity()</code>로 여유 확인.</li>
+  <li><code>ThreadPoolExecutor.getQueue()</code>로 풀의 큐에 직접 접근 가능.</li>
+  <li>Micrometer의 <code>ExecutorServiceMetrics</code>가 자동 노출해 줘요.</li>
+</ul>
+
+<h2>알람 기준</h2>
+
+<ul>
+  <li>큐 크기가 capacity의 80% 이상이 지속되면 처리량 부족.</li>
+  <li>RejectedExecutionException 발생률이 0보다 크면 즉시 대응.</li>
+  <li>P99 latency가 갑자기 늘면 큐 대기가 의심.</li>
+</ul>
+
+<h2>실무 패턴</h2>
+
+<h3>1. 큐 + Worker 분리</h3>
+
+<p>
+  HTTP 요청을 받아 작업을 큐에 넣고, 별도 worker pool이 큐에서 꺼내 처리해요. HTTP 스레드는 빠르게 반환하고, 처리 자체는 비동기로 가요.
+</p>
+
+<h3>2. Backpressure 신호</h3>
+
+<p>
+  <code>offer(timeout)</code>이 false를 반환하면 클라이언트에게 429나 503을 돌려줘요. 시스템이 자기 페이스를 지키는 패턴이에요. Rate Limiting 시리즈와 자연스럽게 연결돼요.
+</p>
+
+<h3>3. Producer-Consumer 분리</h3>
+
+<p>
+  큐를 사이에 두면 생산자와 소비자가 독립적으로 진화할 수 있어요. 소비자가 느려져도 생산자는 큐에 쌓고 다음 일을 해요(capacity 안에서).
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"FixedThreadPool의 위험?"</strong>: 내부 LinkedBlockingQueue가 무제한이라 큐 OOM이 발생할 수 있어요. ThreadPoolExecutor를 직접 만들어 capacity를 명시해야 안전해요.</li>
+  <li><strong>"put과 offer 차이?"</strong>: put은 무한 대기, offer는 즉시 또는 timeout 안에 시도. graceful shutdown을 고려하면 offer(timeout)이 안전해요.</li>
+  <li><strong>"공정성 옵션?"</strong>: ArrayBlockingQueue의 fair=true는 대기 순서 보장이에요. 처리량이 살짝 줄어요. starvation이 문제일 때만 켜요.</li>
+  <li><strong>"큐 크기 모니터링?"</strong>: size와 remainingCapacity를 주기적으로 봐요. Micrometer가 자동 노출해 주는 지표를 알람과 묶어요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 5가지 BlockingQueue 구현의 특성과 선택 기준을 봤어요. 2편에서는 ThreadPoolExecutor와의 결합, capacity 누락 OOM, 공정성 옵션, put/take/offer/poll의 차이, 그리고 모니터링까지 정리했어요.
+</p>

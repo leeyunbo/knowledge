@@ -1,0 +1,179 @@
+---
+title: "Producer/Consumer Graceful Shutdown"
+subtitle: "스레드 멈추기, 큐 drain, poison pill, in-flight 항목 처리. 종료 순서가 데이터 안전을 결정해요."
+dateText: "2026.05.19"
+episode: 2
+episodes: 2
+---
+
+<h2>왜 까다로운가</h2>
+
+<p>
+  큐가 비어 있는 동안 consumer는 take에서 무한 대기예요. SIGTERM이 와도 take 안에 갇혀 있어서 종료 신호를 못 받아요. 종료를 어떻게 알리고, 진행 중인 항목을 어떻게 마무리할지가 핵심이에요. Graceful Shutdown 설계 시리즈와 같은 맥락이에요.
+</p>
+
+<h2>방법 1: 인터럽트</h2>
+
+<p>
+  가장 표준적이에요. <code>Thread.interrupt()</code>를 호출하면 take에서 <code>InterruptedException</code>이 던져져요. 그 예외를 잡고 정리 코드를 실행해요.
+</p>
+
+<pre><code class="language-java">public void run() {
+    while (!Thread.currentThread().isInterrupted()) {
+        try {
+            Task t = queue.take();
+            process(t);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();  // 복원
+            break;
+        }
+    }
+    cleanup();
+}</code></pre>
+
+<p>
+  여기가 핵심이에요. InterruptedException을 잡고 다시 복원해야 해요. 그렇지 않으면 상위 코드가 인터럽트 신호를 못 받아요. 다음 시리즈에서 자세히 다룰 자리예요.
+</p>
+
+<h2>방법 2: Poison Pill</h2>
+
+<p>
+  큐에 특별한 "종료 신호" 객체를 넣어요. consumer가 그 객체를 take하면 정상 종료해요. 인터럽트 없이 깨끗하게 끝나요.
+</p>
+
+<pre><code class="language-java">private static final Task POISON = new Task();
+
+public void run() {
+    while (true) {
+        Task t = queue.take();
+        if (t == POISON) {
+            break;
+        }
+        process(t);
+    }
+    cleanup();
+}
+
+// 종료 시
+queue.put(POISON);</code></pre>
+
+<p>
+  consumer가 여러 개면 consumer 수만큼 poison을 넣어야 해요. 모두가 자기 poison을 받고 종료해요.
+</p>
+
+<h2>방법 3: 플래그 + offer(timeout)</h2>
+
+<p>
+  volatile 플래그로 종료 의도를 알리고, poll(timeout)으로 주기적으로 깨어나며 플래그를 확인해요.
+</p>
+
+<pre><code class="language-java">private volatile boolean running = true;
+
+public void run() {
+    while (running) {
+        Task t = queue.poll(1, TimeUnit.SECONDS);
+        if (t != null) {
+            process(t);
+        }
+    }
+    drainAndProcess();
+}</code></pre>
+
+<p>
+  poll의 timeout이 길면 종료가 늦어지고, 짧으면 CPU를 자주 깨워요. 1초 정도가 일반적이에요.
+</p>
+
+<h2>큐 drain, 남은 항목 처리</h2>
+
+<p>
+  종료 신호 후에도 큐에 항목이 남아 있을 수 있어요. 다 처리할지, 버릴지를 결정해야 해요.
+</p>
+
+<h3>전부 처리</h3>
+
+<pre><code class="language-java">List&lt;Task&gt; remaining = new ArrayList&lt;&gt;();
+queue.drainTo(remaining);
+remaining.forEach(this::process);</code></pre>
+
+<p>
+  결제·메시지처럼 손실이 안 되는 자리. drain까지 시간이 더 걸려서 graceful 타임아웃을 길게 잡아야 해요.
+</p>
+
+<h3>전부 폐기</h3>
+
+<pre><code class="language-java">queue.clear();</code></pre>
+
+<p>
+  로그·메트릭처럼 손실 허용 자리. 빠르게 종료해요.
+</p>
+
+<h3>버퍼로 옮김</h3>
+
+<p>
+  남은 항목을 디스크나 다른 큐로 옮기고, 다시 시작될 때 거기서 읽어요. 메시지 큐 컨슈머의 일반적 패턴이에요.
+</p>
+
+<h2>ExecutorService의 종료</h2>
+
+<p>
+  실무에선 보통 ExecutorService가 큐와 스레드를 같이 관리해요. <code>shutdown()</code>과 <code>shutdownNow()</code>의 차이가 결정적이에요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>동작</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>shutdown()</td><td>새 작업 거부. 큐의 모든 항목은 처리.</td></tr>
+    <tr><td>shutdownNow()</td><td>새 작업 거부 + 큐 비우기 + 진행 중인 스레드에 interrupt.</td></tr>
+    <tr><td>awaitTermination(t)</td><td>위 둘 후 종료를 t 시간 기다림.</td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-java">executor.shutdown();
+if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+    executor.shutdownNow();
+    if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+        log.warn("Executor did not terminate");
+    }
+}</code></pre>
+
+<p>
+  표준 종료 패턴이에요. ExecutorService 시리즈 02편의 그 코드예요.
+</p>
+
+<h2>in-flight 처리 중인 항목</h2>
+
+<p>
+  consumer가 한 항목을 처리하는 중에 shutdownNow()가 오면? interrupt가 와요. processor가 그걸 어떻게 다루느냐가 데이터 안전을 결정해요.
+</p>
+
+<ul>
+  <li><strong>멱등 처리</strong>: 재시작 후 같은 항목이 다시 와도 안전. 멱등성 패턴 시리즈에서 본 그 자리예요.</li>
+  <li><strong>트랜잭션 안에</strong>: DB와 큐가 묶여 있으면 트랜잭션 abort로 항목이 큐에 남아요.</li>
+  <li><strong>저장 후 처리</strong>: 항목을 처리 시작 전에 "처리 중" 상태로 DB에 기록. 재시작 시 그 상태부터 재개.</li>
+</ul>
+
+<h2>실무 권장 패턴</h2>
+
+<ol>
+  <li>ExecutorService로 consumer 풀을 관리해요.</li>
+  <li>SIGTERM 받으면 shutdown(). 새 producer는 거부.</li>
+  <li>큐가 비고 진행 중인 작업이 끝나길 기다림 (awaitTermination 30초).</li>
+  <li>안 끝나면 shutdownNow(). 진행 중 작업에 interrupt.</li>
+  <li>InterruptedException을 잡은 worker는 멱등 처리나 저장 후 종료.</li>
+</ol>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"take 안에 갇힌 consumer 어떻게 깨워요?"</strong>: interrupt나 poison pill이에요. 둘 다 take에서 빠져나오게 해요.</li>
+  <li><strong>"shutdown과 shutdownNow 차이?"</strong>: shutdown은 큐의 작업을 끝까지 처리. shutdownNow는 큐를 비우고 interrupt까지 던져요.</li>
+  <li><strong>"in-flight 안전?"</strong>: 멱등 처리나 상태 저장 후 처리 패턴으로 재시작 시 안전을 확보해요. 트랜잭션 안에서 처리하면 abort로 큐에 남아요.</li>
+</ul>
+
+<h2>시리즈 마무리</h2>
+
+<p>
+  1편에서 생산자/소비자 패턴의 기본, put/take/offer/poll의 차이, 백프레셔의 의미를 봤어요. 2편은 인터럽트·poison pill·플래그 세 종료 방식, drainTo의 활용, ExecutorService의 shutdown 패턴, in-flight 항목 안전 보장을 정리했어요.
+</p>

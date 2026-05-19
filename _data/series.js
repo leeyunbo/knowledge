@@ -48,8 +48,8 @@ const concurrency = {
       title: "큐와 생산자/소비자",
       desc: "BlockingQueue 패밀리와 백프레셔의 가장 단순한 형태.",
       topics: [
-        { num: 12, label: "BlockingQueue", title: "BlockingQueue 패밀리", desc: "ArrayBQ, LinkedBQ, SynchronousQueue, PriorityBQ, DelayQueue 차이와 선택", x: 380, y: 680, status: "locked" },
-        { num: 13, label: "Producer · Consumer", title: "생산자 / 소비자 패턴", desc: "put/take/offer/poll의 의미 차이. 백프레셔의 가장 단순한 형태. graceful shutdown", x: 270, y: 800, status: "locked" }
+        { num: 12, label: "BlockingQueue", title: "BlockingQueue 패밀리", desc: "ArrayBQ, LinkedBQ, SynchronousQueue, PriorityBQ, DelayQueue 차이와 선택", x: 380, y: 680, ring: 3.0, status: "done", slug: "2026-05-blockingqueue", entry: "01-패밀리.html", episodes: 2 },
+        { num: 13, label: "Producer · Consumer", title: "생산자 / 소비자 패턴", desc: "put/take/offer/poll의 의미 차이. 백프레셔의 가장 단순한 형태. graceful shutdown", x: 270, y: 800, ring: 3.4, status: "done", slug: "2026-05-producer-consumer", entry: "01-패턴과-백프레셔.html", episodes: 2 }
       ]
     },
     {
@@ -57,11 +57,11 @@ const concurrency = {
       title: "동기화 도구",
       desc: "Latch, Barrier, Semaphore, Phaser, Exchanger. 스레드 사이를 조율하는 다섯 도구.",
       topics: [
-        { num: 14, label: "CountDownLatch", title: "CountDownLatch", desc: "N개 작업이 끝날 때까지 대기. 일회용 카운터", x: 700, y: 680, status: "locked" },
-        { num: 15, label: "CyclicBarrier", title: "CyclicBarrier", desc: "N명이 모일 때까지 대기. Latch와 달리 재사용 가능", x: 820, y: 580, status: "locked" },
-        { num: 16, label: "Semaphore", title: "Semaphore", desc: "동시 N개만 통과 허용. 자원 풀 제한 / Rate limit 토대", x: 870, y: 740, status: "locked" },
-        { num: 17, label: "Phaser", title: "Phaser", desc: "Latch + Barrier 합성. 동적 참여자 등록 가능", x: 910, y: 870, status: "locked" },
-        { num: 18, label: "Exchanger", title: "Exchanger", desc: "두 스레드 사이 1:1 데이터 교환점", x: 770, y: 970, status: "locked" }
+        { num: 14, label: "CountDownLatch", title: "CountDownLatch", desc: "N개 작업이 끝날 때까지 대기. 일회용 카운터", x: 700, y: 680, ring: 3.8, status: "done", slug: "2026-05-countdownlatch", entry: "01-countdownlatch.html", episodes: 1 },
+        { num: 15, label: "CyclicBarrier", title: "CyclicBarrier", desc: "N명이 모일 때까지 대기. Latch와 달리 재사용 가능", x: 820, y: 580, ring: 4.2, status: "done", slug: "2026-05-cyclicbarrier", entry: "01-cyclicbarrier.html", episodes: 1 },
+        { num: 16, label: "Semaphore", title: "Semaphore", desc: "동시 N개만 통과 허용. 자원 풀 제한 / Rate limit 토대", x: 870, y: 740, ring: 4.6, status: "done", slug: "2026-05-semaphore", entry: "01-semaphore.html", episodes: 1 },
+        { num: 17, label: "Phaser", title: "Phaser", desc: "Latch + Barrier 합성. 동적 참여자 등록 가능", x: 910, y: 870, ring: 5.0, status: "done", slug: "2026-05-phaser", entry: "01-phaser.html", episodes: 1 },
+        { num: 18, label: "Exchanger", title: "Exchanger", desc: "두 스레드 사이 1:1 데이터 교환점", x: 770, y: 970, ring: 5.4, status: "done", slug: "2026-05-exchanger", entry: "01-exchanger.html", episodes: 1 }
       ]
     },
     {
@@ -70,10 +70,10 @@ const concurrency = {
       desc: "데드락부터 ThreadLocal 메모리 누수, DCL의 깨진 가정까지. 면접 단골.",
       topics: [
         { num: 19, label: "Deadlock", title: "Deadlock", desc: "4가지 필요 조건. 예방 / 회피 / 탐지의 차이", x: 490, y: 900, ring: 1.2, status: "done", slug: "2026-05-deadlock", entry: "01-deadlock의-4가지-조건.html", episodes: 3 },
-        { num: 20, label: "Livelock · Starve", title: "Livelock / Starvation", desc: "영원히 양보만 하다 끝나는 케이스, 우선순위에 밀려 굶는 스레드", x: 580, y: 1000, status: "locked" },
+        { num: 20, label: "Livelock · Starve", title: "Livelock / Starvation", desc: "영원히 양보만 하다 끝나는 케이스, 우선순위에 밀려 굶는 스레드", x: 580, y: 1000, ring: 5.8, status: "done", slug: "2026-05-livelock-starvation", entry: "01-livelock-starvation.html", episodes: 1 },
         { num: 21, label: "ThreadLocal", title: "ThreadLocal 함정", desc: "메모리 누수의 고전. 스레드풀과 만나면 더 위험", x: 120, y: 740, ring: 0.9, status: "done", slug: "2026-05-threadlocal-함정", entry: "01-threadlocal의-정체.html", episodes: 2 },
-        { num: 22, label: "Interrupted", title: "InterruptedException 처리법", desc: "삼키지 말고 복원하라. interrupt 시그널의 정체", x: 100, y: 900, status: "locked" },
-        { num: 23, label: "DCL", title: "Double-Checked Locking", desc: "volatile 없으면 깨지는 이유. 그 유명한 반쪽 초기화", x: 370, y: 970, status: "locked" }
+        { num: 22, label: "Interrupted", title: "InterruptedException 처리법", desc: "삼키지 말고 복원하라. interrupt 시그널의 정체", x: 100, y: 900, ring: 6.2, status: "done", slug: "2026-05-interruptedexception", entry: "01-처리법.html", episodes: 1 },
+        { num: 23, label: "DCL", title: "Double-Checked Locking", desc: "volatile 없으면 깨지는 이유. 그 유명한 반쪽 초기화", x: 370, y: 970, ring: 6.6, status: "done", slug: "2026-05-double-checked-locking", entry: "01-dcl.html", episodes: 1 }
       ]
     }
   ]
@@ -188,7 +188,17 @@ const seriesTitles = {
   "2026-05-timeout-설계": "Timeout 설계",
   "2026-05-rate-limiting": "Rate Limiting 알고리즘",
   "2026-05-reverse-proxy-gateway": "Reverse Proxy / API Gateway",
-  "2026-05-graceful-shutdown": "Graceful Shutdown 설계"
+  "2026-05-graceful-shutdown": "Graceful Shutdown 설계",
+  "2026-05-blockingqueue": "BlockingQueue 패밀리",
+  "2026-05-producer-consumer": "생산자 / 소비자 패턴",
+  "2026-05-countdownlatch": "CountDownLatch",
+  "2026-05-cyclicbarrier": "CyclicBarrier",
+  "2026-05-semaphore": "Semaphore",
+  "2026-05-phaser": "Phaser",
+  "2026-05-exchanger": "Exchanger",
+  "2026-05-livelock-starvation": "Livelock / Starvation",
+  "2026-05-interruptedexception": "InterruptedException 처리법",
+  "2026-05-double-checked-locking": "Double-Checked Locking"
 };
 
 const cardOnly = {

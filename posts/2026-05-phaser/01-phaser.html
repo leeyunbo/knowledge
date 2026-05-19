@@ -1,0 +1,119 @@
+---
+title: "Phaser, Latch와 Barrier의 합성"
+subtitle: "동적으로 참여자를 추가·제거할 수 있는 다단계 barrier예요. Latch+CyclicBarrier보다 유연해요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>푸는 문제</h2>
+
+<p>
+  CountDownLatch는 카운터가 고정되고 일회용이에요. CyclicBarrier는 재사용은 되지만 참여자 수가 고정이에요. 둘 다 부족한 자리가 있어요. 참여자가 실행 중에 추가·제거되는 자리, 여러 단계(phase)를 반복하면서 각 단계의 참여자가 달라지는 자리예요. 자바 7부터 들어온 <code>Phaser</code>가 이 자리를 풀어요.
+</p>
+
+<h2>기본 사용</h2>
+
+<pre><code class="language-java">Phaser phaser = new Phaser(3);  // 초기 참여자 3명
+
+for (int i = 0; i &lt; 3; i++) {
+    executor.submit(() -&gt; {
+        for (int phase = 0; phase &lt; 5; phase++) {
+            doPhaseWork(phase);
+            phaser.arriveAndAwaitAdvance();  // 도착 + 대기
+        }
+    });
+}</code></pre>
+
+<h2>주요 메소드</h2>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>register()</td><td>참여자 추가</td></tr>
+    <tr><td>arrive()</td><td>도착 신호만. 대기는 안 함.</td></tr>
+    <tr><td>arriveAndAwaitAdvance()</td><td>도착 + 다른 참여자 대기</td></tr>
+    <tr><td>arriveAndDeregister()</td><td>도착 + 참여자에서 빠짐</td></tr>
+    <tr><td>awaitAdvance(phase)</td><td>특정 phase가 끝나길 기다림</td></tr>
+    <tr><td>getPhase()</td><td>현재 phase 번호</td></tr>
+    <tr><td>getRegisteredParties()</td><td>현재 등록된 참여자 수</td></tr>
+  </tbody>
+</table>
+
+<h2>동적 참여 변경</h2>
+
+<p>
+  실행 중에 참여자를 늘리거나 줄일 수 있어요.
+</p>
+
+<pre><code class="language-java">// 참여자 추가
+phaser.register();
+
+// 한 라운드 참여 후 빠지기
+phaser.arriveAndDeregister();</code></pre>
+
+<p>
+  스레드가 자기 일을 다 끝내면 deregister로 빠져서 남은 스레드들이 다음 phase로 갈 수 있게 해요.
+</p>
+
+<h2>Phase 종료 콜백</h2>
+
+<p>
+  <code>onAdvance</code>를 오버라이드하면 각 phase가 끝날 때마다 콜백이 실행돼요.
+</p>
+
+<pre><code class="language-java">Phaser phaser = new Phaser(3) {
+    protected boolean onAdvance(int phase, int registeredParties) {
+        log.info("Phase {} done, {} parties", phase, registeredParties);
+        return phase &gt;= 5 || registeredParties == 0;  // 종료 조건
+    }
+};</code></pre>
+
+<p>
+  반환값이 true면 phaser가 종료돼요. 모든 참여자가 deregister되어 0이 되면 자동 종료예요.
+</p>
+
+<h2>Latch / Barrier / Phaser 비교</h2>
+
+<table>
+  <thead>
+    <tr><th>도구</th><th>재사용</th><th>참여자 변경</th><th>phase 콜백</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>CountDownLatch</td><td>X</td><td>X (고정 N)</td><td>X</td></tr>
+    <tr><td>CyclicBarrier</td><td>O</td><td>X (고정 N)</td><td>Runnable 1개</td></tr>
+    <tr><td>Phaser</td><td>O</td><td>O (register/deregister)</td><td>onAdvance 오버라이드</td></tr>
+  </tbody>
+</table>
+
+<h2>흔한 자리</h2>
+
+<ul>
+  <li><strong>다단계 병렬 계산</strong>: 각 단계의 참여 스레드가 달라지는 경우.</li>
+  <li><strong>워크플로우 동기화</strong>: 처음에 N명으로 시작했다 일부가 일을 끝내고 빠지는 흐름.</li>
+  <li><strong>테스트 동기화</strong>: 복잡한 시나리오에서 단계마다 다른 스레드가 참여.</li>
+</ul>
+
+<h2>흔한 실수</h2>
+
+<h3>1. arrive 후 deregister 누락</h3>
+
+<p>
+  스레드가 끝났는데 deregister를 안 하면 다음 phase가 영원히 그 스레드를 기다려요. <code>arriveAndDeregister()</code>로 마무리해요.
+</p>
+
+<h3>2. 너무 복잡한 사용</h3>
+
+<p>
+  Phaser는 강력하지만 코드가 빨리 복잡해져요. CountDownLatch나 CyclicBarrier로 충분하면 그쪽이 가독성이 좋아요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Phaser가 풀어 주는 자리?"</strong>: 참여자가 동적으로 변하는 다단계 동기화예요. Latch + Barrier로 표현하기 어려운 자리에 써요.</li>
+  <li><strong>"register / deregister?"</strong>: 실행 중에 참여자를 추가하거나 빼는 메소드예요. Phaser의 핵심 기능이에요.</li>
+  <li><strong>"언제 안 쓰는 게 좋아요?"</strong>: 단순 fan-in은 CountDownLatch, 고정 N의 라운드는 CyclicBarrier가 더 깨끗해요. Phaser는 동적 참여가 진짜 필요할 때 써요.</li>
+</ul>

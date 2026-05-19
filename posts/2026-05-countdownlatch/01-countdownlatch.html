@@ -1,0 +1,113 @@
+---
+title: "CountDownLatch, N개 끝날 때까지 대기"
+subtitle: "초기 카운터에서 0이 될 때까지 기다려요. 일회용 카운터라 재사용은 불가능해요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>푸는 문제</h2>
+
+<p>
+  "여러 작업이 모두 끝나야 다음 단계로 넘어가는" 자리예요. 5개 외부 API 호출이 모두 끝나야 결과를 합치거나, 초기화 5단계가 모두 완료돼야 서버를 시작하는 자리예요. <code>CountDownLatch</code>가 가장 단순한 도구예요.
+</p>
+
+<h2>기본 사용</h2>
+
+<pre><code class="language-java">CountDownLatch latch = new CountDownLatch(5);  // 5번 줄어들면 0
+
+for (int i = 0; i &lt; 5; i++) {
+    executor.submit(() -&gt; {
+        try {
+            doWork();
+        } finally {
+            latch.countDown();  // 카운터 -1
+        }
+    });
+}
+
+latch.await();  // 0이 될 때까지 대기
+System.out.println("모두 끝남");</code></pre>
+
+<h2>주요 메소드</h2>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>countDown()</td><td>카운터를 1 감소. 0 이하가 되면 무시.</td></tr>
+    <tr><td>await()</td><td>0이 될 때까지 대기.</td></tr>
+    <tr><td>await(t, unit)</td><td>timeout 안에서 대기. 0이면 true.</td></tr>
+    <tr><td>getCount()</td><td>현재 카운터. 디버깅·관측 용도.</td></tr>
+  </tbody>
+</table>
+
+<h2>일회용</h2>
+
+<p>
+  CountDownLatch는 한 번 0이 되면 끝이에요. 다시 N으로 리셋할 수 없어요. 재사용이 필요하면 다음 시리즈의 <code>CyclicBarrier</code>를 써요.
+</p>
+
+<h2>흔한 자리</h2>
+
+<h3>1. Fan-out / Fan-in</h3>
+
+<p>
+  여러 호출을 동시에 보내고 결과를 모아요. <code>CompletableFuture.allOf</code>로 더 깔끔하게 할 수 있지만, 동시성 라이브러리만 쓸 수 있는 환경에선 latch가 유용해요.
+</p>
+
+<h3>2. 초기화 대기</h3>
+
+<p>
+  서버 시작 시 여러 구성 요소가 초기화되길 기다려요. main 스레드가 await에서 멈추고, 각 초기화 코드가 끝날 때 countDown.
+</p>
+
+<h3>3. 테스트</h3>
+
+<p>
+  멀티스레드 테스트에서 "모든 스레드가 끝날 때까지 대기"를 표현해요. JUnit과 같이 자주 써요.
+</p>
+
+<h2>흔한 실수</h2>
+
+<h3>1. countDown을 try-finally 밖에 두기</h3>
+
+<pre><code class="language-java">// 위험
+executor.submit(() -&gt; {
+    doWork();         // 예외 시 countDown이 안 됨
+    latch.countDown();
+});
+
+// 안전
+executor.submit(() -&gt; {
+    try {
+        doWork();
+    } finally {
+        latch.countDown();
+    }
+});</code></pre>
+
+<p>
+  예외가 나면 countDown이 안 돼서 main이 영원히 await에 갇혀요. 항상 finally에 둬요.
+</p>
+
+<h3>2. 카운터 잘못 계산</h3>
+
+<p>
+  N을 잘못 잡으면 영원히 대기하거나 너무 빨리 풀려요. 작업 수와 카운터가 정확히 일치해야 해요.
+</p>
+
+<h3>3. await에 timeout 없음</h3>
+
+<p>
+  무한 await는 위험해요. 어떤 작업이 죽으면 main도 같이 멈춰요. <code>await(timeout)</code>으로 안전망을 둬요.
+</p>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"CountDownLatch와 CyclicBarrier 차이?"</strong>: Latch는 일회용. 0이 되면 끝. Barrier는 N명이 모이면 풀리고 다시 모일 수 있어요.</li>
+  <li><strong>"countDown을 어디에?"</strong>: try-finally의 finally예요. 예외가 나도 카운터가 줄어들어야 해요.</li>
+  <li><strong>"CompletableFuture와 비교?"</strong>: Future가 풍부한 API와 조합 가능. Latch는 단순하지만 결과 수집은 별도 처리가 필요해요. 새 코드는 보통 CompletableFuture가 더 깨끗해요.</li>
+</ul>

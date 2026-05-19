@@ -1,0 +1,126 @@
+---
+title: "InterruptedException, 삼키지 말고 복원하라"
+subtitle: "interrupt는 \"종료해 달라\"는 협조 요청이에요. 처리법을 모르면 graceful shutdown이 깨져요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>Interrupt의 정체</h2>
+
+<p>
+  자바의 interrupt는 스레드를 강제로 죽이는 게 아니에요. "곧 종료하면 좋겠다"는 협조 요청이에요. 스레드는 이 신호를 받아 자기 정리 후 종료할지, 무시할지 스스로 결정해요.
+</p>
+
+<p>
+  대기 중인 스레드(<code>sleep</code>, <code>wait</code>, <code>take</code> 등)는 interrupt가 오면 <code>InterruptedException</code>으로 깨어나요. 이 예외를 잡고 어떻게 처리하느냐가 graceful shutdown의 핵심이에요.
+</p>
+
+<h2>안티패턴, 삼키기</h2>
+
+<pre><code class="language-java">// 위험
+try {
+    Thread.sleep(1000);
+} catch (InterruptedException e) {
+    // 무시
+}</code></pre>
+
+<p>
+  가장 흔한 실수예요. 예외를 잡고 아무것도 안 해요. 그 결과 스레드의 interrupted 플래그가 사라져요. 상위 코드는 인터럽트가 일어났는지 모르고 평소처럼 계속 동작해요. graceful shutdown 신호가 사라진 거예요.
+</p>
+
+<h2>방법 1: 복원 (Restore)</h2>
+
+<pre><code class="language-java">try {
+    Thread.sleep(1000);
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+    // 자기 자리에서 할 수 있는 정리만 하고 계속
+}</code></pre>
+
+<p>
+  예외를 잡았지만 interrupted 플래그를 다시 켜요. 다음에 sleep·take 같은 메소드를 만나면 다시 예외가 나요. 상위 코드도 인터럽트 상태를 알아챌 수 있어요.
+</p>
+
+<p>
+  내가 인터럽트를 직접 처리할 수 없는 자리(라이브러리 함수 안 등)에서 거의 항상 이 패턴이 정답이에요.
+</p>
+
+<h2>방법 2: 던지기 (Propagate)</h2>
+
+<pre><code class="language-java">public void doWork() throws InterruptedException {
+    Thread.sleep(1000);
+    // 잡지 않고 그대로 던짐
+}</code></pre>
+
+<p>
+  내 메소드 시그니처에 <code>throws InterruptedException</code>을 명시하고, 호출자에게 넘겨요. 호출자가 자기 자리에서 적절히 처리해요. 가장 깨끗한 방법이에요.
+</p>
+
+<h2>방법 3: 의도적 종료</h2>
+
+<pre><code class="language-java">while (!Thread.currentThread().isInterrupted()) {
+    try {
+        Task t = queue.take();
+        process(t);
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+    }
+}
+cleanup();</code></pre>
+
+<p>
+  Producer/Consumer 시리즈의 종료 패턴이에요. interrupted 플래그를 루프 조건에 두고, 예외가 오면 복원 후 break.
+</p>
+
+<h2>Interrupt에 반응하지 않는 자리</h2>
+
+<p>
+  모든 블로킹이 interrupt를 받지는 않아요. 알아 둬야 할 자리예요.
+</p>
+
+<ul>
+  <li><strong>I/O 작업</strong>: <code>InputStream.read()</code>는 일반적으로 interrupt 불가. 소켓 닫기로 끊어야 해요.</li>
+  <li><strong>synchronized 진입 대기</strong>: 락을 잡으려고 대기 중이면 interrupt 불가. <code>ReentrantLock.lockInterruptibly()</code>를 쓰면 interrupt 가능.</li>
+  <li><strong>Pure CPU 작업</strong>: 계산만 하는 코드는 자동 interrupt가 안 돼요. 직접 <code>Thread.interrupted()</code>로 폴링해야 해요.</li>
+</ul>
+
+<h2>InterruptedException과 interrupted 플래그</h2>
+
+<p>
+  둘은 같은 신호의 두 표현이에요. 헷갈리지 말아요.
+</p>
+
+<table>
+  <thead>
+    <tr><th>상황</th><th>표현</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>대기 중인 스레드</td><td>InterruptedException 던져짐</td></tr>
+    <tr><td>실행 중인 스레드</td><td>interrupted 플래그가 true</td></tr>
+    <tr><td>예외를 catch하면</td><td>플래그는 자동으로 false로 클리어</td></tr>
+  </tbody>
+</table>
+
+<p>
+  예외를 잡으면 플래그가 클리어된다는 게 핵심이에요. 그래서 복원이 필요한 거예요.
+</p>
+
+<h2>실무 체크리스트</h2>
+
+<ul>
+  <li>InterruptedException을 절대 무시하지 않아요.</li>
+  <li>처리할 수 없으면 <code>Thread.currentThread().interrupt()</code>로 복원.</li>
+  <li>가능하면 메소드 시그니처에 throws로 위로 던지기.</li>
+  <li>긴 루프 안에서는 <code>Thread.currentThread().isInterrupted()</code>를 주기적으로 확인.</li>
+  <li>I/O는 interrupt 대신 자원 닫기로 끊어요.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"InterruptedException 처리법?"</strong>: 복원하거나 던져요. 절대 무시하지 않아요. 무시하면 graceful shutdown 신호가 사라져요.</li>
+  <li><strong>"왜 catch 후 복원이 필요?"</strong>: catch하면 interrupted 플래그가 자동으로 클리어돼요. 상위 코드가 인터럽트를 못 알아채요. 직접 다시 켜 줘야 신호가 살아남아요.</li>
+  <li><strong>"interrupt가 안 통하는 자리?"</strong>: synchronized 대기, 일반 I/O read는 interrupt에 반응 안 해요. ReentrantLock.lockInterruptibly()나 소켓 닫기로 우회해요.</li>
+</ul>

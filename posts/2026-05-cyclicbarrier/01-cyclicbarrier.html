@@ -1,0 +1,100 @@
+---
+title: "CyclicBarrier, N명이 모일 때까지"
+subtitle: "Latch의 재사용 버전이에요. 모이면 풀리고 다시 모일 수 있어요. 라운드별 동기화에 잘 맞아요."
+dateText: "2026.05.19"
+episode: 1
+episodes: 1
+---
+
+<h2>푸는 문제</h2>
+
+<p>
+  여러 스레드가 함께 일하는데 각 단계마다 모두 모여서 동기화돼야 해요. 시뮬레이션의 각 tick, 병렬 알고리즘의 phase 사이, 멀티 플레이어 게임의 라운드 같은 자리예요. CountDownLatch는 일회용이라 매 라운드마다 새로 만들어야 하지만, <code>CyclicBarrier</code>는 재사용돼요.
+</p>
+
+<h2>기본 사용</h2>
+
+<pre><code class="language-java">CyclicBarrier barrier = new CyclicBarrier(3,
+    () -&gt; System.out.println("라운드 종료, 다음 라운드 시작"));
+
+for (int i = 0; i &lt; 3; i++) {
+    executor.submit(() -&gt; {
+        for (int round = 0; round &lt; 5; round++) {
+            doRoundWork(round);
+            barrier.await();  // 3명 모일 때까지 대기
+        }
+    });
+}</code></pre>
+
+<p>
+  3명이 모이면 barrier action(생성자 두 번째 인자)이 실행되고, 모두 풀려요. 그 후 barrier가 자동으로 리셋돼 다음 라운드에 다시 쓸 수 있어요.
+</p>
+
+<h2>주요 메소드</h2>
+
+<table>
+  <thead>
+    <tr><th>메소드</th><th>의미</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>await()</td><td>다른 스레드들이 도착하길 기다림</td></tr>
+    <tr><td>await(t, unit)</td><td>timeout 안에서 대기</td></tr>
+    <tr><td>getNumberWaiting()</td><td>현재 대기 중인 스레드 수</td></tr>
+    <tr><td>reset()</td><td>강제 리셋. 대기 중인 스레드에 BrokenBarrierException</td></tr>
+    <tr><td>isBroken()</td><td>broken 상태인지 확인</td></tr>
+  </tbody>
+</table>
+
+<h2>Broken Barrier</h2>
+
+<p>
+  대기 중인 스레드 중 하나가 인터럽트되거나 timeout되면 barrier가 "broken" 상태가 돼요. 그 상태에선 모든 await가 <code>BrokenBarrierException</code>을 던져요. 회복하려면 <code>reset()</code>을 호출해야 해요.
+</p>
+
+<p>
+  실무에선 broken 상태를 단순한 실패로 보고 전체 작업을 중단하는 게 일반적이에요. 부분 회복은 복잡도가 높아요.
+</p>
+
+<h2>Barrier Action</h2>
+
+<p>
+  생성자에 Runnable을 주면 모든 스레드가 도착했을 때 마지막 도착한 스레드가 그 코드를 실행해요. 다음 라운드를 풀어 주기 전 공유 상태를 정리할 자리예요.
+</p>
+
+<pre><code class="language-java">int[] partialResults = new int[3];
+
+CyclicBarrier barrier = new CyclicBarrier(3, () -&gt; {
+    int sum = Arrays.stream(partialResults).sum();
+    log.info("라운드 합계: {}", sum);
+    Arrays.fill(partialResults, 0);  // 다음 라운드를 위해 리셋
+});</code></pre>
+
+<h2>Latch vs Barrier 비교</h2>
+
+<table>
+  <thead>
+    <tr><th>항목</th><th>CountDownLatch</th><th>CyclicBarrier</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>재사용</td><td>X (일회용)</td><td>O</td></tr>
+    <tr><td>누가 카운트</td><td>아무 스레드 (countDown)</td><td>참여 스레드 (await)</td></tr>
+    <tr><td>도착 액션</td><td>없음</td><td>Runnable 가능</td></tr>
+    <tr><td>대표 자리</td><td>fan-in, 초기화</td><td>병렬 알고리즘 phase, 시뮬레이션</td></tr>
+  </tbody>
+</table>
+
+<h2>흔한 자리</h2>
+
+<ul>
+  <li><strong>병렬 알고리즘의 단계 동기화</strong>: 행렬 계산을 행 단위로 나누고, 각 단계마다 결과를 합쳐 다음 단계로.</li>
+  <li><strong>시뮬레이션의 tick</strong>: 모든 엔티티가 자기 행동을 끝낸 뒤 다음 tick으로.</li>
+  <li><strong>병렬 테스트</strong>: 여러 스레드가 동시에 시작하도록 동기화 시점을 만들어요.</li>
+</ul>
+
+<h2>면접에서 자주 나오는 자리</h2>
+
+<ul>
+  <li><strong>"Latch와 Barrier 차이?"</strong>: Latch는 일회용이고 카운터가 0이 되면 풀려요. Barrier는 재사용 가능하고 N명이 모이면 풀리고 다시 모일 수 있어요.</li>
+  <li><strong>"Broken Barrier는?"</strong>: 한 스레드가 죽거나 timeout되면 barrier 전체가 broken으로 바뀌어요. 다른 스레드들이 BrokenBarrierException을 받아요.</li>
+  <li><strong>"Barrier action은 언제 실행?"</strong>: 마지막 스레드가 await에서 도착했을 때, 다른 스레드들이 풀리기 직전에요. 라운드 사이 공유 상태 정리에 좋아요.</li>
+</ul>
