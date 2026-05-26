@@ -1,0 +1,152 @@
+---
+title: "Transactional Outbox, 리디 + 29CM 글 읽고"
+subtitle: "같은 패턴을 두 회사가 다르게 구현한 글이에요. Polling Publisher의 디테일과 Spring Event 기반 흐름이 짝지어 들어왔어요."
+dateText: "2026.05.26"
+---
+
+<h2>왜 Outbox 패턴이 필요한지 다시 짚기</h2>
+
+<p>
+  도메인 변경(예: 주문 완료)과 메시지 발행(예: Kafka publish)을 한 트랜잭션으로 묶고 싶어요. 그런데 DB와 메시지 브로커는 서로 다른 자원이라 분산 트랜잭션을 쓰지 않으면 atomic이 안 돼요. 결제는 됐는데 이벤트 발행에 실패하거나, 반대로 이벤트는 나갔는데 DB가 rollback되는 자리가 생겨요.
+</p>
+
+<p>
+  Transactional Outbox는 이 문제를 우회해요. 메시지 발행 대신 같은 DB 트랜잭션 안에 <code>outbox</code> 테이블에 쓰는 거예요. DB 트랜잭션 하나로 도메인 변경과 이벤트 기록이 함께 성공하거나 함께 실패해요. 그 후 별도의 relay가 outbox를 읽어 브로커로 발행해요. 이 핵심 발상은 두 회사가 같았는데, "어떻게 relay를 만들 것인가"에서 길이 갈렸어요.
+</p>
+
+<h2>리디의 길, Polling Publisher</h2>
+
+<p>
+  리디는 <strong>Polling Publisher</strong> 방식을 골랐어요. 별도 워커가 주기적으로 outbox 테이블을 SELECT 해서 발행할 메시지를 가져와요. 단순한 발상이지만 디테일이 많아요.
+</p>
+
+<h3>중복 처리를 어떻게 막을까</h3>
+
+<p>
+  Outbox 테이블에 여러 인스턴스가 동시에 접근하면 같은 메시지를 두 번 발행할 수 있어요. 리디의 방어선이 흥미로워요.
+</p>
+
+<ul>
+  <li><strong>1차 방어선은 Redis Lock</strong>이에요. 한 시점에 한 인스턴스만 outbox에 접근하도록 막아요.</li>
+  <li><strong>2차 방어선은 MySQL Record Lock</strong>이에요. Redis Lock의 안정성 이슈(분산 락 시리즈에서 본 그 자리)에 대비해 DB 레벨에서 다시 막아요.</li>
+</ul>
+
+<p>
+  여기서 흥미로운 점은 둘 다 락이지만 역할이 달라요. Redis Lock은 <em>다른 인스턴스가 DB까지 들어와서 커넥션을 잡은 채 기다리는 걸 막는</em> 게 목적이에요. MySQL Lock은 진짜 최종 방어막이에요. 다층 방어가 멱등성 시리즈에서 본 패턴과 자연스럽게 이어졌어요.
+</p>
+
+<h3>처리된 메시지를 바로 지우면 왜 안 되나</h3>
+
+<p>
+  Outbox의 자연스러운 흐름은 "발행 성공 시 해당 row를 DELETE"예요. 그런데 리디는 별도 <code>processed_message</code> 테이블로 옮기는 패턴을 골랐어요. 이유가 좀 의외였어요.
+</p>
+
+<ul>
+  <li>새 메시지의 INSERT와 처리된 메시지의 DELETE가 같은 자리의 락을 두고 경합해요.</li>
+  <li>INSERT 락이 잡혀 있는 동안 DELETE가 lock wait으로 지연돼요.</li>
+  <li>해결책은 두 쿼리가 다루는 row 영역을 떨어뜨려 놓는 것이에요.</li>
+</ul>
+
+<p>
+  Message id가 시간 순으로 정렬되니까, 처리 완료된 메시지를 <code>processed_message</code>로 옮기면 자연스럽게 INSERT 영역과 DELETE 영역이 분리돼요. SELECT 시점에 두 테이블을 LEFT JOIN 해야 하니 조회 비용은 약간 늘지만, 삭제 경합이 사라져요. 락 경합을 푸는 발상이 인덱스나 row level lock 시리즈의 그 감각이에요.
+</p>
+
+<h2>29CM의 길, Spring Event 기반</h2>
+
+<p>
+  29CM는 Spring의 <code>@TransactionalEventListener</code>를 적극 활용해서 outbox 흐름을 조립했어요. 초기 설계와 최종 설계의 차이가 인상적이었어요.
+</p>
+
+<h3>초기 설계의 문제</h3>
+
+<pre><code class="language-java">@Transactional
+void 주문완료() {
+    completeOrder();
+    insertOutboxMessage();
+    publishKafkaEvent();  // 트랜잭션 안에서 직접 호출
+}</code></pre>
+
+<p>
+  도메인 로직 안에 outbox 쓰기와 Kafka 발행이 모두 섞여 있어요. 트랜잭션이 commit되기 전에 Kafka 발행이 일어날 수 있고, 도메인 코드가 인프라 디테일에 묶여요.
+</p>
+
+<h3>최종 설계</h3>
+
+<pre><code class="language-java">@Transactional
+void 주문완료() {
+    completeOrder();
+    publishOutboxEvent();   // 이벤트 발행만
+    publishKafkaEvent();    // 이벤트 발행만
+}
+
+@TransactionalEventListener(phase = BEFORE_COMMIT)
+void onOutboxEvent() {
+    insertOutboxMessage();
+}
+
+@Async(EVENT_ASYNC_TASK_EXECUTOR)
+@TransactionalEventListener(phase = AFTER_COMMIT)
+void onKafkaEvent() {
+    publishToKafka();
+}</code></pre>
+
+<p>
+  도메인 메소드는 이벤트 발행만 해요. 후속 처리는 모두 listener로 빠져요. BEFORE_COMMIT에서 outbox에 쓰고, AFTER_COMMIT에서 Kafka에 발행해요. 도메인 로직과 인프라 디테일이 분리됐어요. Spring의 이벤트 모델이 자연스럽게 outbox 흐름의 단계 분리를 풀어 준 자리예요.
+</p>
+
+<h3>CDC를 안 고른 이유</h3>
+
+<p>
+  Transactional Log Tailing(CDC) 방식이 또 다른 선택지였는데 29CM가 굳이 Polling 계열을 고른 이유가 솔직해요.
+</p>
+
+<ul>
+  <li>팀에 CDC 운영 경험이 없었어요.</li>
+  <li>CDC가 발행하는 메시지는 테이블 스키마에 묶여요. 스키마를 바꾸면 컨슈머가 깨져요.</li>
+  <li>마이크로서비스가 추구하는 "Publisher와 Consumer의 독립"과 어긋나요.</li>
+  <li>물론 Debezium의 Transform이나 내부/외부 메시지 모델 분리로 풀 수는 있어요. 다만 그 자체로 또 다른 운영 부담이에요.</li>
+</ul>
+
+<p>
+  "팀이 안 해 본 도구를 안 쓰는 게 맞다"는 결정이 인상적이었어요. 기술 선택은 팀의 능력과 함께 가는 것이라는 감각이에요.
+</p>
+
+<h2>Graceful Shutdown 함정</h2>
+
+<p>
+  29CM 글이 마지막에 짚은 자리도 의외로 중요했어요. Kafka 발행 도중에 K8s Pod가 죽으면 Outbox row가 "최초 상태"로 남아요. ThreadPoolTaskExecutor는 기본적으로 shutdown 시그널이 와도 진행 중인 작업을 기다리지 않거든요.
+</p>
+
+<pre><code class="language-java">executor.setWaitForTasksToCompleteOnShutdown(true);
+executor.setAwaitTerminationSeconds(10);</code></pre>
+
+<p>
+  두 옵션을 함께 줘야 안전해요. 첫 옵션만 있으면 얼마나 기다릴지 모르고, 두 옵션이 같이 있어야 "최대 10초 안에 끝나면 기다리고, 그 후엔 강제 종료"가 돼요. Graceful Shutdown 설계 시리즈에서 봤던 그 자리예요. 패턴 구현 자체보다 "이걸 어떻게 안전하게 운영할 것인가"가 핵심이라는 점이 두 글의 공통 메시지였어요.
+</p>
+
+<h2>두 글이 짝을 이루며 가르쳐 준 것</h2>
+
+<h3>1. 같은 패턴, 다른 구현</h3>
+
+<p>
+  Transactional Outbox라는 개념은 한 가지지만 구현 디테일은 회사 환경에 따라 달라요. 리디는 polling 자체의 락 경합·DELETE 비용을 풀어내는 데 집중했고, 29CM는 Spring 생태계의 추상을 활용해 도메인 분리에 집중했어요. 같은 출발점에서 다른 길로 가도 둘 다 정답이에요.
+</p>
+
+<h3>2. 다층 방어가 다시 등장</h3>
+
+<p>
+  리디의 Redis Lock + MySQL Record Lock, 29CM의 Outbox + 재시도. 한 자리가 새도 다음 자리가 잡아 주는 다층 방어가 분산 시스템의 기본 감각이라는 걸 다시 확인했어요. 멱등성 시리즈와 분산 트랜잭션 시리즈에서 본 그 패턴이 실무 회사 글에서도 그대로 보였어요.
+</p>
+
+<h3>3. 운영 디테일이 진짜 가치</h3>
+
+<p>
+  Outbox 패턴 자체는 어디서나 본 글이지만, 두 글의 가치는 패턴 설명이 아니라 운영 디테일에 있었어요. "왜 processed_message를 따로 뒀는지", "왜 BEFORE_COMMIT인지", "왜 awaitTerminationSeconds가 필수인지". 패턴 책엔 없는 자리예요. 실무 글의 진짜 의미는 늘 이런 곳에 있는 것 같아요.
+</p>
+
+<h2>참조</h2>
+
+<ul>
+  <li><a href="https://ridicorp.com/story/transactional-outbox-pattern-ridi/" target="_blank">Transactional Outbox 패턴으로 메시지 발행 보장하기 (리디)</a></li>
+  <li><a href="https://medium.com/@greg.shiny82/%ED%8A%B8%EB%9E%9C%EC%9E%AD%EC%85%94%EB%84%90-%EC%95%84%EC%9B%83%EB%B0%95%EC%8A%A4-%ED%8C%A8%ED%84%B4%EC%9D%98-%EC%8B%A4%EC%A0%9C-%EA%B5%AC%ED%98%84-%EC%82%AC%EB%A1%80-29cm-0f822fc23edb" target="_blank">트랜잭셔널 아웃박스 패턴의 실제 구현 사례 (29CM)</a></li>
+</ul>
