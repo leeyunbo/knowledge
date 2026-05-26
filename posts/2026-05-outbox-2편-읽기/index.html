@@ -28,11 +28,11 @@ dateText: "2026.05.26"
 
 <ul>
   <li><strong>1차 방어선은 Redis Lock</strong>이에요. 한 시점에 한 인스턴스만 outbox에 접근하도록 막아요.</li>
-  <li><strong>2차 방어선은 MySQL Record Lock</strong>이에요. Redis Lock의 안정성 이슈(분산 락 시리즈에서 본 그 자리)에 대비해 DB 레벨에서 다시 막아요.</li>
+  <li><strong>2차 방어선은 MySQL Record Lock</strong>이에요. Redis Lock의 안정성 이슈(<a href="../2026-05-분산-락/03-redlock-논쟁.html">분산 락 시리즈</a>에서 본 그 자리)에 대비해 DB 레벨에서 다시 막아요.</li>
 </ul>
 
 <p>
-  여기서 흥미로운 점은 둘 다 락이지만 역할이 달라요. Redis Lock은 <em>다른 인스턴스가 DB까지 들어와서 커넥션을 잡은 채 기다리는 걸 막는</em> 게 목적이에요. MySQL Lock은 진짜 최종 방어막이에요. 다층 방어가 멱등성 시리즈에서 본 패턴과 자연스럽게 이어졌어요.
+  여기서 흥미로운 점은 둘 다 락이지만 역할이 달라요. Redis Lock은 <em>다른 인스턴스가 DB까지 들어와서 커넥션을 잡은 채 기다리는 걸 막는</em> 게 목적이에요. MySQL Lock은 진짜 최종 방어막이에요. 다층 방어가 <a href="../2026-05-idempotency-patterns/02-키-기반-패턴.html">멱등성 시리즈</a>에서 본 패턴과 자연스럽게 이어졌어요.
 </p>
 
 <h3>처리된 메시지를 바로 지우면 왜 안 되나</h3>
@@ -48,7 +48,7 @@ dateText: "2026.05.26"
 </ul>
 
 <p>
-  Message id가 시간 순으로 정렬되니까, 처리 완료된 메시지를 <code>processed_message</code>로 옮기면 자연스럽게 INSERT 영역과 DELETE 영역이 분리돼요. SELECT 시점에 두 테이블을 LEFT JOIN 해야 하니 조회 비용은 약간 늘지만, 삭제 경합이 사라져요. 락 경합을 푸는 발상이 인덱스나 row level lock 시리즈의 그 감각이에요.
+  Message id가 시간 순으로 정렬되니까, 처리 완료된 메시지를 <code>processed_message</code>로 옮기면 자연스럽게 INSERT 영역과 DELETE 영역이 분리돼요. SELECT 시점에 두 테이블을 LEFT JOIN 해야 하니 조회 비용은 약간 늘지만, 삭제 경합이 사라져요. 락 경합을 푸는 발상이 <a href="../2026-05-mvcc와-잠금/02-innodb-잠금-구조.html">MVCC와 잠금 시리즈</a>의 그 감각이에요.
 </p>
 
 <h2>29CM의 길, Spring Event 기반</h2>
@@ -121,7 +121,7 @@ void onKafkaEvent() {
 executor.setAwaitTerminationSeconds(10);</code></pre>
 
 <p>
-  두 옵션을 함께 줘야 안전해요. 첫 옵션만 있으면 얼마나 기다릴지 모르고, 두 옵션이 같이 있어야 "최대 10초 안에 끝나면 기다리고, 그 후엔 강제 종료"가 돼요. Graceful Shutdown 설계 시리즈에서 봤던 그 자리예요. 패턴 구현 자체보다 "이걸 어떻게 안전하게 운영할 것인가"가 핵심이라는 점이 두 글의 공통 메시지였어요.
+  두 옵션을 함께 줘야 안전해요. 첫 옵션만 있으면 얼마나 기다릴지 모르고, 두 옵션이 같이 있어야 "최대 10초 안에 끝나면 기다리고, 그 후엔 강제 종료"가 돼요. <a href="../2026-05-graceful-shutdown/02-실무-구현.html">Graceful Shutdown 설계 시리즈</a>에서 봤던 그 자리예요. 패턴 구현 자체보다 "이걸 어떻게 안전하게 운영할 것인가"가 핵심이라는 점이 두 글의 공통 메시지였어요.
 </p>
 
 <h2>두 글이 짝을 이루며 가르쳐 준 것</h2>
@@ -135,7 +135,7 @@ executor.setAwaitTerminationSeconds(10);</code></pre>
 <h3>2. 다층 방어가 다시 등장</h3>
 
 <p>
-  리디의 Redis Lock + MySQL Record Lock, 29CM의 Outbox + 재시도. 한 자리가 새도 다음 자리가 잡아 주는 다층 방어가 분산 시스템의 기본 감각이라는 걸 다시 확인했어요. 멱등성 시리즈와 분산 트랜잭션 시리즈에서 본 그 패턴이 실무 회사 글에서도 그대로 보였어요.
+  리디의 Redis Lock + MySQL Record Lock, 29CM의 Outbox + 재시도. 한 자리가 새도 다음 자리가 잡아 주는 다층 방어가 분산 시스템의 기본 감각이라는 걸 다시 확인했어요. <a href="../2026-05-idempotency-patterns/03-쓰기-경합과-방어.html">멱등성 시리즈</a>와 <a href="../2026-05-distributed-transaction/04-outbox.html">분산 트랜잭션 시리즈</a>에서 본 그 패턴이 실무 회사 글에서도 그대로 보였어요.
 </p>
 
 <h3>3. 운영 디테일이 진짜 가치</h3>
